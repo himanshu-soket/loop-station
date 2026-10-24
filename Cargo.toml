@@ -106,6 +106,12 @@ rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", rev = "3a2ebb
 axum = "0.8"
 tower = "0.5"
 
+# System monitoring (loop-dashboard). 0.38.x is the sweet spot: it includes
+# disk I/O via Disk::usage (0.33+) and the macOS used/available memory accuracy
+# fix (0.38.3), while keeping MSRV at 1.88 like this workspace.
+sysinfo = { version = "0.38", default-features = false, features = ["system", "disk", "network", "multithread"] }
+libc = "0.2"
+
 # GPUI desktop. Pin gpui-kit: the repo was renamed from gpui-component, and
 # main dropped gpui-component-assets. Leave zed unpinned so it unifies with
 # gpui-kit's zed git dep; after version bumps run `cargo update -w` (not
