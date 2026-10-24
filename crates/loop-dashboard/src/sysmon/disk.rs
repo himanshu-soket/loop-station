@@ -9,7 +9,7 @@ use serde::Serialize;
 use sysinfo::Disks;
 
 /// One volume's capacity snapshot.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VolumeInfo {
     /// Mount path (deduplicated display key).

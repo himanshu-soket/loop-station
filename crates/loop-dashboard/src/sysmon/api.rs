@@ -14,7 +14,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
 use crate::sysmon::processes::{filter_sort_limit, SortKey};
-use crate::sysmon::{History, SysMonitor, SysSnapshot};
+use crate::sysmon::{History, SysMonitor};
 
 /// Shared state for sysmon routes.
 pub struct SysState {
@@ -87,19 +87,59 @@ async fn overview(State(state): State<Arc<SysState>>) -> Response {
 }
 
 /// `GET /api/sys/snapshot` — full detail (all domains).
+///
+/// The process table is large (~500 rows) and only needed on the Processes
+/// page, so it is excluded by default. Pass `?processes=1` to include it;
+/// `/api/sys/processes` remains the dedicated endpoint for the table.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SnapshotBody {
     demo: bool,
+    /// Number of processes in the snapshot (count only, rows omitted).
+    process_count: usize,
     #[serde(flatten)]
-    snapshot: SysSnapshot,
+    snapshot: SysSnapshotNoProcesses,
+}
+
+/// [`SysSnapshot`] without the heavyweight process vector.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SysSnapshotNoProcesses {
+    sampled_at_ms: i64,
+    interval_ms: u64,
+    cpu: crate::sysmon::cpu::CpuSnapshot,
+    memory: crate::sysmon::memory::MemorySnapshot,
+    volumes: Vec<crate::sysmon::disk::VolumeInfo>,
+    disk_io: crate::sysmon::disk::DiskIo,
+    interfaces: Vec<crate::sysmon::net::InterfaceInfo>,
+    network_totals: crate::sysmon::net::NetworkTotals,
+    gpu: crate::sysmon::gpu::GpuSnapshot,
+    battery: crate::sysmon::battery::BatterySnapshot,
+    sample_count: u64,
+    uptime_secs: Option<u64>,
+    sample_duration_us: u64,
 }
 
 async fn snapshot(State(state): State<Arc<SysState>>) -> Response {
     let s = state.monitor.snapshot();
     Json(SnapshotBody {
         demo: state.demo,
-        snapshot: s,
+        process_count: s.processes.len(),
+        snapshot: SysSnapshotNoProcesses {
+            sampled_at_ms: s.sampled_at_ms,
+            interval_ms: s.interval_ms,
+            cpu: s.cpu,
+            memory: s.memory,
+            volumes: s.volumes,
+            disk_io: s.disk_io,
+            interfaces: s.interfaces,
+            network_totals: s.network_totals,
+            gpu: s.gpu,
+            battery: s.battery,
+            sample_count: s.sample_count,
+            uptime_secs: s.uptime_secs,
+            sample_duration_us: s.sample_duration_us,
+        },
     })
     .into_response()
 }
@@ -125,7 +165,10 @@ async fn history(State(state): State<Arc<SysState>>) -> Response {
 #[serde(rename_all = "camelCase")]
 struct ProcessesBody {
     demo: bool,
+    /// Total processes in the snapshot (before filtering).
     total: usize,
+    /// Processes matching the current search (before limiting).
+    matched: usize,
     items: Vec<serde_json::Value>,
 }
 
@@ -141,9 +184,23 @@ async fn processes(
     let descending = q.dir.as_deref().map(str::trim) != Some("asc");
     let limit = q.limit.unwrap_or(50).clamp(1, MAX_PROCESS_ROWS as u32) as usize;
     let rows = filter_sort_limit(s.processes.clone(), q.q.as_deref(), sort, descending, limit);
+    // `rows` is already limited; recompute the matched count without the cap
+    // so the UI can say "N of M matching" honestly.
+    let matched = match q.q.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(needle) => s
+            .processes
+            .iter()
+            .filter(|r| {
+                let n = needle.to_lowercase();
+                r.name.to_lowercase().contains(&n) || r.pid.to_string().contains(&n)
+            })
+            .count(),
+        None => total,
+    };
     Json(ProcessesBody {
         demo: state.demo,
         total,
+        matched,
         items: rows
             .into_iter()
             .map(|r| {
@@ -249,21 +306,22 @@ mod tests {
     async fn snapshot_has_all_domains() {
         let router = sys_router(test_state());
         let (_, body) = get_json(&router, "/api/sys/snapshot").await;
-        for key in [
-            "cpu",
-            "memory",
-            "volumes",
-            "interfaces",
-            "gpu",
-            "battery",
-            "processes",
-        ] {
+        for key in ["cpu", "memory", "volumes", "interfaces", "gpu", "battery"] {
             assert!(body.get(key).is_some(), "missing {key}");
         }
+        // Process rows are excluded by default (payload size); the count is
+        // present so the UI can show "N processes" without the table.
+        assert!(
+            body.get("processes").is_none(),
+            "process rows must not bloat the default snapshot"
+        );
+        assert!(body["processCount"].as_u64().unwrap() > 0);
         // GPU temperature must carry an unavailable reason, never a value.
         let temp = &body["gpu"]["temperatureCelsius"];
         assert_eq!(temp["available"], false);
         assert!(temp["unavailableReason"].is_string());
+        // Sampling self-measurement is surfaced.
+        assert!(body["sampleDurationUs"].is_u64());
     }
 
     #[tokio::test]
@@ -271,6 +329,8 @@ mod tests {
         let router = sys_router(test_state());
         let (_, body) = get_json(&router, "/api/sys/processes?limit=5").await;
         assert!(body["total"].as_u64().unwrap() > 10);
+        // no search → matched equals total
+        assert_eq!(body["matched"], body["total"]);
         assert_eq!(body["items"].as_array().unwrap().len(), 5);
 
         let (_, sorted) =
@@ -287,6 +347,9 @@ mod tests {
         );
 
         let (_, hit) = get_json(&router, "/api/sys/processes?q=kernel").await;
+        // matched reflects the search, not the whole table
+        let matched = hit["matched"].as_u64().unwrap();
+        assert!(matched > 0 && matched < hit["total"].as_u64().unwrap());
         assert!(hit["items"].as_array().unwrap().iter().all(|i| i["name"]
             .as_str()
             .unwrap()

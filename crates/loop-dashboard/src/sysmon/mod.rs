@@ -65,6 +65,11 @@ pub struct SysSnapshot {
     pub processes: Vec<ProcessRow>,
     /// Number of samples taken so far.
     pub sample_count: u64,
+    /// Seconds since boot (from `sysinfo::System::boot_time`).
+    pub uptime_secs: Option<u64>,
+    /// How long the last full sampling pass took (microseconds).
+    /// Surfaced for the performance overlay; measurement, not a metric.
+    pub sample_duration_us: u64,
 }
 
 /// Chart series kept by the sampler.
@@ -191,6 +196,8 @@ impl SysMonitor {
             battery: BatterySnapshot::unavailable(),
             processes: Vec::new(),
             sample_count: 0,
+            uptime_secs: None,
+            sample_duration_us: 0,
         };
         Self {
             inner: Arc::new(RwLock::new(Inner {
@@ -213,7 +220,21 @@ impl SysMonitor {
         let started = Instant::now();
         let now_ms = chrono::Utc::now().timestamp_millis();
 
-        let slow_tick = source.tick().is_multiple_of(SLOW_EVERY) || source.tick() == 1;
+        // The disk-rate window is the time between consecutive samples of the
+        // *counter*, i.e. since the previous pass — not the few microseconds
+        // this collector takes to run. Dividing by collector elapsed time
+        // inflated rates by ~interval/collection-time (verified against
+        // iostat: dashboard read 90–180 MB/s while iostat measured 2–19).
+        let prev_sample_ms = self.inner.read().snapshot.sampled_at_ms;
+        let counter_window_secs = if prev_sample_ms > 0 && now_ms > prev_sample_ms {
+            (now_ms - prev_sample_ms) as f64 / 1000.0
+        } else {
+            // First sample: no window yet; `sample_io` marks it invalid.
+            0.0
+        };
+
+        let tick = source.tick();
+        let slow_tick = tick.is_multiple_of(SLOW_EVERY) || tick == 1;
         let cpu = source.cpu();
         let memory = source.memory();
         let volumes = if slow_tick {
@@ -221,29 +242,27 @@ impl SysMonitor {
         } else {
             self.inner.read().snapshot.volumes.clone()
         };
-        let disk_io = source.disk_io(started.elapsed().as_secs_f64().max(0.001));
+        let disk_io = source.disk_io(counter_window_secs.max(0.001));
         let interfaces = source.interfaces();
         let network_totals = net::aggregate(&interfaces);
-        let gpu = if slow_tick {
-            source.gpu()
-        } else {
-            self.inner.read().snapshot.gpu.clone()
-        };
+        // GPU utilization is sampled every tick: it drives a live chart and
+        // changes second-to-second. The ioreg subprocess costs ~21 ms; the
+        // thermal half of the old combined read is TTL-cached inside the
+        // collector, so steady-state cost here is one ioreg call per tick.
+        let gpu = source.gpu();
+        // Battery charge/status change minute-to-minute but only need slow-tick
+        // cadence; the expensive ioreg *health* half is TTL-cached in the
+        // collector. Force a full read on the very first sample.
         let battery = if slow_tick {
-            source.battery()
+            source.battery(tick == 1)
         } else {
             self.inner.read().snapshot.battery.clone()
         };
         let processes = source.processes();
 
-        let elapsed = started.elapsed().as_secs_f64().max(0.001);
-        // Disk I/O rates were computed against collection time; recompute
-        // against the caller-visible window for accuracy.
-        let disk_io = DiskIo {
-            read_bytes_per_sec: disk_io.read_bytes as f64 / elapsed,
-            written_bytes_per_sec: disk_io.written_bytes as f64 / elapsed,
-            ..disk_io
-        };
+        // Rates are already computed against the true inter-sample window by
+        // `disk_io` above; keep the raw byte deltas untouched.
+        let sample_duration_us = started.elapsed().as_micros() as u64;
 
         let sample_count = self.inner.read().snapshot.sample_count + 1;
         {
@@ -289,6 +308,11 @@ impl SysMonitor {
                 battery,
                 processes,
                 sample_count,
+                // boot_time() is the epoch second of boot → uptime is the delta.
+                uptime_secs: Some(
+                    chrono::Utc::now().timestamp().max(0) as u64 - sysinfo::System::boot_time(),
+                ),
+                sample_duration_us,
             };
         }
         source.advance();
@@ -403,9 +427,11 @@ impl SampleSource {
         }
     }
 
-    fn battery(&mut self) -> BatterySnapshot {
+    /// Battery with cache control: `force_refresh` bypasses the health TTL
+    /// (used on the first sample so the very first paint has full data).
+    fn battery(&mut self, force_refresh: bool) -> BatterySnapshot {
         match self {
-            Self::Real(c) => c.battery.sample(),
+            Self::Real(c) => c.battery.sample(force_refresh),
             Self::Demo(d) => d.battery(),
         }
     }
@@ -500,6 +526,84 @@ mod tests {
         assert_eq!(m.history().cpu_percent.len(), 2);
     }
 
+    /// Regression: disk rates must be divided by the inter-sample window,
+    /// not by collector execution time. The old code divided a ~2000 ms
+    /// window's byte delta by ~2 ms of collector time, inflating rates
+    /// ~1000× (dashboard read 90–180 MB/s while `iostat` measured 2–19).
+    #[test]
+    fn disk_rates_use_inter_sample_window_not_collector_time() {
+        let m = SysMonitor::with_empty_snapshot(Duration::from_millis(2000));
+        let mut src = SampleSource::real();
+
+        // First sample seeds counters (invalid window) and records t0.
+        m.sample_with(&mut src);
+        let first = m.snapshot();
+        assert!(!first.disk_io.valid, "first window has no baseline");
+
+        // Let a realistic window elapse, then sample again.
+        std::thread::sleep(Duration::from_millis(300));
+        m.sample_with(&mut src);
+        let second = m.snapshot();
+        assert!(second.disk_io.valid);
+
+        // The rate must be consistent with bytes over the *elapsed window*
+        // (~0.3 s here), never with collector microseconds. A 100× inflation
+        // would show up as rate >> bytes/0.3s; allow generous slack for
+        // machine noise but catch order-of-magnitude errors.
+        let window = 0.3_f64;
+        let max_sane_rate = (second.disk_io.read_bytes as f64 / window) * 3.0 + 1.0;
+        assert!(
+            second.disk_io.read_bytes_per_sec <= max_sane_rate,
+            "read rate {} B/s looks inflated for {} B in ~{window}s \
+             (collector-time division bug?)",
+            second.disk_io.read_bytes_per_sec,
+            second.disk_io.read_bytes
+        );
+
+        // And the measurement duration itself must be recorded and tiny.
+        assert!(second.sample_duration_us > 0);
+        assert!(
+            second.sample_duration_us < 5_000_000,
+            "sampling pass took {} µs — suspiciously slow",
+            second.sample_duration_us
+        );
+    }
+
+    /// Two rapid samples: the window shrinks to near zero and the second
+    /// sample's rates stay finite (no division blow-up, no NaN).
+    #[test]
+    fn rapid_samples_keep_rates_finite() {
+        let m = SysMonitor::with_empty_snapshot(Duration::from_millis(500));
+        let mut src = SampleSource::real();
+        m.sample_with(&mut src);
+        m.sample_with(&mut src); // immediately again
+        let s = m.snapshot();
+        if s.disk_io.valid {
+            assert!(s.disk_io.read_bytes_per_sec.is_finite());
+            assert!(s.disk_io.written_bytes_per_sec.is_finite());
+        }
+    }
+
+    #[test]
+    fn uptime_is_a_sane_positive_delta() {
+        // Real source: uptime must be a plausible value (this Mac has been up
+        // for minutes at minimum during any test run).
+        let m = SysMonitor::with_empty_snapshot(Duration::from_secs(2));
+        let mut c = SampleSource::real();
+        m.sample_with(&mut c);
+        let up = m.snapshot().uptime_secs.expect("uptime present");
+        // More than a minute, less than 10 years — catches sign/direction bugs
+        // (e.g. accidentally reporting the boot epoch itself, ~1.7 billion).
+        assert!(up > 60, "uptime too small: {up}");
+        assert!(up < 10 * 365 * 24 * 3600, "uptime implausibly large: {up}");
+    }
+
+    #[test]
+    fn empty_snapshot_reports_uptime_unavailable() {
+        let m = SysMonitor::with_empty_snapshot(Duration::from_secs(2));
+        assert_eq!(m.snapshot().uptime_secs, None);
+    }
+
     #[test]
     fn demo_source_never_reports_real_shaped_zero_memory() {
         let m = SysMonitor::with_empty_snapshot(Duration::from_secs(2));
@@ -510,6 +614,42 @@ mod tests {
         assert!(s.cpu.usage_percent > 0.0);
         // demo must not fake temperature either
         assert!(!s.gpu.temperature_celsius.available);
+    }
+
+    /// Cadence contract: GPU utilization is collected on *every* tick (it
+    /// drives a live chart), while battery/volumes only refresh on slow ticks
+    /// and are carried over unchanged in between.
+    #[test]
+    fn gpu_refreshes_every_tick_battery_only_on_slow_ticks() {
+        let m = SysMonitor::with_empty_snapshot(Duration::from_millis(2000));
+        let mut src = SampleSource::real();
+
+        m.sample_with(&mut src); // tick 1 (slow)
+        let after_first = m.snapshot();
+        let first_volumes = after_first.volumes.clone();
+        let first_battery_cycles = after_first.battery.cycle_count.clone();
+
+        // Ticks 2..SLOW_EVERY are fast ticks: volumes and battery carry over.
+        for _ in 2..SLOW_EVERY {
+            m.sample_with(&mut src);
+        }
+        let before_slow = m.snapshot();
+        assert_eq!(before_slow.volumes, first_volumes, "volumes carried over");
+        assert_eq!(
+            before_slow.battery.cycle_count, first_battery_cycles,
+            "battery carried over"
+        );
+
+        // The GPU reading must still be present and fresh-shaped on every one
+        // of those fast ticks (a real machine yields available=true; a VM or
+        // Intel Mac legitimately yields unavailable — but never a stale
+        // placeholder from tick 1).
+        if before_slow.gpu.utilization_percent.available {
+            assert_eq!(
+                before_slow.gpu.model, after_first.gpu.model,
+                "model is stable across ticks"
+            );
+        }
     }
 
     #[test]

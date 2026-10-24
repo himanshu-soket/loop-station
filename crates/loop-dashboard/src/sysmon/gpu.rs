@@ -8,9 +8,18 @@
 //! GPU **temperature** is not exposed unprivileged on current macOS; it is
 //! reported as honestly unavailable rather than estimated.
 
+use std::time::{Duration, Instant};
+
 use serde::Serialize;
 
 use super::metrics::{parse_ioreg_number_any, parse_ioreg_string, Metric};
+
+/// How long a thermal-pressure reading stays valid.
+///
+/// `pmset -g therm` reflects throttling state, which changes over minutes.
+/// Ten minutes bounds staleness well below anything a user would notice while
+/// removing the ~7.5 ms subprocess from almost every pass.
+pub const THERMAL_TTL: Duration = Duration::from_secs(600);
 
 /// GPU reading.
 #[derive(Debug, Clone, Serialize)]
@@ -176,22 +185,63 @@ fn read_thermal_pressure() -> Option<String> {
     None
 }
 
-/// One-shot GPU + thermals reader (cheap enough to sample every few seconds).
-pub struct GpuCollector;
+/// One-shot GPU + thermals reader.
+///
+/// Two independent cadences:
+/// * `sample()` reads GPU utilization from ioreg on every call (~21 ms).
+///   Utilization moves second-to-second and feeds a live chart, so it stays
+///   fresh.
+/// * Thermal pressure changes on the scale of minutes and costs an extra
+///   ~7.5 ms subprocess, so it is cached for [`THERMAL_TTL`]. A cached value
+///   is always discarded when older than the TTL — it can never be served
+///   indefinitely stale.
+pub struct GpuCollector {
+    thermal_cache: Option<(Instant, Option<String>)>,
+}
 
 impl GpuCollector {
     /// New collector.
     pub fn new() -> Self {
-        Self
+        Self {
+            thermal_cache: None,
+        }
     }
 
     /// Take a sample.
-    pub fn sample(&self) -> GpuSnapshot {
+    pub fn sample(&mut self) -> GpuSnapshot {
         let mut snap = read_gpu_via_ioreg().unwrap_or_default();
-        if let Some(pressure) = read_thermal_pressure() {
+        let pressure = match self.thermal_cache.as_ref() {
+            Some((at, cached)) if at.elapsed() < THERMAL_TTL => cached.clone(),
+            _ => {
+                let fresh = read_thermal_pressure();
+                // Cache even successful "None" reads? No — only real strings;
+                // a failed read retries next time.
+                if fresh.is_some() {
+                    self.thermal_cache = Some((Instant::now(), fresh.clone()));
+                } else {
+                    self.thermal_cache = None;
+                }
+                fresh
+            }
+        };
+        if let Some(pressure) = pressure {
             snap.thermal_pressure = Metric::ok(pressure, "", "System thermal pressure (pmset)");
         }
         snap
+    }
+
+    /// Test hook: seed the thermal cache with a back-dated entry.
+    #[cfg(test)]
+    pub(crate) fn age_thermal_cache(&mut self, older_than: Duration) {
+        if let Some((at, _)) = &mut self.thermal_cache {
+            *at = Instant::now() - older_than;
+        }
+    }
+
+    /// Test hook: whether the thermal cache currently holds an entry.
+    #[cfg(test)]
+    pub(crate) fn thermal_cached(&self) -> bool {
+        self.thermal_cache.is_some()
     }
 }
 
@@ -281,7 +331,8 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn live_gpu_read_on_this_machine() {
-        let s = GpuCollector::new().sample();
+        let mut c = GpuCollector::new();
+        let s = c.sample();
         // This machine has an AGX accelerator: utilization must be a real
         // number in range, temperature must stay unavailable.
         if s.utilization_percent.available {
@@ -289,5 +340,49 @@ mod tests {
             assert!((0.0..=100.0).contains(&v));
         }
         assert!(!s.temperature_celsius.available);
+    }
+
+    /// Thermal cache: first read populates, second reuses, expired re-reads.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn thermal_cache_hits_within_ttl_and_refreshes_after() {
+        let mut c = GpuCollector::new();
+        let first = c.sample();
+        let cached_first = c.thermal_cached();
+
+        let second = c.sample();
+        // Within TTL the same pressure string is served without a subprocess.
+        assert_eq!(first.thermal_pressure, second.thermal_pressure);
+        if first.thermal_pressure.available {
+            assert!(cached_first, "a successful read must populate the cache");
+        }
+
+        // Age the entry past the TTL → next sample performs a real re-read.
+        c.age_thermal_cache(THERMAL_TTL + Duration::from_secs(1));
+        let third = c.sample();
+        // A genuine re-read yields the same underlying state on this machine,
+        // and the cache is repopulated with a fresh timestamp.
+        assert_eq!(second.thermal_pressure, third.thermal_pressure);
+        if third.thermal_pressure.available {
+            assert!(c.thermal_cached(), "cache must be repopulated after expiry");
+        }
+    }
+
+    /// The thermal cache never serves an entry older than the TTL.
+    #[test]
+    fn thermal_cache_is_bounded() {
+        let mut c = GpuCollector::new();
+        // No reads yet → no cache → nothing stale can be served.
+        assert!(!c.thermal_cached());
+        // An aged entry is treated as absent (elapsed >= TTL ⇒ miss).
+        c.thermal_cache = Some((Instant::now() - THERMAL_TTL, None));
+        c.age_thermal_cache(THERMAL_TTL + Duration::from_secs(1));
+        // After aging, the entry is replaced or dropped — never served.
+        let _ = c.sample();
+        let holds = c.thermal_cached();
+        assert!(
+            !holds || matches!(&c.thermal_cache, Some((at, Some(_))) if at.elapsed() < THERMAL_TTL),
+            "cache must hold only fresh, successful entries"
+        );
     }
 }
