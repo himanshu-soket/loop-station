@@ -1043,20 +1043,32 @@ mod tests {
         // user @1000 → assistant @4000 (3s prompt latency)
         // toolResult @4200 → assistant @6000 (1.8s model turnaround)
         let entries = vec![
-            entry(1, r#"{"type":"message","timestamp":1000,
-                "message":{"role":"user","content":"q","timestamp":1000}}"#),
-            entry(2, r#"{"type":"message","timestamp":4000,
+            entry(
+                1,
+                r#"{"type":"message","timestamp":1000,
+                "message":{"role":"user","content":"q","timestamp":1000}}"#,
+            ),
+            entry(
+                2,
+                r#"{"type":"message","timestamp":4000,
                 "message":{"role":"assistant","model":"m","stopReason":"toolUse",
                 "usage":{"input":10,"output":5},"timestamp":4000,
-                "content":[{"type":"toolCall","id":"c1","name":"read","arguments":{}}]}}"#),
-            entry(3, r#"{"type":"message","timestamp":4200,
+                "content":[{"type":"toolCall","id":"c1","name":"read","arguments":{}}]}}"#,
+            ),
+            entry(
+                3,
+                r#"{"type":"message","timestamp":4200,
                 "message":{"role":"toolResult","toolCallId":"c1","toolName":"read",
                 "isError":false,"timestamp":4200,
-                "content":[{"type":"text","text":"ok"}]}}"#),
-            entry(4, r#"{"type":"message","timestamp":6000,
+                "content":[{"type":"text","text":"ok"}]}}"#,
+            ),
+            entry(
+                4,
+                r#"{"type":"message","timestamp":6000,
                 "message":{"role":"assistant","model":"m","stopReason":"stop",
                 "usage":{"input":20,"output":7},"timestamp":6000,
-                "content":[{"type":"text","text":"done"}]}}"#),
+                "content":[{"type":"text","text":"done"}]}}"#,
+            ),
         ];
         let turns = extract_turns("s", &entries);
         assert_eq!(turns.len(), 2);
@@ -1070,9 +1082,12 @@ mod tests {
 
     #[test]
     fn no_predecessor_yields_none_not_fabricated() {
-        let entries = vec![entry(1, r#"{"type":"message","timestamp":500,
+        let entries = vec![entry(
+            1,
+            r#"{"type":"message","timestamp":500,
             "message":{"role":"assistant","model":"m","stopReason":"stop",
-            "usage":{"input":1,"output":1},"timestamp":500,"content":[]}}"#)];
+            "usage":{"input":1,"output":1},"timestamp":500,"content":[]}}"#,
+        )];
         let turns = extract_turns("s", &entries);
         assert_eq!(turns.len(), 1);
         assert_eq!(turns[0].latency_ms, None, "must not invent latency");
@@ -1082,11 +1097,17 @@ mod tests {
     fn prefers_message_timestamp_over_entry_timestamp() {
         // entry appended in a batch at t=9000, but message created at t=2000
         let entries = vec![
-            entry(1, r#"{"type":"message","timestamp":9000,
-                "message":{"role":"user","content":"q","timestamp":1000}}"#),
-            entry(2, r#"{"type":"message","timestamp":9000,
+            entry(
+                1,
+                r#"{"type":"message","timestamp":9000,
+                "message":{"role":"user","content":"q","timestamp":1000}}"#,
+            ),
+            entry(
+                2,
+                r#"{"type":"message","timestamp":9000,
                 "message":{"role":"assistant","model":"m","stopReason":"stop",
-                "usage":{"input":1,"output":1},"timestamp":2000,"content":[]}}"#),
+                "usage":{"input":1,"output":1},"timestamp":2000,"content":[]}}"#,
+            ),
         ];
         let turns = extract_turns("s", &entries);
         assert_eq!(turns[0].latency_ms, Some(1000), "uses message timestamps");
@@ -1095,11 +1116,21 @@ mod tests {
     #[test]
     fn failed_and_incomplete_classification() {
         let mk = |stop: &str| {
-            vec![entry(1, r#"{"type":"message","timestamp":100,
-                "message":{"role":"user","content":"q","timestamp":100}}"#),
-            entry(2, &format!(r#"{{"type":"message","timestamp":200,
+            vec![
+                entry(
+                    1,
+                    r#"{"type":"message","timestamp":100,
+                "message":{"role":"user","content":"q","timestamp":100}}"#,
+                ),
+                entry(
+                    2,
+                    &format!(
+                        r#"{{"type":"message","timestamp":200,
                 "message":{{"role":"assistant","model":"m","stopReason":"{stop}",
-                "errorMessage":"boom","timestamp":200,"content":[]}}}}"#))]
+                "errorMessage":"boom","timestamp":200,"content":[]}}}}"#
+                    ),
+                ),
+            ]
         };
         let failed = extract_turns("s", &mk("error"));
         assert_eq!(failed[0].status, TurnStatus::Failed);
@@ -1114,24 +1145,36 @@ mod tests {
         // Use a realistic epoch so 24h windows are meaningful.
         let now = 1_800_000_000_000;
         let entries = vec![
-            entry(1, r#"{"type":"message","timestamp":100,
-                "message":{"role":"user","content":"q","timestamp":100}}"#),
-            entry(2, r#"{"type":"message","timestamp":200,
+            entry(
+                1,
+                r#"{"type":"message","timestamp":100,
+                "message":{"role":"user","content":"q","timestamp":100}}"#,
+            ),
+            entry(
+                2,
+                r#"{"type":"message","timestamp":200,
                 "message":{"role":"assistant","model":"old-model","stopReason":"stop",
-                "usage":{"input":1,"output":1},"timestamp":200,"content":[]}}"#),
-            entry(3, &format!(
-                r#"{{"type":"message","timestamp":{},
+                "usage":{"input":1,"output":1},"timestamp":200,"content":[]}}"#,
+            ),
+            entry(
+                3,
+                &format!(
+                    r#"{{"type":"message","timestamp":{},
                 "message":{{"role":"user","content":"q2","timestamp":{}}}}}"#,
-                now - 1000,
-                now - 1000
-            )),
-            entry(4, &format!(
-                r#"{{"type":"message","timestamp":{},
+                    now - 1000,
+                    now - 1000
+                ),
+            ),
+            entry(
+                4,
+                &format!(
+                    r#"{{"type":"message","timestamp":{},
                 "message":{{"role":"assistant","model":"new-model","stopReason":"stop",
                 "usage":{{"input":2,"output":2}},"timestamp":{},"content":[]}}}}"#,
-                now - 500,
-                now - 500
-            )),
+                    now - 500,
+                    now - 500
+                ),
+            ),
         ];
         let sessions = vec![SessionRow {
             id: "s".into(),
@@ -1206,20 +1249,35 @@ mod tests {
     #[test]
     fn timeline_renders_all_event_kinds() {
         let entries = vec![
-            entry(1, r#"{"type":"model_change","timestamp":50,"provider":"soket","modelId":"GLM-5.3"}"#),
-            entry(2, r#"{"type":"message","timestamp":100,
-                "message":{"role":"user","content":"hello","timestamp":100}}"#),
-            entry(3, r#"{"type":"message","timestamp":300,
+            entry(
+                1,
+                r#"{"type":"model_change","timestamp":50,"provider":"soket","modelId":"GLM-5.3"}"#,
+            ),
+            entry(
+                2,
+                r#"{"type":"message","timestamp":100,
+                "message":{"role":"user","content":"hello","timestamp":100}}"#,
+            ),
+            entry(
+                3,
+                r#"{"type":"message","timestamp":300,
                 "message":{"role":"assistant","model":"GLM-5.3","provider":"soket",
                 "stopReason":"toolUse","usage":{"input":5,"output":2},"timestamp":300,
                 "content":[{"type":"thinking","thinking":"hmm"},
                            {"type":"text","text":"answer"},
-                           {"type":"toolCall","id":"c1","name":"bash","arguments":{"cmd":"ls"}}]}}"#),
-            entry(4, r#"{"type":"message","timestamp":400,
+                           {"type":"toolCall","id":"c1","name":"bash","arguments":{"cmd":"ls"}}]}}"#,
+            ),
+            entry(
+                4,
+                r#"{"type":"message","timestamp":400,
                 "message":{"role":"toolResult","toolCallId":"c1","toolName":"bash",
                 "isError":true,"timestamp":400,
-                "content":[{"type":"text","text":"exit 1"}]}}"#),
-            entry(5, r#"{"type":"compaction","timestamp":500,"summary":"compacted"}"#),
+                "content":[{"type":"text","text":"exit 1"}]}}"#,
+            ),
+            entry(
+                5,
+                r#"{"type":"compaction","timestamp":500,"summary":"compacted"}"#,
+            ),
             entry(6, r#"{"type":"some_future_kind","timestamp":600}"#),
         ];
         let events = timeline(&entries);
@@ -1261,10 +1319,13 @@ mod tests {
     #[test]
     fn sensitive_content_is_truncated_server_side() {
         let secret = "S".repeat(2000);
-        let entries = vec![entry(1, &format!(
-            r#"{{"type":"message","timestamp":1,
+        let entries = vec![entry(
+            1,
+            &format!(
+                r#"{{"type":"message","timestamp":1,
                 "message":{{"role":"user","content":"{secret}","timestamp":1}}}}"#
-        ))];
+            ),
+        )];
         let events = timeline(&entries);
         match &events[0] {
             TimelineEvent::UserPrompt { preview, .. } => {
