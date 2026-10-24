@@ -6,6 +6,7 @@ members = [
     "crates/loop-mcp",
     "crates/loop-agent",
     "crates/loop-app-core",
+    "crates/loop-dashboard",
     "crates/loop-telemetry",
     "crates/loop-test-support",
     "crates/loop-cli",

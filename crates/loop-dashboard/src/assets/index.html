@@ -1,0 +1,1214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loop · trace observatory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#07090d; --bg2:#0b0e14; --panel:#10141d; --panel2:#151a25;
+  --line:#1d2433; --line2:#2a3347;
+  --ink:#e8ecf4; --ink-dim:#9aa5b8; --ink-faint:#5d687e;
+  --acc:#5ef2c0; --acc-dim:#2ea886; --acc-glow:rgba(94,242,192,.16);
+  --amber:#ffc857; --red:#ff6b81; --blue:#6fb7ff; --violet:#b48cff;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --sans:'Sora',system-ui,sans-serif;
+  --rad:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:14px;line-height:1.55;overflow-x:hidden;
+  background-image:
+    radial-gradient(1100px 500px at 85% -10%, rgba(94,242,192,.05), transparent 60%),
+    radial-gradient(900px 480px at -10% 110%, rgba(180,140,255,.04), transparent 60%);
+}
+::selection{background:rgba(94,242,192,.25)}
+a{color:var(--acc);text-decoration:none}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:9px;border:2px solid var(--bg)}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- layout ---------- */
+.app{display:flex;min-height:100vh}
+.sidebar{
+  width:232px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+  transition:width .28s cubic-bezier(.6,0,.2,1);z-index:40;overflow:hidden;
+}
+.sidebar.collapsed{width:64px}
+.brand{display:flex;align-items:center;gap:11px;padding:20px 18px 16px;border-bottom:1px solid var(--line);white-space:nowrap}
+.brand-mark{
+  width:34px;height:34px;flex-shrink:0;border-radius:10px;display:grid;place-items:center;
+  background:linear-gradient(135deg,#0f2b23,#123a2e);border:1px solid #1e5945;
+  color:var(--acc);font-family:var(--mono);font-weight:700;font-size:15px;
+  box-shadow:0 0 22px rgba(94,242,192,.14) inset;
+}
+.brand-txt{opacity:1;transition:opacity .18s}
+.sidebar.collapsed .brand-txt{opacity:0}
+.brand-name{font-weight:800;font-size:15px;letter-spacing:-.02em}
+.brand-sub{font-family:var(--mono);font-size:10px;color:var(--ink-faint);letter-spacing:.12em;text-transform:uppercase}
+.nav{padding:14px 10px;display:flex;flex-direction:column;gap:3px;flex:1}
+.nav-item{
+  display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:10px;cursor:pointer;
+  color:var(--ink-dim);font-weight:500;font-size:13.5px;white-space:nowrap;border:1px solid transparent;
+  transition:all .16s;position:relative;
+}
+.nav-item:hover{color:var(--ink);background:var(--panel)}
+.nav-item.active{color:var(--acc);background:var(--acc-glow);border-color:rgba(94,242,192,.22)}
+.nav-item svg{width:17px;height:17px;flex-shrink:0}
+.nav-label{transition:opacity .18s}
+.sidebar.collapsed .nav-label{opacity:0}
+.side-foot{padding:14px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);white-space:nowrap;overflow:hidden}
+.live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--acc);margin-right:7px;animation:pulse 2.2s infinite}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(94,242,192,.5)}50%{opacity:.55;box-shadow:0 0 0 5px rgba(94,242,192,0)}}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{
+  display:flex;align-items:center;gap:14px;padding:14px 26px;
+  border-bottom:1px solid var(--line);background:rgba(11,14,20,.82);backdrop-filter:blur(9px);
+  position:sticky;top:0;z-index:30;
+}
+.collapse-btn{
+  background:var(--panel);border:1px solid var(--line2);color:var(--ink-dim);width:32px;height:32px;
+  border-radius:9px;cursor:pointer;display:grid;place-items:center;transition:all .16s;flex-shrink:0;
+}
+.collapse-btn:hover{color:var(--ink);border-color:var(--acc-dim)}
+.page-title{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.page-sub{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-top:1px}
+.topbar-spacer{flex:1}
+.refresh-note{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint)}
+
+.content{padding:24px 26px 60px;max-width:1460px;width:100%;margin:0 auto}
+
+/* ---------- filters bar ---------- */
+.filters{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:22px;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);padding:11px 14px;
+}
+.seg{display:flex;background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:3px;gap:2px}
+.seg button{
+  background:none;border:none;color:var(--ink-dim);font-family:var(--mono);font-size:11.5px;
+  padding:5px 12px;border-radius:7px;cursor:pointer;transition:all .15s;font-weight:500;
+}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--panel2);color:var(--acc);box-shadow:0 1px 6px rgba(0,0,0,.35)}
+.select-wrap select,.search-box input{
+  background:var(--bg);border:1px solid var(--line2);color:var(--ink);border-radius:10px;
+  padding:7px 12px;font-family:var(--mono);font-size:12px;outline:none;transition:border-color .15s;
+}
+.select-wrap select:hover,.search-box input:focus{border-color:var(--acc-dim)}
+.search-box{position:relative}
+.search-box input{width:230px;padding-left:32px}
+.search-box svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--ink-faint)}
+.filter-label{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.1em;margin-right:-3px}
+
+/* ---------- KPI cards ---------- */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:13px;margin-bottom:22px}
+.kpi{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);padding:15px 16px 13px;
+  position:relative;overflow:hidden;transition:transform .2s,border-color .2s;
+  animation:rise .5s cubic-bezier(.2,.7,.3,1) backwards;
+}
+.kpi:hover{transform:translateY(-2px);border-color:var(--line2)}
+.kpi:nth-child(1){animation-delay:.02s}.kpi:nth-child(2){animation-delay:.07s}
+.kpi:nth-child(3){animation-delay:.12s}.kpi:nth-child(4){animation-delay:.17s}
+.kpi:nth-child(5){animation-delay:.22s}.kpi:nth-child(6){animation-delay:.27s}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.kpi::after{
+  content:'';position:absolute;inset:0 0 auto 0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--kcol,var(--acc)),transparent);opacity:.55;
+}
+.kpi-k{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.11em;margin-bottom:7px}
+.kpi-v{font-size:25px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi-s{font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);margin-top:5px}
+.kpi .spark-wrap{position:absolute;right:12px;bottom:12px;opacity:.85}
+
+/* ---------- panels & charts ---------- */
+.grid-2{display:grid;grid-template-columns:1.62fr 1fr;gap:15px;margin-bottom:15px}
+.panel{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+  padding:17px 18px 13px;min-width:0;
+}
+.panel-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:13px}
+.panel-t{font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+.panel-sub{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+.chart-wrap{position:relative}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:9px}
+.legend span{font-family:var(--mono);font-size:10px;color:var(--ink-dim);display:flex;align-items:center;gap:5px}
+.legend i{width:8px;height:8px;border-radius:2.5px;display:inline-block}
+.tip{
+  position:fixed;pointer-events:none;background:#161c29;border:1px solid var(--line2);border-radius:10px;
+  padding:9px 12px;font-family:var(--mono);font-size:11px;color:var(--ink);z-index:99;
+  box-shadow:0 10px 34px rgba(0,0,0,.55);opacity:0;transition:opacity .12s;max-width:280px;line-height:1.7;
+}
+.tip b{color:var(--acc)}
+.model-row{display:flex;align-items:center;gap:12px;padding:9px 2px;border-bottom:1px dashed var(--line)}
+.model-row:last-child{border-bottom:none}
+.model-name{font-family:var(--mono);font-size:12px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.model-bar-bg{flex:1;height:7px;background:var(--bg);border-radius:6px;overflow:hidden;min-width:50px}
+.model-bar{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--acc-dim),var(--acc));width:0;transition:width .8s cubic-bezier(.2,.7,.3,1)}
+.model-meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);text-align:right;white-space:nowrap}
+
+/* ---------- table ---------- */
+.table-panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);overflow:hidden}
+.table-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;min-width:900px}
+thead th{
+  font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-faint);
+  text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);background:var(--bg2);
+  cursor:pointer;user-select:none;white-space:nowrap;
+}
+thead th:hover{color:var(--ink-dim)}
+thead th.sorted{color:var(--acc)}
+tbody td{padding:11px 14px;border-bottom:1px solid var(--line);font-size:12.5px;vertical-align:middle}
+tbody tr{cursor:pointer;transition:background .13s;animation:rowin .4s backwards}
+@keyframes rowin{from{opacity:0}to{opacity:1}}
+tbody tr:hover{background:var(--panel2)}
+tbody tr:last-child td{border-bottom:none}
+.s-title{font-weight:600;color:var(--ink)}
+.s-sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-top:2px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.dim{color:var(--ink-dim)}
+.faint{color:var(--ink-faint)}
+
+.pill{
+  display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;
+  padding:3.5px 10px;border-radius:99px;border:1px solid;white-space:nowrap;font-weight:500;
+}
+.pill::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}
+.pill.ok{color:var(--acc);border-color:rgba(94,242,192,.3);background:rgba(94,242,192,.07)}
+.pill.bad{color:var(--red);border-color:rgba(255,107,129,.3);background:rgba(255,107,129,.07)}
+.pill.inc{color:var(--amber);border-color:rgba(255,200,87,.3);background:rgba(255,200,87,.07)}
+
+.tbl-foot{display:flex;align-items:center;gap:12px;padding:12px 15px;border-top:1px solid var(--line);flex-wrap:wrap}
+.tbl-count{font-family:var(--mono);font-size:11px;color:var(--ink-faint)}
+.pager{display:flex;gap:5px;margin-left:auto;align-items:center}
+.pager button{
+  background:var(--bg);border:1px solid var(--line2);color:var(--ink-dim);font-family:var(--mono);
+  font-size:11.5px;min-width:30px;height:29px;border-radius:8px;cursor:pointer;transition:all .14s;padding:0 9px;
+}
+.pager button:hover:not(:disabled){color:var(--ink);border-color:var(--acc-dim)}
+.pager button.cur{background:var(--acc-glow);color:var(--acc);border-color:rgba(94,242,192,.3)}
+.pager button:disabled{opacity:.35;cursor:default}
+
+/* ---------- detail view ---------- */
+.detail-head{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+.back{
+  background:var(--panel);border:1px solid var(--line2);color:var(--ink-dim);border-radius:10px;
+  padding:8px 14px;cursor:pointer;font-family:var(--mono);font-size:11.5px;transition:all .15s;display:flex;align-items:center;gap:7px;
+}
+.back:hover{color:var(--acc);border-color:var(--acc-dim)}
+.detail-meta{display:flex;gap:22px 30px;flex-wrap:wrap;margin:13px 0 20px;padding:14px 17px;background:var(--panel);border:1px solid var(--line);border-radius:var(--rad)}
+.dm{min-width:0}
+.dm-k{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.11em;margin-bottom:4px}
+.dm-v{font-family:var(--mono);font-size:12.5px;font-weight:500}
+.tokenbar{display:flex;height:9px;border-radius:6px;overflow:hidden;background:var(--bg);min-width:170px;margin-top:5px}
+.tokenbar i{display:block;height:100%}
+
+.timeline{position:relative;padding-left:26px}
+.timeline::before{content:'';position:absolute;left:8px;top:6px;bottom:6px;width:2px;background:linear-gradient(180deg,var(--acc-dim),var(--line2))}
+.tl-item{position:relative;margin-bottom:13px;animation:rise .45s backwards}
+.tl-item::before{
+  content:'';position:absolute;left:-24px;top:15px;width:11px;height:11px;border-radius:50%;
+  background:var(--bg);border:2.5px solid var(--ink-faint);z-index:1;
+}
+.tl-item.user::before{border-color:var(--blue)}
+.tl-item.assistant::before{border-color:var(--acc)}
+.tl-item.tool::before{border-color:var(--violet)}
+.tl-item.tool.err::before{border-color:var(--red)}
+.tl-item.fail::before{border-color:var(--red)}
+.tl-card{
+  background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 15px;transition:border-color .15s;
+}
+.tl-card:hover{border-color:var(--line2)}
+.tl-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:7px}
+.tl-kind{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:700}
+.tl-item.user .tl-kind{color:var(--blue)}
+.tl-item.assistant .tl-kind{color:var(--acc)}
+.tl-item.tool .tl-kind{color:var(--violet)}
+.tl-ts{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-left:auto;white-space:nowrap}
+.tl-body{font-size:12.5px;color:var(--ink-dim);white-space:pre-wrap;word-break:break-word}
+.tl-chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
+.chip{font-family:var(--mono);font-size:10px;padding:3px 9px;border-radius:7px;background:var(--bg);border:1px solid var(--line2);color:var(--ink-dim)}
+.chip.lat{color:var(--amber);border-color:rgba(255,200,87,.28)}
+.chip.tok{color:var(--blue);border-color:rgba(111,183,255,.28)}
+.chip.mdl{color:var(--violet);border-color:rgba(180,140,255,.28)}
+.thinking{
+  margin-top:9px;border-left:2px solid var(--line2);padding:7px 12px;background:var(--bg);
+  border-radius:0 8px 8px 0;font-family:var(--mono);font-size:11px;color:var(--ink-faint);white-space:pre-wrap;
+}
+details.think{margin-top:8px}
+details.think summary{
+  cursor:pointer;font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);list-style:none;
+  display:flex;align-items:center;gap:6px;user-select:none;
+}
+details.think summary::before{content:'▸';transition:transform .18s;display:inline-block}
+details.think[open] summary::before{transform:rotate(90deg)}
+details.think summary:hover{color:var(--ink-dim)}
+.err-box{
+  margin-top:9px;padding:9px 13px;background:rgba(255,107,129,.07);border:1px solid rgba(255,107,129,.3);
+  border-radius:9px;font-family:var(--mono);font-size:11.5px;color:var(--red);white-space:pre-wrap;
+}
+.toolcall{
+  margin-top:9px;background:var(--bg);border:1px solid var(--line2);border-radius:9px;padding:9px 12px;
+  font-family:var(--mono);font-size:11px;overflow:hidden;
+}
+.toolcall .tc-name{color:var(--violet);font-weight:700}
+.toolcall pre{margin-top:6px;color:var(--ink-dim);white-space:pre-wrap;word-break:break-word;font-size:10.5px}
+
+/* ---------- states ---------- */
+.skeleton{border-radius:var(--rad);background:linear-gradient(100deg,var(--panel) 40%,var(--panel2) 50%,var(--panel) 60%);background-size:200% 100%;animation:shimmer 1.35s infinite}
+@keyframes shimmer{to{background-position:-200% 0}}
+.sk-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:13px;margin-bottom:22px}
+.sk-kpi{height:104px}
+.sk-row{height:44px;margin-bottom:9px}
+.sk-chart{height:240px;margin-bottom:15px}
+.empty{text-align:center;padding:66px 24px;color:var(--ink-faint)}
+.empty svg{width:44px;height:44px;margin-bottom:14px;opacity:.5}
+.empty-t{font-size:15px;font-weight:600;color:var(--ink-dim);margin-bottom:6px}
+.empty-s{font-family:var(--mono);font-size:11.5px;max-width:430px;margin:0 auto;line-height:1.8}
+.error-banner{
+  display:flex;gap:13px;align-items:flex-start;background:rgba(255,107,129,.06);
+  border:1px solid rgba(255,107,129,.3);border-radius:var(--rad);padding:16px 19px;margin-bottom:20px;
+  animation:rise .3s;
+}
+.error-banner svg{width:20px;height:20px;color:var(--red);flex-shrink:0;margin-top:1px}
+.error-t{font-weight:600;color:var(--red);font-size:13px;margin-bottom:3px}
+.error-s{font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);word-break:break-word}
+.demo-banner{
+  display:flex;gap:11px;align-items:center;background:rgba(255,200,87,.06);
+  border:1px solid rgba(255,200,87,.32);border-radius:var(--rad);padding:11px 16px;margin-bottom:20px;
+  font-family:var(--mono);font-size:11.5px;color:var(--amber);
+}
+.demo-banner b{letter-spacing:.06em}
+.retry-btn{
+  background:var(--panel);border:1px solid var(--line2);color:var(--ink-dim);border-radius:8px;
+  padding:6px 14px;cursor:pointer;font-family:var(--mono);font-size:11px;margin-top:12px;transition:all .15s;
+}
+.retry-btn:hover{color:var(--acc);border-color:var(--acc-dim)}
+
+/* ---------- responsive ---------- */
+@media (max-width:1080px){
+  .grid-2{grid-template-columns:1fr}
+}
+@media (max-width:860px){
+  .sidebar{position:fixed;left:0;top:0;box-shadow:14px 0 44px rgba(0,0,0,.5)}
+  .sidebar.collapsed{width:0;border:none}
+  .content{padding:18px 15px 50px}
+  .topbar{padding:12px 15px}
+  .search-box input{width:150px}
+}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">λ</div>
+      <div class="brand-txt">
+        <div class="brand-name">loop</div>
+        <div class="brand-sub">observatory</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot">
+      <span class="live-dot"></span><span id="foot-status">read-only</span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="collapse-btn" id="collapseBtn" title="Toggle sidebar" aria-label="Toggle sidebar">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <div>
+        <div class="page-title" id="pageTitle">Overview</div>
+        <div class="page-sub" id="pageSub">—</div>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="refresh-note" id="refreshNote"></div>
+    </header>
+
+    <main class="content" id="content"></main>
+  </div>
+</div>
+
+<div class="tip" id="tooltip"></div>
+<script>
+'use strict';
+/* ============================================================
+   loop trace observatory — SPA
+   All data comes from the local read-only API. No external calls.
+   ============================================================ */
+
+const state = {
+  route: 'overview',            // overview | sessions | models | session:<id>
+  range: 'all',                 // all | 24h | 7d | 30d
+  model: 'all',
+  search: '',
+  statusFilter: 'all',
+  sort: 'lastActivity',
+  dir: 'desc',
+  page: 1,
+  perPage: 20,
+  filters: null,                // /api/filters cache
+  demo: false,
+};
+
+const $ = s => document.querySelector(s);
+const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html != null) n.innerHTML = html; return n; };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- formatting ---------- */
+const fmtInt = n => (n ?? 0).toLocaleString('en-US');
+const fmtTokens = n => {
+  n = n ?? 0;
+  if (n >= 1e6) return (n/1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n/1e3).toFixed(1) + 'k';
+  return String(n);
+};
+const fmtCost = c => c == null ? '—' : (c > 0 && c < 0.005 ? '$'+c.toFixed(4) : '$'+(c ?? 0).toFixed(2));
+const fmtMs = ms => {
+  if (ms == null) return '—';
+  if (ms < 1000) return Math.round(ms) + ' ms';
+  if (ms < 60000) return (ms/1000).toFixed(2) + ' s';
+  return Math.floor(ms/60000) + 'm ' + Math.round((ms%60000)/1000) + 's';
+};
+const fmtTime = ts => {
+  if (!ts) return '—';
+  const d = new Date(ts), now = Date.now(), diff = now - ts;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+  if (new Date(now).toDateString() === d.toDateString())
+    return d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+  if (diff < 7*86400000) return Math.floor(diff/86400000) + 'd ago';
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+};
+const fmtTimeFull = ts => ts ? new Date(ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
+
+/* ---------- api ---------- */
+async function api(path) {
+  const res = await fetch(path);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+  return body;
+}
+
+/* ---------- icons ---------- */
+const ICONS = {
+  overview: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13a9 9 0 1 0 9-9"/><path d="M3 13V4"/><path d="M13 3v10h8"/><path d="M13 13l7-7"/></svg>',
+  sessions: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3"/><path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/><path d="M3 12h18"/><path d="M8 7.5h.01M12 7.5h.01"/></svg>',
+  models: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="4.5" cy="6" r="2"/><circle cx="19.5" cy="6" r="2"/><circle cx="4.5" cy="18" r="2"/><circle cx="19.5" cy="18" r="2"/><path d="M6.2 7.2 9.6 10M17.8 7.2 14.4 10M6.2 16.8 9.6 14M17.8 16.8 14.4 14"/></svg>',
+  back: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>',
+  empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8.5 11h5"/></svg>',
+};
+
+/* ---------- navigation ---------- */
+const NAV_ITEMS = [
+  { id: 'overview', label: 'Overview', icon: ICONS.overview },
+  { id: 'sessions', label: 'Sessions', icon: ICONS.sessions },
+  { id: 'models',   label: 'Models',   icon: ICONS.models },
+];
+
+function renderNav() {
+  const nav = $('#nav');
+  nav.innerHTML = '';
+  for (const item of NAV_ITEMS) {
+    const active = state.route === item.id ||
+      (item.id === 'sessions' && state.route.startsWith('session:'));
+    const n = el('div', 'nav-item' + (active ? ' active' : ''),
+      item.icon + ('<span class="nav-label">' + item.label + '</span>'));
+    n.title = item.label;
+    n.onclick = () => go(item.id);
+    nav.appendChild(n);
+  }
+}
+
+function go(route) {
+  state.route = route;
+  state.page = 1;
+  location.hash = route;
+  renderNav();
+  render();
+  window.scrollTo(0, 0);
+}
+
+/* ---------- tooltip ---------- */
+const tip = $('#tooltip');
+function showTip(evt, html) {
+  tip.innerHTML = html;
+  tip.style.opacity = '1';
+  moveTip(evt);
+}
+function moveTip(evt) {
+  const pad = 14;
+  let x = evt.clientX + pad, y = evt.clientY + pad;
+  const r = tip.getBoundingClientRect();
+  if (x + r.width > innerWidth - 8) x = evt.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = evt.clientY - r.height - pad;
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+}
+function hideTip() { tip.style.opacity = '0'; }
+
+/* ============================================================
+   CHARTS — hand-rolled SVG, no dependencies
+   ============================================================ */
+let tipSpanCache = 0;
+
+function chartSvg(opts) {
+  const series = opts.series, height = opts.height || 235;
+  const bars = !!opts.bars, line = opts.line || null, area = opts.area !== false;
+  const W = 1000, H = height, PL = 46, PR = 14, PT = 14, PB = 26;
+  const iw = W - PL - PR, ih = H - PT - PB;
+  if (!series.length)
+    return '<div class="empty" style="padding:40px">' + ICONS.empty +
+      '<div class="empty-t">No data in range</div></div>';
+
+  const values = series.map(p => p.v);
+  const max = Math.max.apply(null, values.concat([1]));
+  const min = Math.min.apply(null, values.concat([0]));
+  const span = max - min || 1;
+  const x = i => PL + (series.length === 1 ? iw / 2 : (i / (series.length - 1)) * iw);
+  const y = v => PT + ih - ((v - min) / span) * ih;
+
+  let grid = '';
+  const steps = 4;
+  for (let i = 0; i <= steps; i++) {
+    const gy = PT + (ih / steps) * i;
+    const val = max - (span / steps) * i;
+    grid += '<line x1="' + PL + '" y1="' + gy + '" x2="' + (W - PR) + '" y2="' + gy +
+      '" stroke="#1d2433" stroke-width="1" stroke-dasharray="' + (i === steps ? '0' : '3 5') + '"/>' +
+      '<text x="' + (PL - 8) + '" y="' + (gy + 3.5) + '" text-anchor="end" fill="#5d687e" font-size="10" font-family="JetBrains Mono">' +
+      fmtAxis(val) + '</text>';
+  }
+
+  let xlabels = '';
+  const step = Math.ceil(series.length / 7);
+  series.forEach((p, i) => {
+    if (i % step !== 0 && i !== series.length - 1) return;
+    xlabels += '<text x="' + x(i) + '" y="' + (H - 7) +
+      '" text-anchor="middle" fill="#5d687e" font-size="9.5" font-family="JetBrains Mono">' +
+      fmtTick(p.t) + '</text>';
+  });
+
+  let body = '';
+  if (bars) {
+    const bw = Math.max(2, (iw / series.length) * 0.62);
+    series.forEach((p, i) => {
+      const bx = x(i) - bw / 2;
+      const by = y(p.v);
+      const bh = PT + ih - by;
+      body += '<rect x="' + bx + '" y="' + by + '" width="' + bw + '" height="' + Math.max(bh, 1) +
+        '" rx="' + Math.min(3, bw / 2) + '" fill="url(#gbar)" class="bar" data-i="' + i + '"/>';
+      if (p.v2 != null && p.v2 > 0) {
+        const fy = y(p.v2);
+        const fh = PT + ih - fy;
+        body += '<rect x="' + bx + '" y="' + fy + '" width="' + bw + '" height="' + Math.max(fh, 1) +
+          '" rx="' + Math.min(3, bw / 2) + '" fill="rgba(255,107,129,.8)" class="bar" data-i="' + i + '"/>';
+      }
+    });
+  } else if (line) {
+    const pts = series.map((p, i) => x(i) + ',' + y(p.v)).join(' ');
+    if (area) {
+      body += '<path d="M' + x(0) + ',' + (PT + ih) + ' L' + pts.split(' ').join(' L') +
+        ' L' + x(series.length - 1) + ',' + (PT + ih) +
+        ' Z" fill="url(#garea)" stroke="none"/>';
+    }
+    body += '<polyline points="' + pts + '" fill="none" stroke="' + line +
+      '" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>';
+    series.forEach((p, i) => {
+      body += '<circle cx="' + x(i) + '" cy="' + y(p.v) +
+        '" r="3" fill="#10141d" stroke="' + line + '" stroke-width="2" class="pt" data-i="' + i + '"/>';
+    });
+  }
+
+  return '<svg viewBox="0 0 ' + W + ' ' + H +
+    '" style="width:100%;height:auto;display:block" preserveAspectRatio="none">' +
+    '<defs>' +
+    '<linearGradient id="garea" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0%" stop-color="' + line + '" stop-opacity=".28"/>' +
+    '<stop offset="100%" stop-color="' + line + '" stop-opacity="0"/></linearGradient>' +
+    '<linearGradient id="gbar" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0%" stop-color="#5ef2c0" stop-opacity=".95"/>' +
+    '<stop offset="100%" stop-color="#5ef2c0" stop-opacity=".38"/></linearGradient>' +
+    '</defs>' + grid + xlabels + body + '</svg>';
+}
+
+function fmtAxis(v) {
+  if (v >= 1e6) return (v/1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return (v/1e3).toFixed(0) + 'k';
+  return v >= 100 ? String(Math.round(v)) : v.toFixed(1);
+}
+function fmtTick(t) {
+  const d = new Date(t);
+  if (tipSpanCache > 3*86400000)
+    return d.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+  return d.toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', hour12:false});
+}
+function fmtTickLong(t) {
+  return new Date(t).toLocaleString('en-US', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+}
+
+function attachChartTips(svgEl, series, fmt) {
+  if (!svgEl) return;
+  svgEl.querySelectorAll('[data-i]').forEach(node => {
+    node.addEventListener('mousemove', e => {
+      const p = series[+node.dataset.i];
+      if (p) showTip(e, fmt(p));
+    });
+    node.addEventListener('mouseleave', hideTip);
+  });
+}
+
+function sparkline(values, color) {
+  color = color || '#5ef2c0';
+  if (!values || values.length < 2) return '';
+  const W = 76, H = 26;
+  const max = Math.max.apply(null, values.concat([1]));
+  const min = Math.min.apply(null, values.concat([0]));
+  const span = max - min || 1;
+  const pts = values.map((v, i) =>
+    ((i/(values.length-1))*W) + ',' + (H - ((v-min)/span)*(H-4) - 2)).join(' ');
+  return '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H +
+    '"><polyline points="' + pts + '" fill="none" stroke="' + color +
+    '" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/></svg>';
+}
+
+/* ============================================================
+   SHARED VIEW HELPERS
+   ============================================================ */
+
+function skeletonView() {
+  $('#content').innerHTML =
+    '<div class="sk-kpis">' + '<div class="skeleton sk-kpi"></div>'.repeat(6) + '</div>' +
+    '<div class="skeleton sk-chart"></div><div class="skeleton sk-chart"></div>' +
+    '<div class="skeleton sk-row"></div>'.repeat(6);
+}
+
+function errorView(err) {
+  $('#content').innerHTML =
+    '<div class="error-banner">' + ICONS.alert +
+    '<div><div class="error-t">Could not load trace data</div>' +
+    '<div class="error-s">' + esc(err.message || String(err)) + '</div>' +
+    '<button class="retry-btn" onclick="render()">retry</button></div></div>';
+}
+
+function emptyDbView() {
+  return '<div class="empty">' + ICONS.empty +
+    '<div class="empty-t">No traces yet</div>' +
+    '<div class="empty-s">The session database exists but has no recorded entries.<br>' +
+    'Run <b>loop</b> and send a prompt — turns will appear here immediately.</div></div>';
+}
+
+function demoBanner() {
+  return '<div class="demo-banner">' + ICONS.alert.replace(/currentColor/g, '#ffc857') +
+    '<span><b>DEMO MODE</b> — showing clearly-labeled synthetic data. Real session traces are not being read.</span></div>';
+}
+
+function filtersBar(showStatus) {
+  const models = (state.filters && state.filters.models) || [];
+  const ranges = [['all','All time'],['24h','24h'],['7d','7d'],['30d','30d']];
+  let html = '<div class="filters">';
+  html += '<span class="filter-label">range</span><div class="seg" id="rangeSeg">' +
+    ranges.map(r => '<button data-r="' + r[0] + '" class="' + (state.range === r[0] ? 'on' : '') + '">' + r[1] + '</button>').join('') +
+    '</div>';
+  html += '<span class="filter-label">model</span><div class="select-wrap"><select id="modelSel">' +
+    '<option value="all">all models</option>' +
+    models.map(m => '<option value="' + esc(m) + '"' + (state.model === m ? ' selected' : '') + '>' + esc(m) + '</option>').join('') +
+    '</select></div>';
+  if (showStatus) {
+    html += '<span class="filter-label">status</span><div class="seg" id="statusSeg">' +
+      [['all','All'],['success','OK'],['failed','Fail'],['incomplete','Inc']].map(s =>
+        '<button data-s="' + s[0] + '" class="' + (state.statusFilter === s[0] ? 'on' : '') + '">' + s[1] + '</button>').join('') +
+      '</div>';
+    html += '<div class="search-box">' + ICONS.search +
+      '<input id="searchBox" type="text" placeholder="search sessions…" value="' + esc(state.search) + '"></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function bindFilters() {
+  const rs = $('#rangeSeg');
+  if (rs) rs.querySelectorAll('button').forEach(b =>
+    b.onclick = () => { state.range = b.dataset.r; state.page = 1; render(); });
+  const ms = $('#modelSel');
+  if (ms) ms.onchange = () => { state.model = ms.value; state.page = 1; render(); };
+  const ss = $('#statusSeg');
+  if (ss) ss.querySelectorAll('button').forEach(b =>
+    b.onclick = () => { state.statusFilter = b.dataset.s; state.page = 1; render(); });
+  const sb = $('#searchBox');
+  if (sb) {
+    let t;
+    sb.oninput = () => { clearTimeout(t); t = setTimeout(() => {
+      state.search = sb.value; state.page = 1; render(); }, 260); };
+  }
+}
+
+function kpiCard(label, value, sub, color, spark) {
+  return '<div class="kpi" style="--kcol:' + color + '">' +
+    '<div class="kpi-k">' + label + '</div>' +
+    '<div class="kpi-v">' + value + '</div>' +
+    '<div class="kpi-s">' + sub + '</div>' +
+    (spark ? '<div class="spark-wrap">' + spark + '</div>' : '') + '</div>';
+}
+
+function statusPill(st) {
+  if (st === 'success') return '<span class="pill ok">success</span>';
+  if (st === 'failed') return '<span class="pill bad">failed</span>';
+  return '<span class="pill inc">incomplete</span>';
+}
+
+function dm(k, vHtml) {
+  return '<div class="dm"><div class="dm-k">' + k + '</div><div class="dm-v">' + vHtml + '</div></div>';
+}
+
+async function loadFilters() {
+  if (state.filters) return;
+  try { state.filters = await api('/api/filters'); } catch (e) { state.filters = { models: [], window: {} }; }
+}
+
+/* ============================================================
+   OVERVIEW VIEW
+   ============================================================ */
+async function renderOverview() {
+  skeletonView();
+  await loadFilters();
+  const params = new URLSearchParams({ range: state.range });
+  if (state.model !== 'all') params.set('model', state.model);
+
+  let health, ov;
+  try {
+    const results = await Promise.all([api('/api/health'), api('/api/overview?' + params)]);
+    health = results[0]; ov = results[1];
+  } catch (e) { return errorView(e); }
+
+  state.demo = !!health.demo;
+  const k = ov.kpis, u = k.usage;
+  const c = $('#content');
+  $('#pageTitle').textContent = 'Overview';
+  $('#pageSub').textContent = fmtInt(k.turns) + ' turns · ' + fmtInt(k.sessions) + ' sessions · ' +
+    k.distinct_models + ' model' + (k.distinct_models === 1 ? '' : 's');
+
+  if (k.turns === 0) {
+    c.innerHTML = (state.demo ? demoBanner() : '') + filtersBar(false) + emptyDbView();
+    bindFilters();
+    return;
+  }
+
+  const latSeries = ov.series.filter(p => p.avg_latency_ms != null).map(p => p.avg_latency_ms);
+  const tokSeries = ov.series.map(p => p.tokens);
+  const volSeries = ov.series.map(p => p.turns);
+  const errRate = k.turns > 0 ? (100 * k.failed / k.turns) : 0;
+
+  c.innerHTML =
+    (state.demo ? demoBanner() : '') +
+    filtersBar(false) +
+    '<div class="kpis">' +
+      kpiCard('sessions', fmtInt(k.sessions),
+        fmtInt(k.turns) + ' turns recorded', 'var(--blue)', sparkline(volSeries, '#6fb7ff')) +
+      kpiCard('success rate', k.turns ? (100*k.successful/k.turns).toFixed(1) + '%' : '—',
+        fmtInt(k.successful) + ' ok · <span style="color:var(--red)">' + fmtInt(k.failed) + ' failed</span> · ' + fmtInt(k.incomplete) + ' inc',
+        k.failed > 0 ? 'var(--amber)' : 'var(--acc)') +
+      kpiCard('tokens', fmtTokens(u.total_or_sum()),
+        fmtTokens(u.input) + ' in · ' + fmtTokens(u.output) + ' out', 'var(--violet)', sparkline(tokSeries, '#b48cff')) +
+      kpiCard('cache read', fmtTokens(u.cache_read),
+        u.reasoning ? fmtTokens(u.reasoning) + ' reasoning' : 'no cache hits', 'var(--acc)') +
+      kpiCard('avg latency', fmtMs(k.avg_latency_ms),
+        'p50 ' + fmtMs(k.p50_latency_ms) + ' · p95 ' + fmtMs(k.p95_latency_ms),
+        'var(--amber)', sparkline(latSeries, '#ffc857')) +
+      kpiCard('est. cost', fmtCost(u.cost.total),
+        fmtInt(k.tool_calls) + ' tool calls · ' + fmtInt(k.tool_errors) + ' errors', 'var(--red)') +
+    '</div>' +
+
+    '<div class="grid-2">' +
+      '<div class="panel"><div class="panel-h"><div>' +
+        '<div class="panel-t">Trace volume &amp; errors</div>' +
+        '<div class="panel-sub">turns per bucket · red overlay = failed turns</div>' +
+      '</div></div>' +
+      '<div class="chart-wrap" id="volChart"></div>' +
+      '<div class="legend"><span><i style="background:var(--acc)"></i>turns</span>' +
+      '<span><i style="background:var(--red)"></i>failed</span></div></div>' +
+
+      '<div class="panel"><div class="panel-h"><div>' +
+        '<div class="panel-t">Token consumption</div>' +
+        '<div class="panel-sub">total tokens per bucket</div>' +
+      '</div></div>' +
+      '<div class="chart-wrap" id="tokChart"></div>' +
+      '<div class="legend"><span><i style="background:var(--violet)"></i>total</span>' +
+      '<span><i style="background:var(--blue)"></i>input</span>' +
+      '<span><i style="background:var(--acc)"></i>output</span></div></div>' +
+    '</div>' +
+
+    '<div class="grid-2">' +
+      '<div class="panel"><div class="panel-h"><div>' +
+        '<div class="panel-t">Latency trend</div>' +
+        '<div class="panel-sub">mean derived turn latency — user msg → assistant msg timestamps</div>' +
+      '</div></div>' +
+      '<div class="chart-wrap" id="latChart"></div>' +
+      '<div class="legend"><span><i style="background:var(--amber)"></i>avg latency (derived)</span></div></div>' +
+
+      '<div class="panel"><div class="panel-h"><div>' +
+        '<div class="panel-t">Model mix</div>' +
+        '<div class="panel-sub">share of total tokens</div>' +
+      '</div></div>' +
+      '<div id="modelMix"></div></div>' +
+    '</div>' +
+
+    '<div class="panel" style="margin-top:15px"><div class="panel-h"><div>' +
+      '<div class="panel-t">Error rate over time</div>' +
+      '<div class="panel-sub">failed turns per bucket · overall ' + errRate.toFixed(1) + '%</div>' +
+    '</div></div>' +
+    '<div class="chart-wrap" id="errChart"></div></div>';
+
+  bindFilters();
+
+  tipSpanCache = ov.series.length > 1 ? ov.series[ov.series.length-1].t - ov.series[0].t : 0;
+
+  const volData = ov.series.map(p => ({ t: p.t, v: p.turns, v2: p.failed }));
+  $('#volChart').innerHTML = chartSvg({ series: volData, bars: true, height: 225 });
+  attachChartTips($('#volChart'), volData, p =>
+    '<b>' + fmtTickLong(p.t) + '</b><br>turns: ' + fmtInt(p.v) + '<br>failed: ' + fmtInt(p.v2 || 0));
+
+  const tokData = ov.series.map(p => ({ t: p.t, v: p.tokens }));
+  $('#tokChart').innerHTML = chartSvg({ series: tokData, line: '#b48cff', height: 225 });
+  attachChartTips($('#tokChart'), tokData, p => {
+    const pt = ov.series.find(s => s.t === p.t);
+    return '<b>' + fmtTickLong(p.t) + '</b><br>total: ' + fmtInt(pt && pt.tokens) +
+      '<br>in: ' + fmtInt(pt && pt.input_tokens) + ' · out: ' + fmtInt(pt && pt.output_tokens) +
+      '<br>cache read: ' + fmtInt(pt && pt.cache_read_tokens);
+  });
+
+  const latData = ov.series.filter(p => p.avg_latency_ms != null)
+    .map(p => ({ t: p.t, v: p.avg_latency_ms }));
+  $('#latChart').innerHTML = chartSvg({ series: latData, line: '#ffc857', height: 225 });
+  attachChartTips($('#latChart'), latData, p =>
+    '<b>' + fmtTickLong(p.t) + '</b><br>avg latency: ' + fmtMs(p.v) +
+    '<br><span style="color:#5d687e">(derived from stored timestamps)</span>');
+
+  const errData = ov.series.map(p => ({ t: p.t, v: p.turns ? (100 * p.failed / p.turns) : 0 }));
+  $('#errChart').innerHTML = chartSvg({ series: errData, line: '#ff6b81', height: 190 });
+  attachChartTips($('#errChart'), errData, p => {
+    const pt = ov.series.find(s => s.t === p.t);
+    return '<b>' + fmtTickLong(p.t) + '</b><br>error rate: ' + p.v.toFixed(1) + '%' +
+      '<br>' + ((pt && pt.failed) || 0) + ' failed of ' + ((pt && pt.turns) || 0) + ' turns';
+  });
+
+  const mix = $('#modelMix');
+  const maxTok = Math.max.apply(null, ov.models.map(m => m.usage.total_or_sum()).concat([1]));
+  if (!ov.models.length) {
+    mix.innerHTML = '<div class="empty" style="padding:30px"><div class="empty-s">No model usage recorded</div></div>';
+  } else {
+    ov.models.forEach(m => {
+      const toks = m.usage.total_or_sum();
+      const failPct = m.turns ? (100 * m.failed / m.turns).toFixed(0) : '0';
+      const row = el('div', 'model-row');
+      row.innerHTML =
+        '<div style="min-width:0;flex-shrink:0;width:132px">' +
+          '<div class="model-name" title="' + esc(m.model) + '">' + esc(m.model) + '</div>' +
+          '<div class="model-meta" style="text-align:left">' + esc(m.providers.join(', ') || '—') + '</div>' +
+        '</div>' +
+        '<div class="model-bar-bg"><div class="model-bar" style="width:' + (100*toks/maxTok).toFixed(1) + '%"></div></div>' +
+        '<div class="model-meta" style="width:150px">' + fmtTokens(toks) + ' tok<br>' +
+          '<span style="color:' + (m.failed ? 'var(--red)' : 'var(--ink-faint)') + '">' +
+          m.turns + ' turns · ' + failPct + '% fail</span></div>';
+      mix.appendChild(row);
+    });
+  }
+
+  $('#refreshNote').textContent = 'updated ' +
+    new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+/* ============================================================
+   SESSIONS LIST VIEW
+   ============================================================ */
+async function renderSessions() {
+  skeletonView();
+  await loadFilters();
+  const params = new URLSearchParams({
+    range: state.range, q: state.search, status: state.statusFilter,
+    sort: state.sort, dir: state.dir,
+    page: String(state.page), per_page: String(state.perPage),
+  });
+  if (state.model !== 'all') params.set('model', state.model);
+
+  let body, health;
+  try {
+    const results = await Promise.all([api('/api/sessions?' + params), api('/api/health')]);
+    body = results[0]; health = results[1];
+  } catch (e) { return errorView(e); }
+  state.demo = !!health.demo;
+
+  $('#pageTitle').textContent = 'Sessions';
+  $('#pageSub').textContent = fmtInt(body.total) + ' session' + (body.total === 1 ? '' : 's') + ' match filters';
+
+  const c = $('#content');
+  if (body.total === 0) {
+    c.innerHTML = (state.demo ? demoBanner() : '') + filtersBar(true) +
+      '<div class="empty">' + ICONS.empty +
+      '<div class="empty-t">No matching sessions</div>' +
+      '<div class="empty-s">Adjust the range, model or status filters,<br>or clear the search box.</div></div>';
+    bindFilters();
+    return;
+  }
+
+  const cols = [
+    ['title', 'Session'],
+    ['status', 'Status'],
+    ['turns', 'Turns'],
+    ['tokens', 'Tokens'],
+    ['latency', 'Avg latency'],
+    ['tools', 'Tools'],
+    ['models', 'Models'],
+    ['lastActivity', 'Last activity'],
+  ];
+
+  c.innerHTML =
+    (state.demo ? demoBanner() : '') +
+    filtersBar(true) +
+    '<div class="table-panel"><div class="table-scroll"><table><thead><tr>' +
+    cols.map(col => {
+      const id = col[0], label = col[1];
+      const sortable = ['lastActivity','created','turns','tokens','latency','title'].includes(id);
+      const sorted = state.sort === id;
+      return '<th' + (sortable ? ' data-sort="' + id + '"' : '') + ' class="' + (sorted ? 'sorted' : '') +
+        '">' + label + (sorted ? (state.dir === 'asc' ? ' ↑' : ' ↓') : '') + '</th>';
+    }).join('') +
+    '</tr></thead><tbody id="tbody"></tbody></table></div>' +
+    '<div class="tbl-foot">' +
+      '<span class="tbl-count">showing ' + ((body.page-1)*body.per_page+1) + '–' +
+        Math.min(body.page*body.per_page, body.total) + ' of ' + fmtInt(body.total) + '</span>' +
+      '<div class="pager" id="pager"></div>' +
+    '</div></div>';
+
+  bindFilters();
+
+  c.querySelectorAll('th[data-sort]').forEach(th => th.onclick = () => {
+    const key = th.dataset.sort;
+    if (state.sort === key) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+    else { state.sort = key; state.dir = key === 'title' ? 'asc' : 'desc'; }
+    render();
+  });
+
+  const tb = $('#tbody');
+  body.items.forEach((s, i) => {
+    const tr = el('tr');
+    tr.style.animationDelay = (i * 0.028) + 's';
+    tr.innerHTML =
+      '<td><div class="s-title">' + esc(s.title) + '</div>' +
+      '<div class="s-sub mono">' + esc(s.cwd || '') + '</div></td>' +
+      '<td>' + statusPill(s.status) + '</td>' +
+      '<td class="mono dim">' + fmtInt(s.turns) +
+        (s.failed ? ' <span style="color:var(--red)">(' + s.failed + '✗)</span>' : '') + '</td>' +
+      '<td class="mono dim">' + fmtTokens(s.usage.total_or_sum()) + '</td>' +
+      '<td class="mono dim">' + fmtMs(s.avg_latency_ms) + '</td>' +
+      '<td class="mono dim">' + fmtInt(s.tool_calls) +
+        (s.tool_errors ? ' <span style="color:var(--red)">' + s.tool_errors + '✗</span>' : '') + '</td>' +
+      '<td class="mono faint" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+        esc(s.models.join(', ') || '—') + '</td>' +
+      '<td class="mono faint">' + fmtTime(s.last_activity) + '</td>';
+    tr.onclick = () => go('session:' + s.id);
+    tr.onmouseenter = e => showTip(e,
+      '<b>' + esc(s.title) + '</b><br>' + s.turns + ' turns · ' +
+      fmtTokens(s.usage.total_or_sum()) + ' tokens<br>' +
+      fmtTokens(s.usage.input) + ' in / ' + fmtTokens(s.usage.output) + ' out<br>cost ' +
+      fmtCost(s.usage.cost.total));
+    tr.onmouseleave = hideTip;
+    tb.appendChild(tr);
+  });
+
+  const pg = $('#pager');
+  const mk = (label, page, opts) => {
+    opts = opts || {};
+    const b = el('button', opts.cls || '', label);
+    b.disabled = !!opts.disabled;
+    b.onclick = () => { state.page = page; render(); window.scrollTo({top:0, behavior:'smooth'}); };
+    pg.appendChild(b);
+  };
+  mk('‹', body.page - 1, { disabled: body.page <= 1 });
+  const win = 2;
+  for (let p = 1; p <= body.pages; p++) {
+    if (p !== 1 && p !== body.pages && Math.abs(p - body.page) > win) {
+      if (p === 2 || p === body.pages - 1) pg.appendChild(el('span', 'faint mono', '…'));
+      continue;
+    }
+    mk(String(p), p, { cls: p === body.page ? 'cur' : '' });
+  }
+  mk('›', body.page + 1, { disabled: body.page >= body.pages });
+}
+
+/* ============================================================
+   SESSION DETAIL VIEW
+   ============================================================ */
+async function renderSessionDetail(id) {
+  skeletonView();
+  let d, health;
+  try {
+    const results = await Promise.all([
+      api('/api/sessions/' + encodeURIComponent(id)),
+      api('/api/health'),
+    ]);
+    d = results[0]; health = results[1];
+  } catch (e) { return errorView(e); }
+  state.demo = !!health.demo;
+
+  const s = d.summary, u = s.usage;
+  $('#pageTitle').textContent = d.title;
+  $('#pageSub').textContent = fmtInt(s.turns) + ' turns · ' + fmtTokens(u.total_or_sum()) + ' tokens';
+
+  const inT = u.prompt_tokens(), outT = u.output;
+  const totT = Math.max(inT + outT, 1);
+
+  const c = $('#content');
+  c.innerHTML =
+    (state.demo ? demoBanner() : '') +
+    '<div class="detail-head"><button class="back" id="backBtn">' + ICONS.back + ' all sessions</button></div>' +
+    '<div><div style="font-size:19px;font-weight:600;letter-spacing:-.01em">' + esc(d.title) + '</div>' +
+    '<div class="s-sub mono" style="margin-top:4px">' + esc(d.cwd || '') + ' · ' + esc(d.id) + '</div></div>' +
+
+    '<div class="detail-meta">' +
+      dm('status', statusPill(s.status)) +
+      dm('created', '<span class="mono">' + fmtTimeFull(d.created_at) + '</span>') +
+      dm('last activity', '<span class="mono">' + fmtTimeFull(d.last_activity) + '</span>') +
+      dm('turns', '<span class="mono">' + fmtInt(s.turns) +
+        ' <span class="faint">(' + fmtInt(s.user_messages) + ' prompts)</span></span>') +
+      dm('tool calls', '<span class="mono">' + fmtInt(s.tool_calls) +
+        ' <span class="faint">' + (s.tool_errors
+          ? '· <span style="color:var(--red)">' + s.tool_errors + ' failed</span>'
+          : '· none failed') + '</span></span>') +
+      dm('avg latency', '<span class="mono">' + fmtMs(s.avg_latency_ms) +
+        '</span> <span class="faint mono" style="font-size:9.5px">(derived)</span>') +
+      dm('tokens', '<span class="mono">' + fmtTokens(u.total_or_sum()) + ' total</span>' +
+        '<div class="tokenbar">' +
+        '<i style="width:' + (100*inT/totT).toFixed(1) + '%;background:var(--blue)" title="input ' + fmtTokens(inT) + '"></i>' +
+        '<i style="width:' + (100*outT/totT).toFixed(1) + '%;background:var(--acc)" title="output ' + fmtTokens(outT) + '"></i>' +
+        '</div>') +
+      dm('cost', '<span class="mono">' + fmtCost(u.cost.total) + '</span>') +
+      dm('models', s.models.length
+        ? s.models.map(m => '<span class="chip mdl">' + esc(m) + '</span>').join(' ')
+        : '<span class="faint mono">—</span>') +
+    '</div>' +
+
+    '<div class="panel"><div class="panel-h"><div>' +
+      '<div class="panel-t">Execution timeline</div>' +
+      '<div class="panel-sub">stored entries in sequence order · latency is derived from adjacent message timestamps</div>' +
+    '</div></div>' +
+    '<div class="timeline" id="timeline"></div></div>';
+
+  $('#backBtn').onclick = () => go('sessions');
+
+  const tl = $('#timeline');
+  if (!d.timeline.length) {
+    tl.innerHTML = '<div class="empty" style="padding:34px"><div class="empty-s">This session has no recorded entries.</div></div>';
+    return;
+  }
+
+  d.timeline.forEach((ev, i) => {
+    const item = el('div', 'tl-item');
+    item.style.animationDelay = Math.min(i * 0.05, 0.6) + 's';
+
+    if (ev.kind === 'userPrompt') {
+      item.classList.add('user');
+      item.innerHTML =
+        '<div class="tl-card"><div class="tl-head">' +
+        '<span class="tl-kind">user prompt</span>' +
+        '<span class="tl-ts">' + fmtTime(ev.at) + '</span></div>' +
+        '<div class="tl-body">' + esc(ev.preview || '(empty prompt)') + '</div></div>';
+
+    } else if (ev.kind === 'assistantTurn') {
+      item.classList.add('assistant', ev.status === 'failed' ? 'fail' : '');
+      const chips = [];
+      if (ev.model) chips.push('<span class="chip mdl">' + esc(ev.model) + '</span>');
+      if (ev.provider) chips.push('<span class="chip">' + esc(ev.provider) + '</span>');
+      if (ev.latency_ms != null)
+        chips.push('<span class="chip lat" title="derived: user msg → assistant msg timestamps">' +
+          fmtMs(ev.latency_ms) + ' ⌁derived</span>');
+      const uu = ev.usage;
+      if (uu.total_or_sum() > 0)
+        chips.push('<span class="chip tok">' + fmtTokens(uu.input) + '→' + fmtTokens(uu.output) + ' tok</span>');
+      chips.push('<span class="chip">' + esc(ev.stop) + '</span>');
+
+      item.innerHTML =
+        '<div class="tl-card"><div class="tl-head">' +
+        '<span class="tl-kind">assistant turn</span>' +
+        '<span class="tl-ts">' + fmtTime(ev.at) + '</span></div>' +
+        ev.text.map(t => '<div class="tl-body">' + esc(t) + '</div>').join('') +
+        (ev.thinking.length
+          ? '<details class="think"><summary>thinking · ' + ev.thinking.length +
+            ' block' + (ev.thinking.length > 1 ? 's' : '') + '</summary>' +
+            ev.thinking.map(t => '<div class="thinking">' + esc(t) + '</div>').join('') + '</details>'
+          : '') +
+        ev.toolCalls.map(tc =>
+          '<div class="toolcall"><span class="tc-name">⟐ ' + esc(tc.name || 'tool') + '</span>' +
+          (tc.id ? '<span class="faint"> · ' + esc(tc.id) + '</span>' : '') +
+          (tc.arguments ? '<pre>' + esc(tc.arguments) + '</pre>' : '') + '</div>').join('') +
+        (ev.error ? '<div class="err-box">' + esc(ev.error) + '</div>' : '') +
+        '<div class="tl-chips">' + chips.join('') + '</div></div>';
+
+    } else if (ev.kind === 'toolResult') {
+      item.classList.add('tool', ev.isError ? 'err' : '');
+      item.innerHTML =
+        '<div class="tl-card"><div class="tl-head">' +
+        '<span class="tl-kind">tool ' + (ev.isError ? '· error' : 'result') + '</span>' +
+        '<span class="mono" style="font-size:11px;color:var(--violet)">' + esc(ev.tool || 'unknown') + '</span>' +
+        '<span class="tl-ts">' + fmtTime(ev.at) + '</span></div>' +
+        '<div class="tl-body">' + esc(ev.preview || '(no output)') + '</div></div>';
+
+    } else if (ev.kind === 'modelChange') {
+      item.classList.add('tool');
+      item.innerHTML =
+        '<div class="tl-card"><div class="tl-head">' +
+        '<span class="tl-kind">model changed</span>' +
+        '<span class="chip mdl">' + esc(ev.model || '?') + '</span>' +
+        (ev.provider ? '<span class="chip">' + esc(ev.provider) + '</span>' : '') +
+        '<span class="tl-ts">' + fmtTime(ev.at) + '</span></div></div>';
+
+    } else if (ev.kind === 'compaction') {
+      item.classList.add('tool');
+      item.innerHTML =
+        '<div class="tl-card"><div class="tl-head">' +
+        '<span class="tl-kind">context compaction</span>' +
+        '<span class="tl-ts">' + fmtTime(ev.at) + '</span></div>' +
+        (ev.preview ? '<div class="tl-body">' + esc(ev.preview) + '</div>' : '') + '</div>';
+
+    } else {
+      item.innerHTML =
+        '<div class="tl-card"><div class="tl-head">' +
+        '<span class="tl-kind">' + esc(ev.kind || 'event') + '</span>' +
+        '<span class="tl-ts">' + fmtTime(ev.at) + '</span></div></div>';
+    }
+    tl.appendChild(item);
+  });
+}
+
+/* ============================================================
+   MODELS VIEW
+   ============================================================ */
+async function renderModels() {
+  skeletonView();
+  await loadFilters();
+  const params = new URLSearchParams({ range: state.range });
+  if (state.model !== 'all') params.set('model', state.model);
+
+  let ov, health;
+  try {
+    const results = await Promise.all([api('/api/overview?' + params), api('/api/health')]);
+    ov = results[0]; health = results[1];
+  } catch (e) { return errorView(e); }
+  state.demo = !!health.demo;
+
+  $('#pageTitle').textContent = 'Models';
+  $('#pageSub').textContent = ov.models.length + ' model' + (ov.models.length === 1 ? '' : 's') + ' seen in range';
+
+  const c = $('#content');
+  if (!ov.models.length) {
+    c.innerHTML = (state.demo ? demoBanner() : '') + filtersBar(false) + emptyDbView();
+    bindFilters();
+    return;
+  }
+
+  const maxTok = Math.max.apply(null, ov.models.map(m => m.usage.total_or_sum()).concat([1]));
+  const rowsHtml = ov.models.map((m, i) => {
+    const toks = m.usage.total_or_sum();
+    const failPct = m.turns ? (100 * m.failed / m.turns) : 0;
+    return '<div class="model-row" style="animation:rise .45s ' + (i*0.06) + 's backwards;padding:13px 2px">' +
+      '<div style="min-width:0;flex-shrink:0;width:160px">' +
+        '<div class="model-name" style="font-size:13px" title="' + esc(m.model) + '">' + esc(m.model) + '</div>' +
+        '<div class="model-meta" style="text-align:left">' + esc(m.providers.join(', ') || '—') + '</div>' +
+      '</div>' +
+      '<div class="model-bar-bg" style="height:9px">' +
+        '<div class="model-bar" style="width:' + (100*toks/maxTok).toFixed(1) + '%"></div></div>' +
+      '<div class="model-meta" style="width:210px">' +
+        fmtTokens(toks) + ' tok · ' + fmtCost(m.usage.cost.total) + '<br>' +
+        '<span style="color:' + (m.failed ? 'var(--red)' : 'var(--ink-faint)') + '">' +
+        m.turns + ' turns · ' + failPct.toFixed(0) + '% fail · ' + fmtMs(m.avg_latency_ms) + ' avg</span>' +
+      '</div></div>';
+  }).join('');
+
+  c.innerHTML =
+    (state.demo ? demoBanner() : '') +
+    filtersBar(false) +
+    '<div class="panel">' +
+      '<div class="panel-h"><div>' +
+        '<div class="panel-t">Model performance</div>' +
+        '<div class="panel-sub">tokens, cost, turns, failure rate and derived latency per model</div>' +
+      '</div></div>' +
+      rowsHtml +
+    '</div>';
+
+  bindFilters();
+  $('#refreshNote').textContent = 'updated ' +
+    new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+}
+
+/* ============================================================
+   ROUTER & BOOT
+   ============================================================ */
+async function render() {
+  hideTip();
+  const route = state.route;
+  if (route.startsWith('session:')) {
+    await renderSessionDetail(route.slice('session:'.length));
+  } else if (route === 'sessions') {
+    await renderSessions();
+  } else if (route === 'models') {
+    await renderModels();
+  } else {
+    await renderOverview();
+  }
+}
+
+function boot() {
+  // sidebar collapse (persisted)
+  const collapsed = localStorage.getItem('loop-dash-collapsed') === '1';
+  const sidebar = $('#sidebar');
+  if (collapsed) sidebar.classList.add('collapsed');
+  $('#collapseBtn').onclick = () => {
+    sidebar.classList.toggle('collapsed');
+    localStorage.setItem('loop-dash-collapsed',
+      sidebar.classList.contains('collapsed') ? '1' : '0');
+  };
+
+  // hash routing
+  const applyHash = () => {
+    const h = decodeURIComponent(location.hash.replace(/^#/, '')) || 'overview';
+    if (h !== state.route) {
+      state.route = h;
+      state.page = 1;
+    }
+    renderNav();
+    render();
+  };
+  window.addEventListener('hashchange', applyHash);
+  applyHash();
+
+  // keyboard shortcut: "/" focuses search on sessions view
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) {
+      const sb = $('#searchBox');
+      if (sb) { e.preventDefault(); sb.focus(); }
+    }
+  });
+
+  // auto-refresh overview every 30s when tab visible
+  setInterval(() => {
+    if (document.visibilityState === 'visible' &&
+        (state.route === 'overview' || state.route === 'models')) {
+      render();
+    }
+  }, 30000);
+}
+
+boot();
+</script>
+</body>
+</html>
