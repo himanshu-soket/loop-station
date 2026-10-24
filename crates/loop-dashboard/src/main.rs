@@ -9,6 +9,7 @@ mod api;
 mod demo;
 mod payload;
 mod store;
+mod sysmon;
 mod web;
 
 use std::net::{IpAddr, SocketAddr};
@@ -40,6 +41,14 @@ struct Cli {
     #[arg(long)]
     demo: bool,
 
+    /// System-monitor sampling interval in milliseconds (500–60000).
+    #[arg(long, default_value_t = 2000)]
+    sys_interval_ms: u64,
+
+    /// Serve clearly-labeled synthetic system metrics instead of real ones.
+    #[arg(long)]
+    sys_demo: bool,
+
     /// Allow binding a non-loopback address (not recommended).
     #[arg(long)]
     allow_lan: bool,
@@ -57,18 +66,43 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let addr = SocketAddr::new(cli.host, cli.port);
-    let app = api::build_app(cli.demo, cli.db.as_deref().map(|p| p.to_path_buf()))?;
+    let interval = std::time::Duration::from_millis(cli.sys_interval_ms.clamp(500, 60_000));
+    let (app, monitor) = api::build_app(api::AppOptions {
+        demo: cli.demo,
+        db: cli.db.as_deref().map(|p| p.to_path_buf()),
+        sys_demo: cli.sys_demo,
+        sys_interval: interval,
+    })?;
+
+    // System-monitor sampling loop: real or clearly-labeled synthetic data.
+    tokio::spawn(sysmon::run_sampler(monitor, cli.sys_demo, interval));
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     println!(
         "loop-dashboard {} → http://{addr}",
-        if cli.demo { "[DEMO DATA]" } else { "" }
+        if cli.demo || cli.sys_demo {
+            "[DEMO DATA]"
+        } else {
+            ""
+        }
     );
-    if cli.demo {
-        println!("  mode: DEMO (synthetic data, clearly labeled in the UI)");
-    } else {
-        println!("  mode: read-only, localhost-bound");
-    }
+    println!(
+        "  traces : http://{addr}/  ({})",
+        if cli.demo {
+            "DEMO"
+        } else {
+            "read-only, localhost-bound"
+        }
+    );
+    println!(
+        "  system : http://{addr}/system  ({})",
+        if cli.sys_demo {
+            "DEMO — synthetic metrics"
+        } else {
+            "live local metrics"
+        }
+    );
+    println!("  sampling every {}ms", interval.as_millis());
     axum::serve(listener, app).await?;
     Ok(())
 }

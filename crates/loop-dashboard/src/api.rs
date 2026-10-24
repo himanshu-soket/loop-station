@@ -19,7 +19,20 @@ use crate::analytics::{
 use crate::demo::DemoStore;
 use crate::payload::EntryPayload;
 use crate::store::{EntryRow, RawEntry, SessionRow, StoreError, TraceStore};
+use crate::sysmon::SysMonitor;
 use crate::web::web_router;
+
+/// Options for building the full application.
+pub struct AppOptions {
+    /// Serve synthetic traces (demo mode).
+    pub demo: bool,
+    /// Explicit sessions database path.
+    pub db: Option<std::path::PathBuf>,
+    /// Serve synthetic system metrics.
+    pub sys_demo: bool,
+    /// System-monitor sampling interval.
+    pub sys_interval: std::time::Duration,
+}
 
 /// Unified data source: the real SQLite store or the clearly-labeled demo set.
 pub enum Source {
@@ -47,34 +60,21 @@ impl Source {
     fn is_demo(&self) -> bool {
         matches!(self, Self::Demo(_))
     }
+}
 
-    fn load_snapshot(&self) -> Result<(Vec<SessionRow>, Vec<EntryRow>), StoreError> {
-        match self {
-            Self::Real(store) => {
-                let sessions = store.list_sessions()?;
-                let raw = store.list_all_entries()?;
-                Ok((sessions, parse_raw(raw)))
-            }
-            Self::Demo(demo) => {
-                let sessions = demo.list_sessions()?;
-                let raw = demo.list_all_entries()?;
-                Ok((sessions, parse_raw(raw)))
-            }
+fn load_snapshot(source: Option<&Source>) -> Result<(Vec<SessionRow>, Vec<EntryRow>), StoreError> {
+    match source {
+        Some(Source::Real(store)) => {
+            let sessions = store.list_sessions()?;
+            let raw = store.list_all_entries()?;
+            Ok((sessions, parse_raw(raw)))
         }
-    }
-
-    fn get_session(&self, id: &str) -> Result<Option<SessionRow>, StoreError> {
-        match self {
-            Self::Real(s) => s.get_session(id),
-            Self::Demo(d) => d.get_session(id),
+        Some(Source::Demo(demo)) => {
+            let sessions = demo.list_sessions()?;
+            let raw = demo.list_all_entries()?;
+            Ok((sessions, parse_raw(raw)))
         }
-    }
-
-    fn list_entries(&self, id: &str) -> Result<Vec<EntryRow>, StoreError> {
-        match self {
-            Self::Real(s) => s.list_entries(id),
-            Self::Demo(d) => d.list_entries(id),
-        }
+        None => Ok((Vec::new(), Vec::new())),
     }
 }
 
@@ -90,10 +90,28 @@ fn parse_raw(raw: Vec<RawEntry>) -> Vec<EntryRow> {
         .collect()
 }
 
+fn get_session(source: Option<&Source>, id: &str) -> Result<Option<SessionRow>, StoreError> {
+    match source {
+        Some(Source::Real(s)) => s.get_session(id),
+        Some(Source::Demo(d)) => d.get_session(id),
+        None => Ok(None),
+    }
+}
+
+fn list_entries(source: Option<&Source>, id: &str) -> Result<Vec<EntryRow>, StoreError> {
+    match source {
+        Some(Source::Real(s)) => s.list_entries(id),
+        Some(Source::Demo(d)) => d.list_entries(id),
+        None => Ok(Vec::new()),
+    }
+}
+
 /// Shared application state.
 pub struct AppState {
-    /// Data source (real or demo).
-    pub source: Source,
+    /// Trace data source (real, demo, or absent when the DB is missing).
+    pub source: Option<Source>,
+    /// Why traces are unavailable, when they are.
+    pub traces_unavailable_reason: Option<String>,
 }
 
 /// JSON error body.
@@ -129,20 +147,45 @@ struct HealthBody {
     db_path: String,
     sessions: u64,
     entries: u64,
+    /// False when the trace database could not be opened.
+    traces_available: bool,
+    /// Human reason traces are unavailable.
+    traces_unavailable_reason: Option<String>,
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Response {
-    match state.source.counts() {
-        Ok((sessions, entries)) => Json(HealthBody {
+    let body = match &state.source {
+        Some(source) => match source.counts() {
+            Ok((sessions, entries)) => HealthBody {
+                ok: true,
+                demo: source.is_demo(),
+                db_path: source.path_label(),
+                sessions,
+                entries,
+                traces_available: true,
+                traces_unavailable_reason: None,
+            },
+            Err(err) => HealthBody {
+                ok: false,
+                demo: source.is_demo(),
+                db_path: source.path_label(),
+                sessions: 0,
+                entries: 0,
+                traces_available: false,
+                traces_unavailable_reason: Some(err.to_string()),
+            },
+        },
+        None => HealthBody {
             ok: true,
-            demo: state.source.is_demo(),
-            db_path: state.source.path_label(),
-            sessions,
-            entries,
-        })
-        .into_response(),
-        Err(err) => err.into_response(),
-    }
+            demo: false,
+            db_path: "not found".into(),
+            sessions: 0,
+            entries: 0,
+            traces_available: false,
+            traces_unavailable_reason: state.traces_unavailable_reason.clone(),
+        },
+    };
+    Json(body).into_response()
 }
 
 /// Query params shared by overview + sessions.
@@ -161,7 +204,7 @@ async fn overview_handler(
 ) -> Response {
     let now = chrono::Utc::now().timestamp_millis();
     let result = tokio::task::spawn_blocking(move || {
-        let (sessions, entries) = state.source.load_snapshot()?;
+        let (sessions, entries) = load_snapshot(state.source.as_ref())?;
         let range = TimeRange::parse(params.range.as_deref());
         Ok::<_, StoreError>(overview(
             &sessions,
@@ -219,7 +262,7 @@ async fn sessions_handler(
     Query(query): Query<SessionsQuery>,
 ) -> Response {
     let result = tokio::task::spawn_blocking(move || {
-        let (sessions, entries) = state.source.load_snapshot()?;
+        let (sessions, entries) = load_snapshot(state.source.as_ref())?;
         let mut summaries = session_summaries(&sessions, &entries);
 
         // time-range filter: keep sessions whose last activity is in range
@@ -339,7 +382,7 @@ struct FiltersBody {
 
 async fn filters_handler(State(state): State<Arc<AppState>>) -> Response {
     let result = tokio::task::spawn_blocking(move || {
-        let (_sessions, entries) = state.source.load_snapshot()?;
+        let (_sessions, entries) = load_snapshot(state.source.as_ref())?;
         let mut models: Vec<String> = Vec::new();
         let mut window = DataWindow::default();
         for e in &entries {
@@ -398,10 +441,10 @@ async fn session_detail_handler(
 ) -> Response {
     let not_found_id = id.clone();
     let result = tokio::task::spawn_blocking(move || {
-        let Some(meta) = state.source.get_session(&id)? else {
+        let Some(meta) = get_session(state.source.as_ref(), &id)? else {
             return Ok::<Option<SessionDetailBody>, StoreError>(None);
         };
-        let entries = state.source.list_entries(&id)?;
+        let entries = list_entries(state.source.as_ref(), &id)?;
         let single = vec![SessionRow {
             id: meta.id.clone(),
             cwd: meta.cwd.clone(),
@@ -459,11 +502,16 @@ async fn shutdown_handler() -> Response {
 }
 
 /// Build the full application router (API + static web).
-pub fn build_app(demo: bool, db_override: Option<std::path::PathBuf>) -> anyhow::Result<Router> {
-    let source = if demo {
-        Source::Demo(DemoStore::new())
+/// Build the full application router (traces + system monitor + static web).
+///
+/// A missing trace database no longer aborts startup: traces degrade to an
+/// honest "unavailable" state while the system monitor runs normally.
+/// Returns the router plus the live monitor handle for spawning the sampler.
+pub fn build_app(options: AppOptions) -> anyhow::Result<(Router, SysMonitor)> {
+    let (source, unavailable_reason) = if options.demo {
+        (Some(Source::Demo(DemoStore::new())), None)
     } else {
-        let path = match db_override {
+        let path = match options.db {
             Some(p) => p,
             None => {
                 let home = std::env::var_os("HOME")
@@ -472,11 +520,38 @@ pub fn build_app(demo: bool, db_override: Option<std::path::PathBuf>) -> anyhow:
                 home.join(".loop").join("agent").join("sessions.db")
             }
         };
-        Source::Real(TraceStore::open(&path)?)
+        match TraceStore::open(&path) {
+            Ok(store) => (Some(Source::Real(store)), None),
+            Err(StoreError::Missing(p)) => (
+                None,
+                Some(format!(
+                    "session database not found at {}. Start the loop agent once to create it; \
+                     the system monitor below works without it.",
+                    p.display()
+                )),
+            ),
+            Err(err) => (None, Some(format!("traces unavailable: {err}"))),
+        }
     };
-    let state = Arc::new(AppState { source });
 
-    Ok(Router::new()
+    // System monitor: seeded immediately so /system has data on first paint.
+    let monitor = SysMonitor::new(options.sys_interval);
+    if options.sys_demo {
+        let mut demo_source = crate::sysmon::SampleSource::demo();
+        monitor.sample_with(&mut demo_source);
+    }
+
+    let sys_state = Arc::new(crate::sysmon::api::SysState {
+        monitor: monitor.clone(),
+        demo: options.sys_demo,
+    });
+
+    let state = Arc::new(AppState {
+        source,
+        traces_unavailable_reason: unavailable_reason,
+    });
+
+    let router = Router::new()
         .route("/api/health", get(health))
         .route("/api/overview", get(overview_handler))
         .route("/api/sessions", get(sessions_handler))
@@ -484,7 +559,9 @@ pub fn build_app(demo: bool, db_override: Option<std::path::PathBuf>) -> anyhow:
         .route("/api/filters", get(filters_handler))
         .route("/api/shutdown", post(shutdown_handler))
         .with_state(state)
-        .merge(web_router()))
+        .merge(crate::sysmon::api::sys_router(sys_state))
+        .merge(web_router());
+    Ok((router, monitor))
 }
 
 #[cfg(test)]
@@ -539,7 +616,13 @@ mod tests {
     #[tokio::test]
     async fn health_reports_counts() {
         let (_dir, db) = test_db();
-        let app = build_app(false, Some(db)).unwrap();
+        let (app, _monitor) = build_app(AppOptions {
+            demo: false,
+            db: Some(db),
+            sys_demo: false,
+            sys_interval: std::time::Duration::from_secs(2),
+        })
+        .unwrap();
         let (status, body) = get_json(&app, "/api/health").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["ok"], true);
@@ -551,7 +634,13 @@ mod tests {
     #[tokio::test]
     async fn overview_aggregates_real_payloads() {
         let (_dir, db) = test_db();
-        let app = build_app(false, Some(db)).unwrap();
+        let (app, _monitor) = build_app(AppOptions {
+            demo: false,
+            db: Some(db),
+            sys_demo: false,
+            sys_interval: std::time::Duration::from_secs(2),
+        })
+        .unwrap();
         let (status, body) = get_json(&app, "/api/overview?range=all").await;
         assert_eq!(status, StatusCode::OK);
         // two assistant turns: one success, one failed
@@ -574,7 +663,13 @@ mod tests {
     #[tokio::test]
     async fn model_filter_narrows_overview() {
         let (_dir, db) = test_db();
-        let app = build_app(false, Some(db)).unwrap();
+        let (app, _monitor) = build_app(AppOptions {
+            demo: false,
+            db: Some(db),
+            sys_demo: false,
+            sys_interval: std::time::Duration::from_secs(2),
+        })
+        .unwrap();
         let (_, body) = get_json(&app, "/api/overview?model=m1").await;
         assert_eq!(body["kpis"]["turns"], 1);
         assert_eq!(body["kpis"]["successful"], 1);
@@ -585,7 +680,13 @@ mod tests {
     #[tokio::test]
     async fn sessions_endpoint_filters_sorts_paginates() {
         let (_dir, db) = test_db();
-        let app = build_app(false, Some(db)).unwrap();
+        let (app, _monitor) = build_app(AppOptions {
+            demo: false,
+            db: Some(db),
+            sys_demo: false,
+            sys_interval: std::time::Duration::from_secs(2),
+        })
+        .unwrap();
 
         // default listing
         let (status, body) = get_json(&app, "/api/sessions").await;
@@ -625,7 +726,13 @@ mod tests {
     #[tokio::test]
     async fn session_detail_returns_timeline() {
         let (_dir, db) = test_db();
-        let app = build_app(false, Some(db)).unwrap();
+        let (app, _monitor) = build_app(AppOptions {
+            demo: false,
+            db: Some(db),
+            sys_demo: false,
+            sys_interval: std::time::Duration::from_secs(2),
+        })
+        .unwrap();
         let (status, body) = get_json(&app, "/api/sessions/s1").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["summary"]["turns"], 1);
@@ -642,7 +749,13 @@ mod tests {
     #[tokio::test]
     async fn unknown_session_is_404_with_json_error() {
         let (_dir, db) = test_db();
-        let app = build_app(false, Some(db)).unwrap();
+        let (app, _monitor) = build_app(AppOptions {
+            demo: false,
+            db: Some(db),
+            sys_demo: false,
+            sys_interval: std::time::Duration::from_secs(2),
+        })
+        .unwrap();
         let (status, body) = get_json(&app, "/api/sessions/does-not-exist").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert!(body["error"].as_str().unwrap().contains("not found"));
@@ -653,14 +766,34 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("nope.db");
         // build_app should fail loudly rather than serve empty data
-        let err = build_app(false, Some(missing)).unwrap_err();
-        assert!(err.to_string().contains("not found"));
+        // Missing DB no longer aborts: traces degrade, sysmon still works.
+        let (app, _) = build_app(AppOptions {
+            demo: false,
+            db: Some(missing),
+            sys_demo: false,
+            sys_interval: std::time::Duration::from_secs(2),
+        })
+        .unwrap();
+        let (_, health) = get_json(&app, "/api/health").await;
+        assert_eq!(health["tracesAvailable"], false);
+        assert!(health["tracesUnavailableReason"]
+            .as_str()
+            .unwrap()
+            .contains("not found"));
+        let (_, sys) = get_json(&app, "/api/sys/overview").await;
+        assert!(sys["memoryTotalBytes"].as_u64().unwrap() > 0);
     }
 
     #[tokio::test]
     async fn filters_endpoint_lists_models() {
         let (_dir, db) = test_db();
-        let app = build_app(false, Some(db)).unwrap();
+        let (app, _monitor) = build_app(AppOptions {
+            demo: false,
+            db: Some(db),
+            sys_demo: false,
+            sys_interval: std::time::Duration::from_secs(2),
+        })
+        .unwrap();
         let (status, body) = get_json(&app, "/api/filters").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["models"], serde_json::json!(["m1", "m2"]));
@@ -668,7 +801,13 @@ mod tests {
 
     #[tokio::test]
     async fn demo_mode_is_labeled_everywhere() {
-        let app = build_app(true, None).unwrap();
+        let (app, _monitor) = build_app(AppOptions {
+            demo: true,
+            db: None,
+            sys_demo: true,
+            sys_interval: std::time::Duration::from_secs(2),
+        })
+        .unwrap();
         let (_, health) = get_json(&app, "/api/health").await;
         assert_eq!(health["demo"], true);
         let (_, ov) = get_json(&app, "/api/overview").await;
@@ -678,7 +817,13 @@ mod tests {
     #[tokio::test]
     async fn shutdown_is_forbidden() {
         let (_dir, db) = test_db();
-        let app = build_app(false, Some(db)).unwrap();
+        let (app, _monitor) = build_app(AppOptions {
+            demo: false,
+            db: Some(db),
+            sys_demo: false,
+            sys_interval: std::time::Duration::from_secs(2),
+        })
+        .unwrap();
         let res = app
             .oneshot(
                 Request::builder()
@@ -695,7 +840,13 @@ mod tests {
     #[tokio::test]
     async fn index_page_serves_html() {
         let (_dir, db) = test_db();
-        let app = build_app(false, Some(db)).unwrap();
+        let (app, _monitor) = build_app(AppOptions {
+            demo: false,
+            db: Some(db),
+            sys_demo: false,
+            sys_interval: std::time::Duration::from_secs(2),
+        })
+        .unwrap();
         let res = app
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
             .await
