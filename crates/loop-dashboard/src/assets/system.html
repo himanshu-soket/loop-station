@@ -6,83 +6,192 @@
 <title>loop · system monitor</title>
 <style>
 :root{
-  --bg:#07090d; --bg2:#0b0e14; --panel:#10141d; --panel2:#151a25;
-  --line:#1d2433; --line2:#2a3347;
-  --ink:#e8ecf4; --ink-dim:#9aa5b8; --ink-faint:#5d687e;
-  --acc:#5ef2c0; --acc-dim:#2ea886;
-  --amber:#ffc857; --red:#ff6b81; --blue:#6fb7ff; --violet:#b48cff;
+  --bg:#0a0c10; --bg2:#0d1017; --panel:#131722; --panel2:#181d2b;
+  --line:#212839; --line2:#2c3550;
+  --ink:#e9edf5; --ink-dim:#98a3b8; --ink-faint:#5c6779;
+  --acc:#4ecdc4; --acc-dim:#2f8f89;
+  --amber:#f5b841; --red:#ff6b7d; --blue:#64a8ff; --violet:#a78bfa;
   --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
-  --rad:14px;
+  --rad:12px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
-body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;overflow-x:hidden;
-  background-image:radial-gradient(1100px 500px at 85% -10%,rgba(94,242,192,.05),transparent 60%),radial-gradient(900px 480px at -10% 110%,rgba(180,140,255,.04),transparent 60%)}
-::selection{background:rgba(94,242,192,.25)}
-::-webkit-scrollbar{width:9px;height:9px}
-::-webkit-scrollbar-thumb{background:var(--line2);border-radius:9px;border:2px solid var(--bg)}
+body{
+  background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:13.5px;line-height:1.5;overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:rgba(78,205,196,.28)}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:8px}
 ::-webkit-scrollbar-track{background:transparent}
 
-.app{display:flex;min-height:100vh}
-.sidebar{width:228px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--line);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow:hidden;z-index:40}
-.brand{display:flex;align-items:center;gap:11px;padding:20px 18px 16px;border-bottom:1px solid var(--line);white-space:nowrap}
-.brand-mark{width:34px;height:34px;flex-shrink:0;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,#0f2b23,#123a2e);border:1px solid #1e5945;color:var(--acc);font-family:var(--mono);font-weight:700;font-size:15px;box-shadow:0 0 22px rgba(94,242,192,.14) inset}
-.brand-name{font-weight:800;font-size:15px;letter-spacing:-.02em}
-.brand-sub{font-family:var(--mono);font-size:10px;color:var(--ink-faint);letter-spacing:.12em;text-transform:uppercase}
-.nav{padding:14px 10px;display:flex;flex-direction:column;gap:3px;flex:1}
-.nav-item{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:10px;cursor:pointer;color:var(--ink-dim);font-weight:500;font-size:13.5px;white-space:nowrap;border:1px solid transparent;transition:all .16s}
+/* ---------- layout ---------- */
+.app{display:flex;height:100vh}
+.sidebar{
+  width:200px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;
+}
+.brand{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.brand-mark{
+  width:30px;height:30px;flex-shrink:0;border-radius:8px;display:grid;place-items:center;
+  background:linear-gradient(135deg,#12332e,#17423a);border:1px solid #1f5a50;
+  color:var(--acc);font-family:var(--mono);font-weight:700;font-size:13px;
+}
+.brand-name{font-weight:700;font-size:13.5px;letter-spacing:-.01em}
+.brand-sub{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);letter-spacing:.1em;text-transform:uppercase}
+.nav{padding:10px 8px;display:flex;flex-direction:column;gap:2px;flex:1;overflow-y:auto}
+.nav-item{
+  display:flex;align-items:center;gap:9px;padding:7px 11px;border-radius:8px;cursor:pointer;
+  color:var(--ink-dim);font-weight:500;font-size:12.5px;border:1px solid transparent;
+  transition:background .12s,color .12s;user-select:none;
+}
 .nav-item:hover{color:var(--ink);background:var(--panel)}
-.nav-item.active{color:var(--acc);background:rgba(94,242,192,.1);border-color:rgba(94,242,192,.22)}
-.nav-item svg{width:17px;height:17px;flex-shrink:0}
-.side-foot{padding:14px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);white-space:nowrap;overflow:hidden}
-.live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--acc);margin-right:7px;animation:pulse 2.2s infinite}
-@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(94,242,192,.5)}50%{opacity:.55;box-shadow:0 0 0 5px rgba(94,242,192,0)}}
+.nav-item.active{color:var(--acc);background:rgba(78,205,196,.09);border-color:rgba(78,205,196,.18)}
+.nav-item svg{width:15px;height:15px;flex-shrink:0;opacity:.85}
+.side-foot{padding:11px 16px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+.live-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--acc);margin-right:6px;animation:pulse 2.4s infinite}
+.live-dot.err{background:var(--red);animation:none}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
-.topbar{display:flex;align-items:center;gap:14px;padding:14px 26px;border-bottom:1px solid var(--line);background:rgba(11,14,20,.85);backdrop-filter:blur(9px);position:sticky;top:0;z-index:30;flex-wrap:wrap}
-.page-title{font-size:16px;font-weight:600;letter-spacing:-.01em}
-.page-sub{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-top:1px}
+.topbar{
+  display:flex;align-items:center;gap:12px;padding:11px 20px;
+  border-bottom:1px solid var(--line);background:var(--bg2);flex-wrap:wrap;
+}
+.page-title{font-size:14.5px;font-weight:650;letter-spacing:-.01em}
+.page-sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-top:1px}
 .topbar-spacer{flex:1}
-.interval-ctrl{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--ink-dim)}
-.interval-ctrl select{background:var(--bg);border:1px solid var(--line2);color:var(--ink);border-radius:9px;padding:5px 9px;font-family:var(--mono);font-size:11.5px;outline:none}
-.refresh-note{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint)}
-.content{padding:24px 26px 60px;max-width:1460px;width:100%;margin:0 auto}
+.interval-ctrl{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim)}
+.interval-ctrl select{
+  background:var(--panel);border:1px solid var(--line2);color:var(--ink);border-radius:7px;
+  padding:4px 8px;font-family:var(--mono);font-size:11px;outline:none;cursor:pointer;
+}
+.interval-ctrl select:focus{border-color:var(--acc-dim)}
+.retry-btn{
+  background:var(--panel);border:1px solid var(--line2);color:var(--ink-dim);border-radius:7px;
+  padding:4px 11px;font-family:var(--mono);font-size:11px;cursor:pointer;display:none;
+}
+.retry-btn:hover{color:var(--ink);border-color:var(--acc-dim)}
+.refresh-note{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
 
-.demo-banner{background:rgba(255,200,87,.09);border:1px solid rgba(255,200,87,.35);color:var(--amber);border-radius:12px;padding:10px 16px;margin-bottom:20px;font-size:13px;display:flex;gap:10px;align-items:center}
-.error-banner{background:rgba(255,107,129,.08);border:1px solid rgba(255,107,129,.35);color:var(--red);border-radius:12px;padding:10px 16px;margin-bottom:20px;font-size:13px}
+.content{flex:1;overflow-y:auto;padding:18px 20px 40px}
+.content-inner{max-width:1440px;margin:0 auto}
 
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:13px;margin-bottom:22px}
-.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);padding:15px 16px 13px;position:relative;overflow:hidden;transition:transform .2s,border-color .2s}
-.kpi:hover{transform:translateY(-2px);border-color:var(--line2)}
-.kpi-label{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.11em;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;cursor:help}
-.kpi-value{font-size:26px;font-weight:700;letter-spacing:-.02em;font-family:var(--mono)}
-.kpi-sub{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-top:4px}
-.kpi.unavail .kpi-value{color:var(--ink-faint);font-size:18px}
-.bar{height:5px;border-radius:4px;background:var(--bg);margin-top:9px;overflow:hidden}
-.bar i{display:block;height:100%;border-radius:4px;transition:width .4s ease}
+/* ---------- banners ---------- */
+.banner{border-radius:10px;padding:9px 14px;margin-bottom:16px;font-size:12.5px;display:flex;gap:10px;align-items:center}
+.banner.error{background:rgba(255,107,125,.08);border:1px solid rgba(255,107,125,.3);color:var(--red)}
+.banner.demo{background:rgba(245,184,65,.07);border:1px solid rgba(245,184,65,.3);color:var(--amber)}
 
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;margin-bottom:22px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);padding:16px 18px}
-.card h3{font-size:13px;font-weight:600;letter-spacing:.01em;margin-bottom:2px;display:flex;align-items:center;gap:8px}
-.card .hint{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-bottom:12px}
-.chart-wrap{width:100%;position:relative}
-.chart-wrap svg{display:block;width:100%}
+/* ---------- KPI cards ---------- */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:11px;margin-bottom:16px}
+.kpi{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+  padding:12px 14px 11px;position:relative;overflow:hidden;
+}
+.kpi-label{
+  font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);text-transform:uppercase;
+  letter-spacing:.1em;margin-bottom:5px;display:flex;justify-content:space-between;gap:6px;cursor:help;
+}
+.kpi-value{font-size:23px;font-weight:650;letter-spacing:-.02em;font-family:var(--mono);line-height:1.15}
+.kpi-sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);margin-top:3px}
+.kpi.unavail .kpi-value{color:var(--ink-faint);font-size:15px;font-weight:500}
+.bar{height:4px;border-radius:3px;background:var(--bg);margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;border-radius:3px;transition:width .45s ease}
 
-.core-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:7px;margin-top:10px}
-.core{border-radius:9px;border:1px solid var(--line);background:var(--bg);padding:7px 6px;text-align:center;transition:all .3s}
-.core-id{font-family:var(--mono);font-size:9px;color:var(--ink-faint)}
-.core-pct{font-family:var(--mono);font-size:13px;font-weight:600;margin-top:2px}
+/* ---------- cards & charts ---------- */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px;margin-bottom:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);padding:14px 16px;min-width:0}
+.card h3{font-size:12.5px;font-weight:650;margin-bottom:2px;display:flex;align-items:center;gap:7px}
+.card .hint{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-bottom:10px}
 
-table{width:100%;border-collapse:collapse;font-size:12.5px}
-th{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-faint);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none;white-space:nowrap}
+/*
+ * Chart frame.
+ *
+ * The card is a grid item; grid items default to min-width:auto which lets
+ * wide content (long labels, unbreakable values) blow out the track and push
+ * the whole dashboard sideways. min-width:0 on .card plus this wrapper's
+ * width:100%/max-width:100% keeps the chart inside its card at every size,
+ * and the SVG below is laid out in CSS pixels (no viewBox stretching), so
+ * labels never scale away or clip.
+ */
+.chart{width:100%;max-width:100%;position:relative;min-height:1px}
+.chart svg{display:block;width:100%;height:100%;overflow:visible}
+/* Only the plot area (lines/areas) is clipped; axes labels sit outside it. */
+.chart .plot{overflow:hidden}
+.chart-legend{display:flex;gap:12px;margin-top:6px;flex-wrap:wrap;align-items:center}
+.chart-legend .lg-item{
+  font-family:var(--mono);font-size:10px;color:var(--ink-dim);
+  display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+  border:1px solid transparent;border-radius:6px;padding:2px 6px;user-select:none;
+}
+.chart-legend .lg-item:hover{color:var(--ink);background:var(--panel2)}
+.chart-legend .lg-item.off{opacity:.4;text-decoration:line-through}
+.chart-legend i{display:inline-block;width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.chart-empty{font-family:var(--mono);font-size:11px;color:var(--ink-faint);padding:34px 0;text-align:center}
+
+/* Hover crosshair + tooltip (absolutely positioned inside .chart). */
+.chart-tip{
+  position:absolute;pointer-events:none;z-index:5;display:none;
+  background:rgba(13,16,23,.96);border:1px solid var(--line2);border-radius:8px;
+  padding:7px 10px;font-family:var(--mono);font-size:10.5px;line-height:1.65;
+  box-shadow:0 6px 18px rgba(0,0,0,.45);white-space:nowrap;
+}
+.chart-tip .t{color:var(--ink-faint);margin-bottom:3px}
+.chart-tip .r{display:flex;align-items:center;gap:6px}
+.chart-tip .r i{width:7px;height:7px;border-radius:2px;flex-shrink:0}
+.chart-tip .r b{font-weight:600;margin-left:auto;padding-left:10px}
+
+/* Time-range selector shown in chart headers that have enough history. */
+.range-ctrl{display:inline-flex;gap:2px;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:2px;margin-left:auto}
+.range-ctrl button{
+  font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);background:none;border:0;
+  border-radius:5px;padding:2px 7px;cursor:pointer;
+}
+.range-ctrl button:hover{color:var(--ink-dim)}
+.range-ctrl button.on{background:var(--panel2);color:var(--acc)}
+
+/* ---------- per-core grid ---------- */
+.core-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:6px}
+.core{border-radius:8px;border:1px solid var(--line);background:var(--bg);padding:6px 5px;text-align:center}
+.core-id{font-family:var(--mono);font-size:8.5px;color:var(--ink-faint)}
+.core-pct{font-family:var(--mono);font-size:12.5px;font-weight:600;margin-top:1px}
+
+/* ---------- volumes / interfaces ---------- */
+.row-list{display:flex;flex-direction:column}
+.list-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid rgba(33,40,57,.5)}
+.list-row:last-child{border-bottom:none}
+.vol-name{font-weight:600;font-size:12.5px}
+.vol-mount{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+.vol-bar{flex:1;height:6px;border-radius:4px;background:var(--bg);overflow:hidden;min-width:70px}
+.vol-bar i{display:block;height:100%;border-radius:4px;transition:width .45s ease}
+.vol-size{font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);text-align:right;min-width:140px}
+.iface-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid rgba(33,40,57,.5);font-family:var(--mono);font-size:11.5px;align-items:center}
+.iface-row:last-child{border-bottom:none}
+
+/* ---------- process table ---------- */
+.proc-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.proc-search{
+  background:var(--bg);border:1px solid var(--line2);color:var(--ink);border-radius:8px;
+  padding:7px 12px;font-family:var(--mono);font-size:11.5px;outline:none;width:250px;max-width:100%;
+}
+.proc-search:focus{border-color:var(--acc-dim)}
+.proc-count{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint)}
+.table-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{
+  font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--ink-faint);text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);
+  cursor:pointer;user-select:none;white-space:nowrap;position:sticky;top:0;background:var(--panel);
+}
 th:hover{color:var(--ink-dim)}
 th.sorted{color:var(--acc)}
-td{padding:7px 10px;border-bottom:1px solid rgba(29,36,51,.55);font-family:var(--mono);font-size:12px;white-space:nowrap}
-tr:hover td{background:rgba(21,26,37,.5)}
-.proc-search{background:var(--bg);border:1px solid var(--line2);color:var(--ink);border-radius:10px;padding:8px 13px;font-family:var(--mono);font-size:12px;outline:none;width:260px;max-width:100%}
-.proc-search:focus{border-color:var(--acc-dim)}
-.table-scroll{overflow-x:auto;margin-top:12px}
+td{padding:6px 10px;border-bottom:1px solid rgba(33,40,57,.45);font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+tbody tr:hover td{background:rgba(24,29,43,.55)}
+.readonly-note{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-top:10px}
+
+/* ---------- states ---------- */
 .muted{color:var(--ink-faint)}
 .dim{color:var(--ink-dim)}
 .acc{color:var(--acc)}
@@ -90,33 +199,22 @@ tr:hover td{background:rgba(21,26,37,.5)}
 .red{color:var(--red)}
 .blue{color:var(--blue)}
 .violet{color:var(--violet)}
-
-.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;padding:3px 9px;border-radius:99px;border:1px solid var(--line2);color:var(--ink-dim)}
-.chip.ok{border-color:rgba(94,242,192,.3);color:var(--acc)}
-.chip.warn{border-color:rgba(255,200,87,.35);color:var(--amber)}
-.chip.bad{border-color:rgba(255,107,129,.35);color:var(--red)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:99px;border:1px solid var(--line2);color:var(--ink-dim)}
+.chip.ok{border-color:rgba(78,205,196,.3);color:var(--acc)}
 .chip.na{border-color:var(--line2);color:var(--ink-faint)}
-
+.empty-msg{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);padding:26px;text-align:center}
+.loading-msg{font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);padding:40px;text-align:center}
 .skeleton{background:linear-gradient(90deg,var(--panel) 25%,var(--panel2) 50%,var(--panel) 75%);background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:8px}
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-.loading-msg{font-family:var(--mono);font-size:12px;color:var(--ink-faint);padding:40px;text-align:center}
 
-.vol-row{display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid rgba(29,36,51,.5)}
-.vol-row:last-child{border-bottom:none}
-.vol-name{font-weight:600;font-size:13px}
-.vol-mount{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint)}
-.vol-bar{flex:1;height:7px;border-radius:5px;background:var(--bg);overflow:hidden;min-width:80px}
-.vol-bar i{display:block;height:100%;border-radius:5px}
-.vol-size{font-family:var(--mono);font-size:11px;color:var(--ink-dim);text-align:right;min-width:150px}
+footer.note{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-top:22px;line-height:1.7;border-top:1px solid var(--line);padding-top:12px}
 
-.iface-row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid rgba(29,36,51,.5);font-family:var(--mono);font-size:12px;align-items:center}
-.iface-row:last-child{border-bottom:none}
-
-footer.note{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-top:28px;line-height:1.7;border-top:1px solid var(--line);padding-top:14px}
-@media (max-width:860px){
-  .sidebar{display:none}
-  .content{padding:16px 14px 40px}
-  .topbar{padding:12px 14px}
+@media (max-width:880px){
+  .sidebar{width:56px}
+  .brand-name,.brand-sub,.nav-item span,.side-foot .label{display:none}
+  .nav-item{justify-content:center;padding:9px}
+  .content{padding:14px 12px 32px}
+  .topbar{padding:10px 12px}
 }
 </style>
 </head>
@@ -125,10 +223,10 @@ footer.note{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);marg
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark">L</div>
-      <div><div class="brand-name">loop system</div><div class="brand-sub">local monitor</div></div>
+      <div><div class="brand-name">System Monitor</div><div class="brand-sub">local · macOS</div></div>
     </div>
     <nav class="nav" id="nav"></nav>
-    <div class="side-foot"><span class="live-dot"></span><span id="footStatus">connecting…</span></div>
+    <div class="side-foot"><span class="live-dot" id="liveDot"></span><span class="label" id="footStatus">connecting…</span></div>
   </aside>
   <div class="main">
     <div class="topbar">
@@ -137,446 +235,1283 @@ footer.note{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);marg
         <div class="page-sub" id="pageSub">—</div>
       </div>
       <div class="topbar-spacer"></div>
+      <button class="retry-btn" id="retryBtn" type="button">retry now</button>
       <div class="interval-ctrl">
-        <span>sampling</span>
-        <select id="intervalSel">
-          <option value="500">0.5 s</option>
-          <option value="1000">1 s</option>
-          <option value="2000" selected>2 s</option>
-          <option value="5000">5 s</option>
-          <option value="10000">10 s</option>
+        <span>interval</span>
+        <select id="intervalSel" aria-label="Sampling interval">
+          <option value="500">0.5s</option>
+          <option value="1000">1s</option>
+          <option value="2000" selected>2s</option>
+          <option value="5000">5s</option>
+          <option value="10000">10s</option>
         </select>
       </div>
       <div class="refresh-note" id="refreshNote"></div>
     </div>
     <main class="content" id="content">
-      <div class="loading-msg">collecting first samples…</div>
+      <div class="content-inner">
+        <div class="loading-msg" id="bootMsg">collecting first samples…</div>
+      </div>
     </main>
   </div>
 </div>
 
 <script>
 'use strict';
-/* ============ state ============ */
+
+/* ================================================================
+   State
+   ================================================================ */
+const VIEWS = [
+  ['overview',  'Overview',  'M0 3h18v6H3zM3 11h8v10H3zM13 11h8v10h-8z'],
+  ['cpu',       'CPU',       'M9 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0zM6 9a3 3 0 0 1 6 0v3a3 3 0 0 1-6 0zM12 9a3 3 0 0 1 6 0v3a3 3 0 0 1-6 0zM9 15a3 3 0 0 1 6 0v3a3 3 0 0 1-6 0z'],
+  ['memory',    'Memory',    'M4 6h16v12H4zM8 10h2v2H8zM14 10h2v2h-2z'],
+  ['disk',      'Disk',      'M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01'],
+  ['network',   'Network',   'M12 3v6m0 6v6M5 12h14M7 7l5 5 5-5M7 17l5-5 5 5'],
+  ['gpu',       'GPU',       'M3 7h18v10H3zM7 11h4v2H7zM14 11h3v2h-3z'],
+  ['battery',   'Battery',   'M4 9h14v6H4zM18 11h2v2h-2zM7 11h2v2H7z'],
+  ['processes', 'Processes', 'M4 6h16M4 12h16M4 18h16'],
+];
+
 const S = {
-  view: 'overview',
+  // Deep-linkable view: /system#cpu, /system#processes, …
+  view: (function(){
+    const h = decodeURIComponent(location.hash.replace('#','')) || 'overview';
+    return VIEWS.some(v => v[0] === h) ? h : 'overview';
+  })(),
   demo: false,
   error: null,
   overview: null,
   snapshot: null,
   history: null,
+  procData: null,
   procQuery: '',
   procSort: 'cpu',
   procDir: 'desc',
-  procLimit: 50,
+  procLimit: 60,
   lastFetch: 0,
+  inFlight: false,       // guards against overlapping refreshes
+  timerId: null,
+  procTimerId: null,
 };
 
-const VIEWS = [
-  ['overview','Overview','M'],
-  ['cpu','CPU','C'],
-  ['memory','Memory','M'],
-  ['disk','Disk','D'],
-  ['network','Network','N'],
-  ['gpu','GPU &amp; Thermals','G'],
-  ['battery','Battery','B'],
-  ['processes','Processes','P'],
-];
-
-/* ============ helpers ============ */
 const $ = id => document.getElementById(id);
-const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/**
+ * JSON embedded in a <script type="application/json"> block. The HTML parser
+ * does NOT decode entities inside script elements, so esc() would corrupt it;
+ * instead escape only the sequence that could terminate the script tag.
+ */
+function jsonSafe(json) {
+  return String(json).replace(/<\/script/gi, '<\\/script');
+}
 
-function fmtBytes(b, digits=1){
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ================================================================
+   Formatting helpers
+   ================================================================ */
+function fmtBytes(b, digits = 1) {
   if (b == null || !isFinite(b)) return '—';
-  if (b < 1024) return b.toFixed(0)+' B';
-  const u=['KB','MB','GB','TB','PB']; let i=-1;
-  do { b/=1024; i++; } while (b>=1024 && i<u.length-1);
-  return b.toFixed(digits)+' '+u[i];
+  if (b < 1024) return Math.round(b) + ' B';
+  const u = ['KB','MB','GB','TB','PB'];
+  let i = -1;
+  do { b /= 1024; i++; } while (b >= 1024 && i < u.length - 1);
+  return b.toFixed(digits) + ' ' + u[i];
 }
-function fmtRate(bps){ return bps==null||!isFinite(bps) ? '—' : fmtBytes(bps)+'/s'; }
-function fmtPct(v, d=1){ return v==null||!isFinite(v) ? '—' : v.toFixed(d)+'%'; }
-function fmtMs(ms){ return new Date(ms).toLocaleTimeString(); }
-function ago(ms){
-  if(!ms) return 'never';
-  const s=Math.max(0,(Date.now()-ms)/1000);
-  if(s<60) return Math.round(s)+'s ago';
-  if(s<3600) return Math.round(s/60)+'m ago';
-  return Math.round(s/3600)+'h ago';
+const fmtRate = bps => (bps == null || !isFinite(bps)) ? '—' : fmtBytes(bps) + '/s';
+const fmtPct  = (v, d = 1) => (v == null || !isFinite(v)) ? '—' : v.toFixed(d) + '%';
+const fmtClock = ms => new Date(ms).toLocaleTimeString([], {hour12:false});
+function ago(ms) {
+  if (!ms) return 'never';
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 5) return 'just now';
+  if (s < 60) return Math.round(s) + 's ago';
+  if (s < 3600) return Math.round(s / 60) + 'm ago';
+  return Math.round(s / 3600) + 'h ago';
 }
-// tooltip via title attribute (no external libs)
-const tip = txt => `title="${esc(txt)}"`;
+function fmtUptime(secs) {
+  if (secs == null) return null;
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return d + 'd ' + h + 'h';
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+const tip = t => 'title="' + esc(t) + '"';
 
-/* metric renderer: value or honest unavailable chip */
-function mval(m, fmt){
+/*
+ * Axis/tooltip formatters shared by charts. Registries reference these by
+ * name (JSON cannot serialise functions); resolveFormatters() binds them.
+ */
+const CHART_FMT = {
+  pctY:   function (v) { return v.toFixed(0) + '%'; },
+  pctV:   function (v) { return v.toFixed(1) + '%'; },
+  bytesY: function (v) { return fmtBytes(v, 0); },
+  bytesV: function (v) { return fmtBytes(v, 1); },
+  rateV:  function (v) { return fmtBytes(v, 1) + '/s'; },
+};
+function resolveFormatters(cfg) {
+  if (!cfg) return cfg;
+  ['fmtY', 'fmtVal'].forEach(function (k) {
+    if (typeof cfg[k] === 'string') cfg[k] = CHART_FMT[cfg[k]] || null;
+  });
+  return cfg;
+}
+
+/* Metric wrapper: returns formatted value or null when unavailable. */
+function mval(m, fmt) {
   if (m && m.available && m.value != null) return fmt ? fmt(m.value) : m.value;
   return null;
 }
-function metricKpi(label, m, fmt, sub){
-  const v = mval(m, fmt);
-  const reason = m && !m.available ? (m.unavailableReason||'unavailable') : '';
-  return `<div class="kpi ${v==null?'unavail':''}">
-    <div class="kpi-label" ${tip((m&&m.description)||label)}>${esc(label)}<span>ⓘ</span></div>
-    <div class="kpi-value">${v==null?'unavailable':esc(v)}</div>
-    <div class="kpi-sub">${v==null?esc(reason):esc(sub||'')}</div>
-  </div>`;
-}
-function chip(text, cls){ return `<span class="chip ${cls||''}">${esc(text)}</span>`; }
 
-/* ============ SVG charts (hand-rolled, no deps) ============ */
-function lineChart(series, opts){
-  // series: [{name,color,points:[{t,v}]}]
-  opts = opts||{};
-  const W=600,H=170,PAD_L=46,PAD_R=10,PAD_T=12,PAD_B=22;
-  const all=series.flatMap(s=>s.points);
-  if(!all.length) return `<div class="loading-msg">waiting for samples…</div>`;
-  let t0=all[0].t, t1=all[all.length-1].t;
-  if(t1===t0) t1=t0+1;
-  let vmax=opts.max!=null?opts.max:Math.max(...all.map(p=>isFinite(p.v)?p.v:0),0.0001)*1.15;
-  if(opts.min!=null) vmax=Math.max(vmax,opts.min);
-  const x=t=>PAD_L+(t-t0)/(t1-t0)*(W-PAD_L-PAD_R);
-  const y=v=>H-PAD_B-(Math.max(0,Math.min(v,vmax))/vmax)*(H-PAD_T-PAD_B);
+/* ================================================================
+   Charts (hand-rolled SVG, no dependencies)
 
-  let out=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${opts.height||170}px">`;
-  // gridlines + y labels
-  const steps=4;
-  for(let i=0;i<=steps;i++){
-    const v=vmax*i/steps, yy=y(v);
-    out+=`<line x1="${PAD_L}" y1="${yy}" x2="${W-PAD_R}" y2="${yy}" stroke="#1d2433" stroke-width="1"/>`;
-    out+=`<text x="${PAD_L-6}" y="${yy+3.5}" text-anchor="end" font-size="9" fill="#5d687e" font-family="ui-monospace,monospace">${opts.fmtY?opts.fmtY(v):Math.round(v)}</text>`;
+   Why this replaced the viewBox-based renderer:
+   * The old chart used a fixed 600x160 viewBox with
+     preserveAspectRatio="none", so text scaled non-uniformly and the fixed
+     48-unit left gutter either clipped y-labels (narrow cards) or wasted
+     space (wide cards). Charts could overflow their cards.
+   * This version measures its container (ResizeObserver), lays out in CSS
+     pixels, sizes the y-gutter from the measured label width, and clips
+     only the plot area. Labels always stay inside the card.
+   * Interaction: hover crosshair + tooltip with exact values/timestamps,
+     clickable legend to toggle series, time-range windows.
+   ================================================================ */
+
+/* Per-chart live state, keyed by element id. */
+const CHARTS = new Map();
+let chartSeq = 0;
+
+/* Time-range windows in ms; null = everything collected. */
+const RANGES = [
+  {label:'all',  ms:null},
+  {label:'1m',   ms:60e3},
+  {label:'5m',   ms:300e3},
+  {label:'15m',  ms:900e3},
+  {label:'1h',   ms:3600e3},
+];
+
+/* Smallest "nice" bound >= v for the y-axis top. */
+function niceCeil(v) {
+  if (!(v > 0)) return 1;
+  const exp = Math.floor(Math.log10(v));
+  const base = Math.pow(10, exp);
+  const mult = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+  for (let i = 0; i < mult.length; i++) {
+    if (base * mult[i] >= v - 1e-9) return base * mult[i];
   }
-  // time labels
-  out+=`<text x="${PAD_L}" y="${H-6}" font-size="9" fill="#5d687e" font-family="ui-monospace,monospace">${fmtMs(t0)}</text>`;
-  out+=`<text x="${W-PAD_R}" y="${H-6}" text-anchor="end" font-size="9" fill="#5d687e" font-family="ui-monospace,monospace">${fmtMs(t1)}</text>`;
+  return base * 10;
+}
 
-  for(const s of series){
-    const pts=s.points.filter(p=>isFinite(p.v));
-    if(pts.length<2){ if(pts.length===1) out+=`<circle cx="${x(pts[0].t)}" cy="${y(pts[0].v)}" r="2.5" fill="${s.color}"/>`; continue; }
-    let d=`M ${x(pts[0].t)} ${y(pts[0].v)}`;
-    for(let i=1;i<pts.length;i++) d+=` L ${x(pts[i].t)} ${y(pts[i].v)}`;
-    // area fill
-    if(!opts.noArea){
-      out+=`<path d="${d} L ${x(pts[pts.length-1].t)} ${H-PAD_B} L ${x(pts[0].t)} ${H-PAD_B} Z" fill="${s.color}" opacity="0.08"/>`;
+/**
+ * Create (or update) an interactive line chart inside `el`.
+ * cfg: {series:[{name,color,points}], fmtY, fmtVal, max, height, emptyMsg,
+ *       warn: value that marks the start of abnormal readings}
+ */
+function mountChart(el, cfg) {
+  const id = el.dataset.chartId || ('c' + (++chartSeq));
+  el.dataset.chartId = id;
+  let st = CHARTS.get(id);
+  if (!st) {
+    st = {rangeMs: null, hidden: {}, ro: null, lastCfg: null, tip: null};
+    CHARTS.set(id, st);
+  }
+  st.lastCfg = cfg;
+
+  // Range window + per-series visibility filters.
+  const now = Date.now();
+  const cut = st.rangeMs != null ? now - st.rangeMs : -Infinity;
+  const series = cfg.series
+    .filter(s => !st.hidden[s.name])
+    .map(s => ({
+      name: s.name, color: s.color,
+      points: s.points.filter(p => p && p.t >= cut && isFinite(p.v)),
+    }));
+
+  const finite = [];
+  series.forEach(s => s.points.forEach(p => finite.push(p)));
+  if (finite.length < 2) {
+    teardownChart(el, st);
+    el.innerHTML = '<div class="chart-empty">' +
+      (cfg.emptyMsg || 'waiting for more samples…') + '</div>';
+    return false;
+  }
+
+  // ---- geometry -----------------------------------------------------
+  const H = cfg.height || 150;
+  const PL_BASE = 8, PR = 10, PT = 8, PB = 18;
+  const labelW = measureLabelWidth(cfg, series);
+  const PL = PL_BASE + labelW;
+
+  let t0 = Infinity, t1 = -Infinity, vmax = 0;
+  for (let i = 0; i < finite.length; i++) {
+    const p = finite[i];
+    if (p.t < t0) t0 = p.t;
+    if (p.t > t1) t1 = p.t;
+    if (p.v > vmax) vmax = p.v;
+  }
+  if (t1 === t0) t1 = t0 + 1;
+  const top = cfg.max != null ? cfg.max : niceCeil(vmax);
+
+  // Build DOM: a sized box holds the SVG; legend + tooltip follow.
+  el.innerHTML = '';
+  const box = document.createElement('div');
+  box.className = 'chart-box';
+  box.style.height = H + 'px';
+  el.appendChild(box);
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', H);
+  box.appendChild(svg);
+
+  const draw = function () {
+    const W = Math.max(120, box.clientWidth);
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    renderChartInto(svg, {W: W, H: H, PL: PL, PR: PR, PT: PT, PB: PB,
+                          t0: t0, t1: t1, top: top, series: series, cfg: cfg});
+  };
+  draw();
+
+  // One ResizeObserver per chart; redraws coalesced into a rAF.
+  if (!st.ro) {
+    st.ro = new ResizeObserver(function () {
+      if (st.rafPending) return;
+      st.rafPending = true;
+      requestAnimationFrame(function () { st.rafPending = false; draw(); });
+    });
+    st.ro.observe(box);
+  }
+
+  // Legend: click toggles a series on/off.
+  const lg = document.createElement('div');
+  lg.className = 'chart-legend';
+  cfg.series.forEach(function (s) {
+    const item = document.createElement('span');
+    item.className = 'lg-item' + (st.hidden[s.name] ? ' off' : '');
+    item.innerHTML = '<i style="background:' + s.color + '"></i>' + esc(s.name);
+    item.addEventListener('click', function () {
+      st.hidden[s.name] = !st.hidden[s.name];
+      mountChart(el, st.lastCfg);
+    });
+    lg.appendChild(item);
+  });
+
+  // Range control appears once enough history exists to make it useful.
+  const span = t1 - t0;
+  const rc = document.createElement('span');
+  rc.className = 'range-ctrl';
+  RANGES.forEach(function (r) {
+    if (r.ms != null && span < r.ms * 0.5) return; // not enough data yet
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = r.label;
+    if ((st.rangeMs || null) === r.ms) b.classList.add('on');
+    b.addEventListener('click', function () {
+      st.rangeMs = r.ms;
+      mountChart(el, st.lastCfg);
+    });
+    rc.appendChild(b);
+  });
+  if (rc.childNodes.length > 1) lg.appendChild(rc);
+  el.appendChild(lg);
+
+  attachHover(el, box, svg, st, {PL: PL, PR: PR, PT: PT, PB: PB, H: H,
+                                 t0: t0, t1: t1, top: top, series: series, cfg: cfg});
+  return true;
+}
+
+function teardownChart(el, st) {
+  if (!st) return;
+  if (st.ro) { try { st.ro.disconnect(); } catch (e) {} st.ro = null; }
+  if (st.tip) { st.tip.remove(); st.tip = null; }
+}
+
+/* The y-gutter is sized from the widest label so labels never clip. */
+function measureLabelWidth(cfg, series) {
+  const probe = document.createElement('canvas').getContext('2d');
+  probe.font = '10px ui-monospace, Menlo, monospace';
+  let w = 0;
+  const vals = [];
+  series.forEach(function (s) {
+    const pts = s.points;
+    for (let i = Math.max(0, pts.length - 3); i < pts.length; i++) vals.push(pts[i].v);
+  });
+  if (cfg.max != null) { vals.push(0); vals.push(cfg.max / 4); vals.push(cfg.max); }
+  vals.forEach(function (v) {
+    const txt = cfg.fmtY ? cfg.fmtY(v) : String(Math.round(v));
+    const m = probe.measureText(txt).width;
+    if (m > w) w = m;
+  });
+  return Math.min(80, Math.ceil(w) + 4);
+}
+
+function renderChartInto(svg, g) {
+  const W = g.W, H = g.H, PL = g.PL, PR = g.PR, PT = g.PT, PB = g.PB;
+  const t0 = g.t0, t1 = g.t1, top = g.top, series = g.series, cfg = g.cfg;
+  const x = function (t) { return PL + (t - t0) / (t1 - t0) * (W - PL - PR); };
+  const y = function (v) { return H - PB - (Math.max(0, Math.min(v, top)) / top) * (H - PT - PB); };
+
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const mk = function (tag, attrs) {
+    const n = document.createElementNS(svgNS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  };
+
+  // Gridlines + y labels.
+  for (let i = 0; i <= 4; i++) {
+    const v = top * i / 4, yy = y(v);
+    svg.appendChild(mk('line', {x1: PL, y1: yy, x2: W - PR, y2: yy, stroke: '#212839', 'stroke-width': 1}));
+    const t = mk('text', {x: PL - 6, y: yy + 3.2, 'text-anchor': 'end', 'font-size': 10,
+                          fill: '#5c6779', 'font-family': 'ui-monospace,Menlo,monospace'});
+    t.textContent = cfg.fmtY ? cfg.fmtY(v) : String(Math.round(v));
+    svg.appendChild(t);
+  }
+
+  // Time labels: first / middle / last.
+  const tl = function (t, anchor) {
+    const e = mk('text', {x: x(t), y: H - 5, 'text-anchor': anchor, 'font-size': 10,
+                          fill: '#5c6779', 'font-family': 'ui-monospace,Menlo,monospace'});
+    e.textContent = fmtClockShort(t);
+    svg.appendChild(e);
+  };
+  tl(t0, 'start');
+  tl((t0 + t1) / 2, 'middle');
+  tl(t1, 'end');
+
+  // Plot group clipped to the plot rect only.
+  const clipId = 'clip' + Math.random().toString(36).slice(2, 8);
+  const defs = mk('defs', {});
+  const clip = mk('clipPath', {id: clipId});
+  clip.appendChild(mk('rect', {x: PL, y: 0, width: Math.max(0, W - PL - PR), height: H - PB}));
+  defs.appendChild(clip);
+  svg.appendChild(defs);
+
+  const plot = mk('g', {'clip-path': 'url(#' + clipId + ')'});
+  plot.setAttribute('class', 'plot');
+  svg.appendChild(plot);
+
+  // Abnormal-reading band: from the warn threshold to the axis top.
+  if (cfg.warn != null && cfg.warn < top) {
+    const wy = y(cfg.warn);
+    plot.appendChild(mk('rect', {
+      x: PL, y: PT, width: Math.max(0, W - PL - PR),
+      height: Math.max(0, wy - PT), fill: '#ff6b7d', opacity: 0.05,
+    }));
+    plot.appendChild(mk('line', {
+      x1: PL, y1: wy, x2: W - PR, y2: wy, stroke: '#ff6b7d',
+      'stroke-width': 1, 'stroke-dasharray': '5 4', opacity: 0.45,
+    }));
+  }
+
+  series.forEach(function (s) {
+    const pts = s.points;
+    if (pts.length < 2) return;
+    let d = 'M ' + x(pts[0].t).toFixed(1) + ' ' + y(pts[0].v).toFixed(1);
+    for (let i = 1; i < pts.length; i++) {
+      d += ' L ' + x(pts[i].t).toFixed(1) + ' ' + y(pts[i].v).toFixed(1);
     }
-    out+=`<path d="${d}" fill="none" stroke="${s.color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`;
-  }
-  out+='</svg>';
-  // legend
-  out+='<div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">'+series.map(s=>
-    `<span style="font-family:var(--mono);font-size:10.5px;color:var(--ink-dim)"><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${s.color};margin-right:5px"></i>${esc(s.name)}</span>`).join('')+'</div>';
-  return out;
+    if (!cfg.noArea) {
+      plot.appendChild(mk('path', {
+        d: d + ' L ' + x(pts[pts.length - 1].t).toFixed(1) + ' ' + (H - PB) +
+           ' L ' + x(pts[0].t).toFixed(1) + ' ' + (H - PB) + ' Z',
+        fill: s.color, opacity: 0.07,
+      }));
+    }
+    plot.appendChild(mk('path', {d: d, fill: 'none', stroke: s.color, 'stroke-width': 1.7,
+                                  'stroke-linejoin': 'round', 'stroke-linecap': 'round'}));
+  });
+
+  // Crosshair (hidden until hover).
+  const cross = mk('g', {style: 'display:none', 'pointer-events': 'none'});
+  const vline = mk('line', {y1: PT, y2: H - PB, stroke: '#3a465f', 'stroke-width': 1, 'stroke-dasharray': '3 3'});
+  cross.appendChild(vline);
+  const dots = series.map(function (s) {
+    const c = mk('circle', {r: 3, fill: s.color, stroke: '#0a0c10', 'stroke-width': 1.5});
+    cross.appendChild(c);
+    return c;
+  });
+  svg.appendChild(cross);
+  svg._cross = {group: cross, vline: vline, dots: dots};
 }
 
-/* ============ data fetching ============ */
-async function jget(url){
-  const r=await fetch(url);
-  if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error(`${r.status}: ${t.slice(0,200)}`); }
+function fmtClockShort(ms) {
+  const d = new Date(ms);
+  const p = function (n) { return String(n).padStart(2, '0'); };
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+}
+
+/* Hover crosshair + tooltip with per-series values at the nearest sample. */
+function attachHover(el, box, svg, st, g) {
+  if (!st.tip) {
+    st.tip = document.createElement('div');
+    st.tip.className = 'chart-tip';
+    el.appendChild(st.tip);
+  }
+  const tip = st.tip;
+  const PL = g.PL, PR = g.PR, PT = g.PT, PB = g.PB, H = g.H;
+  const t0 = g.t0, t1 = g.t1, top = g.top, series = g.series, cfg = g.cfg;
+
+  const hide = function () {
+    tip.style.display = 'none';
+    if (svg._cross) svg._cross.group.style.display = 'none';
+  };
+
+  const move = function (ev) {
+    const rect = box.getBoundingClientRect();
+    const px = ev.clientX - rect.left;
+    if (px < PL - 4 || px > rect.width - PR + 4) { hide(); return; }
+    const frac = Math.max(0, Math.min(1, (px - PL) / (rect.width - PL - PR)));
+    const tt = t0 + frac * (t1 - t0);
+
+    // Nearest timestamp across all visible series.
+    let bestT = null, bestD = Infinity;
+    series.forEach(function (s) {
+      s.points.forEach(function (p) {
+        const d = Math.abs(p.t - tt);
+        if (d < bestD) { bestD = d; bestT = p.t; }
+      });
+    });
+    if (bestT == null) { hide(); return; }
+
+    const cross = svg._cross;
+    let rows = [];
+    if (cross) {
+      cross.group.style.display = '';
+      const cx = PL + (bestT - t0) / (t1 - t0) * (rect.width - PL - PR);
+      cross.vline.setAttribute('x1', cx);
+      cross.vline.setAttribute('x2', cx);
+      for (let i = 0; i < series.length; i++) {
+        const s = series[i];
+        // Nearest point of this series to bestT.
+        let bp = s.points[0];
+        for (let j = 1; j < s.points.length; j++) {
+          if (Math.abs(s.points[j].t - bestT) < Math.abs(bp.t - bestT)) bp = s.points[j];
+        }
+        const dot = cross.dots[i];
+        dot.setAttribute('cx', cx);
+        dot.setAttribute('cy', H - PB - (Math.max(0, Math.min(bp.v, top)) / top) * (H - PT - PB));
+        dot._pt = bp;
+        const val = cfg.fmtVal ? cfg.fmtVal(bp.v) : (cfg.fmtY ? cfg.fmtY(bp.v) : bp.v.toFixed(1));
+        rows.push('<div class="r"><i style="background:' + s.color + '"></i>' + esc(s.name) +
+                  '<b>' + esc(val) + '</b></div>');
+      }
+    }
+
+    tip.innerHTML = '<div class="t">' + fmtClockShort(bestT) + '</div>' + rows.join('');
+    tip.style.display = 'block';
+
+    // Keep the tooltip inside the card: flip near the right edge.
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    let lx = px + 14;
+    if (lx + tw > rect.width - 4) lx = px - tw - 14;
+    if (lx < 2) lx = 2;
+    let ly = PT + Math.max(0, Math.min(rect.height - th - 2, (H - PT - PB) / 2 - th / 2));
+    tip.style.left = lx + 'px';
+    tip.style.top = ly + 'px';
+  };
+
+  box.addEventListener('mousemove', move);
+  box.addEventListener('mouseleave', hide);
+}
+
+/** Mount every [data-chart] placeholder in `root` using `registry`. */
+function mountChartsIn(root, registry) {
+  const nodes = (root || document).querySelectorAll('[data-chart]');
+  nodes.forEach(function (el) {
+    const cfg = registry[el.dataset.chart];
+    if (cfg) mountChart(el, cfg);
+  });
+}
+
+/**
+ * Markup for a chart container; views embed this and declare their config in
+ * a #chartRegistry JSON block, which render() passes to mountChartsIn().
+ */
+function chartPlaceholder(key) {
+  return '<div class="chart" data-chart="' + esc(key) + '"></div>';
+}
+
+/* ================================================================
+   Data access
+   ================================================================ */
+async function jget(url) {
+  const r = await fetch(url, {cache: 'no-store'});
+  if (!r.ok) {
+    const t = await r.text().catch(() => '');
+    throw new Error(r.status + ': ' + t.slice(0, 160));
+  }
   return r.json();
 }
-async function refresh(){
-  try{
-    S.error=null;
-    const [ov,snap,hist]=await Promise.all([
+
+/* History point arrays, tolerating null values (dropped windows). */
+function histPoints(key) {
+  const h = S.history && S.history[key];
+  if (!Array.isArray(h)) return [];
+  return h.filter(p => p && isFinite(p.v));
+}
+function histSeries() {
+  return {
+    cpu: [
+      {name:'total',  color:'#4ecdc4', points: histPoints('cpuPercent')},
+      {name:'user',   color:'#64a8ff', points: histPoints('cpuUserPercent')},
+      {name:'system', color:'#f5b841', points: histPoints('cpuSystemPercent')},
+    ],
+    mem: [
+      {name:'used',      color:'#a78bfa', points: histPoints('memoryUsedBytes')},
+      {name:'swap used', color:'#ff6b7d', points: histPoints('swapUsedBytes')},
+    ],
+    disk: [
+      {name:'read/s',  color:'#4ecdc4', points: histPoints('diskReadPerSec')},
+      {name:'write/s', color:'#f5b841', points: histPoints('diskWritePerSec')},
+    ],
+    net: [
+      {name:'download', color:'#64a8ff', points: histPoints('netRecvPerSec')},
+      {name:'upload',   color:'#4ecdc4', points: histPoints('netSentPerSec')},
+    ],
+  };
+}
+
+/* ================================================================
+   Refresh cycle (overlap-guarded)
+   ================================================================ */
+async function refresh() {
+  if (S.inFlight) return;
+  S.inFlight = true;
+  try {
+    const results = await Promise.all([
       jget('/api/sys/overview'),
       jget('/api/sys/snapshot'),
       jget('/api/sys/history'),
     ]);
-    S.overview=ov; S.snapshot=snap; S.history=hist; S.demo=!!ov.demo;
-    S.lastFetch=Date.now();
-    $('footStatus').textContent = S.demo ? 'DEMO DATA' : 'live · local';
-  }catch(e){
-    S.error=e.message;
-    $('footStatus').textContent='error';
+    S.overview = results[0];
+    S.snapshot = results[1];
+    // History endpoint wraps the series in {demo, history:{…}}.
+    S.history  = (results[2] && results[2].history) || {};
+    S.demo     = !!results[0].demo;
+    S.error    = null;
+    S.lastFetch = Date.now();
+    $('footStatus').textContent = S.demo ? 'demo data' : 'live · local';
+    $('liveDot').classList.remove('err');
+    scheduleTimers();
+  } catch (e) {
+    S.error = e.message || String(e);
+    $('footStatus').textContent = 'connection error';
+    $('liveDot').classList.add('err');
+  } finally {
+    S.inFlight = false;
   }
   render();
 }
-async function refreshProcesses(){
-  if(S.view!=='processes') return;
-  try{
-    const q=new URLSearchParams({q:S.procQuery,sort:S.procSort,dir:S.procDir,limit:S.procLimit});
-    const r=await jget('/api/sys/processes?'+q);
-    S.procData=r;
-  }catch(e){ S.error=e.message; }
+
+async function refreshProcesses() {
+  if (S.view !== 'processes' || S.inFlight) return;
+  S.inFlight = true;
+  try {
+    const q = new URLSearchParams({
+      q: S.procQuery, sort: S.procSort, dir: S.procDir, limit: S.procLimit,
+    });
+    S.procData = await jget('/api/sys/processes?' + q);
+  } catch (e) {
+    S.error = e.message || String(e);
+  } finally {
+    S.inFlight = false;
+  }
   render();
 }
 
-/* ============ views ============ */
-function kpiRow(){
-  const o=S.overview,s=S.snapshot;
-  if(!o) return '';
-  let cards='';
-  cards+=`<div class="kpi"><div class="kpi-label" ${tip('Aggregate busy percentage across all logical cores')}>CPU<span>ⓘ</span></div>
-    <div class="kpi-value">${fmtPct(o.cpuPercent)}</div>
-    <div class="kpi-sub">user ${fmtPct(o.cpuUserPercent,0)} · sys ${fmtPct(o.cpuSystemPercent,0)}</div>
-    <div class="bar"><i style="width:${Math.min(100,o.cpuPercent)}%;background:var(--acc)"></i></div></div>`;
-  const memPct=o.memoryTotalBytes?100*o.memoryUsedBytes/o.memoryTotalBytes:0;
-  cards+=`<div class="kpi"><div class="kpi-label" ${tip('Apparent used memory (wired + compressed + app). File cache is reclaimable and not counted.')}>MEMORY<span>ⓘ</span></div>
-    <div class="kpi-value">${fmtBytes(o.memoryUsedBytes,1)}</div>
-    <div class="kpi-sub">of ${fmtBytes(o.memoryTotalBytes,0)} · swap ${o.swapUsedBytes!=null?fmtBytes(o.swapUsedBytes,1):'n/a'}</div>
-    <div class="bar"><i style="width:${Math.min(100,memPct)}%;background:var(--violet)"></i></div></div>`;
-  cards+=`<div class="kpi"><div class="kpi-label" ${tip('Disk read throughput across all volumes since the previous sample')}>DISK READ<span>ⓘ</span></div>
-    <div class="kpi-value">${o.diskReadPerSec!=null?fmtRate(o.diskReadPerSec):'unavailable'}</div>
-    <div class="kpi-sub">${o.diskWritePerSec!=null?'write '+fmtRate(o.diskWritePerSec):'counter window pending'}</div></div>`;
-  cards+=`<div class="kpi"><div class="kpi-label" ${tip('Download rate summed over physical interfaces (loopback excluded)')}>DOWNLOAD<span>ⓘ</span></div>
-    <div class="kpi-value">${fmtRate(o.netRecvPerSec)}</div>
-    <div class="kpi-sub">upload ${fmtRate(o.netSentPerSec)}</div></div>`;
-  if(s&&s.gpu){
-    const g=s.gpu;
-    const gu=g.utilizationPercent&&g.utilizationPercent.available?g.utilizationPercent.value:null;
-    cards+=`<div class="kpi ${gu==null?'unavail':''}"><div class="kpi-label" ${tip('GPU device utilization from IOKit PerformanceStatistics')}>GPU<span>ⓘ</span></div>
-      <div class="kpi-value">${gu!=null?fmtPct(gu):'unavailable'}</div>
-      <div class="kpi-sub">${g.model&&g.model.available?esc(g.model.value):''}</div></div>`;
-  }
-  if(s&&s.battery){
-    const b=s.battery;
-    const bp=b.chargePercent&&b.chargePercent.available?b.chargePercent.value:null;
-    if(bp!=null){
-      cards+=`<div class="kpi"><div class="kpi-label" ${tip('Battery charge percentage')}>BATTERY<span>ⓘ</span></div>
-      <div class="kpi-value">${fmtPct(bp,0)}</div>
-      <div class="kpi-sub">${b.status&&b.status.available?esc(b.status.value):''}${b.timeRemainingMinutes&&b.timeRemainingMinutes.available?' · '+esc(b.timeRemainingMinutes.value)+' min':''}</div>
-      <div class="bar"><i style="width:${bp}%;background:${bp<20?'var(--red)':bp<50?'var(--amber)':'var(--acc)'}"></i></div></div>`;
-    }
-  }
-  cards+=`<div class="kpi"><div class="kpi-label" ${tip('Number of processes visible to this user')}>PROCESSES<span>ⓘ</span></div>
-    <div class="kpi-value">${o.processCount}</div>
-    <div class="kpi-sub">sample #${o.sampleCount}</div></div>`;
-  return `<div class="kpis">${cards}</div>`;
+/* Timers follow the server-side interval so a change takes effect
+   without a page reload. Re-created only when the interval changes. */
+let currentIntervalMs = 0;
+function scheduleTimers() {
+  const iv = (S.overview && S.overview.intervalMs) || 2000;
+  const pollMs = Math.max(1200, iv);
+  if (pollMs === currentIntervalMs && S.timerId != null) return;
+  currentIntervalMs = pollMs;
+  if (S.timerId != null) clearInterval(S.timerId);
+  S.timerId = setInterval(refresh, pollMs);
 }
 
-function histSeries(){
-  const h=S.history; if(!h) return {};
-  const P=k=>(h[k]||[]).map(p=>({t:p.t,v:p.v}));
-  return {
-    cpu:[{name:'total %',color:'#5ef2c0',points:P('cpuPercent')},
-         {name:'user %',color:'#6fb7ff',points:P('cpuUserPercent')},
-         {name:'system %',color:'#ffc857',points:P('cpuSystemPercent')}],
-    mem:[{name:'used',color:'#b48cff',points:P('memoryUsedBytes')},
-         {name:'swap used',color:'#ff6b81',points:P('swapUsedBytes')}],
-    disk:[{name:'read/s',color:'#5ef2c0',points:P('diskReadPerSec')},
-          {name:'write/s',color:'#ffc857',points:P('diskWritePerSec')}],
-    net:[{name:'download/s',color:'#6fb7ff',points:P('netRecvPer_sec'.replace('_sec','PerSec'))},
-         {name:'upload/s',color:'#5ef2c0',points:P('netSentPerSec')}],
-  };
+/* ================================================================
+   Partial renderers (return HTML strings)
+   ================================================================ */
+/* Severity color for a 0-100 percentage: normal → warm → hot. */
+function sevColor(pct) {
+  if (pct == null || !isFinite(pct)) return 'var(--acc)';
+  if (pct >= 90) return 'var(--red)';
+  if (pct >= 75) return 'var(--amber)';
+  return 'var(--acc)';
 }
 
-function coreGrid(cores){
-  if(!cores||!cores.length) return `<div class="loading-msg">per-core data appears after the second sample (~${S.overview?Math.round(S.overview.intervalMs/1000):2}s)</div>`;
-  return '<div class="core-grid">'+cores.map(c=>{
-    const heat=c.totalPercent;
-    const bg=`rgba(94,242,192,${(0.06+0.5*Math.min(1,heat/100)).toFixed(3)})`;
-    return `<div class="core" style="background:${bg};border-color:rgba(94,242,192,${(0.15+0.45*Math.min(1,heat/100)).toFixed(3)})">
-      <div class="core-id">core ${c.index}</div>
-      <div class="core-pct">${c.totalPercent.toFixed(0)}%</div></div>`;
-  }).join('')+'</div>';
+function kpiCard(label, valueHtml, subHtml, tipText, barPct, barColor, unavail) {
+  const bar = (barPct != null)
+    ? '<div class="bar"><i style="width:' + Math.min(100, Math.max(0, barPct)) +
+      '%;background:' + (barColor || sevColor(barPct)) + '"></i></div>'
+    : '';
+  return '<div class="kpi' + (unavail ? ' unavail' : '') + '">' +
+    '<div class="kpi-label" ' + tip(tipText || label) + '>' + esc(label) + '<span>ⓘ</span></div>' +
+    '<div class="kpi-value">' + valueHtml + '</div>' +
+    '<div class="kpi-sub">' + (subHtml || '') + '</div>' + bar + '</div>';
 }
 
-function volumeRows(vols){
-  if(!vols||!vols.length) return '<div class="loading-msg">no volumes reported</div>';
-  return vols.map(v=>{
-    const used=v.totalBytes-v.availableBytes;
-    const pct=v.totalBytes?100*used/v.totalBytes:0;
-    const col=pct>90?'var(--red)':pct>75?'var(--amber)':'var(--acc)';
-    return `<div class="vol-row">
-      <div style="min-width:130px"><div class="vol-name">${esc(v.name)}</div><div class="vol-mount">${esc(v.mountPoint)} · ${esc(v.fileSystem)}${v.removable?' · removable':''}</div></div>
-      <div class="vol-bar"><i style="width:${Math.min(100,pct)}%;background:${col}"></i></div>
-      <div class="vol-size">${fmtBytes(used,1)} used<br><span class="muted">${fmtBytes(v.availableBytes,1)} free of ${fmtBytes(v.totalBytes,0)}</span></div>
-    </div>`;
-  }).join('');
+function metricCard(label, m, fmt, subFn) {
+  const v = mval(m, fmt);
+  if (v == null) {
+    return kpiCard(label, 'Unavailable',
+      esc((m && m.unavailableReason) || 'not supported'),
+      (m && m.description) || label, null, null, true);
+  }
+  return kpiCard(label, esc(v), subFn ? subFn() : '', (m && m.description) || label,
+    null, null, false);
 }
 
-function ifaceRows(ifaces){
-  if(!ifaces||!ifaces.length) return '<div class="loading-msg">no interfaces reported</div>';
-  const sorted=[...ifaces].sort((a,b)=>(b.receivedPerSec+b.transmittedPerSec)-(a.receivedPerSec+a.transmittedPerSec));
-  return sorted.map(i=>`<div class="iface-row">
-    <span>${esc(i.name)} ${i.active?chip('active','ok'):chip('idle','na')}</span>
-    <span class="dim">↓ ${fmtRate(i.receivedPerSec)} · ↑ ${fmtRate(i.transmittedPerSec)}</span>
-    <span class="muted">Σ ↓${fmtBytes(i.totalReceived,0)} ↑${fmtBytes(i.totalTransmitted,0)}</span>
-  </div>`).join('');
+function coreGrid(cores) {
+  if (!cores || !cores.length) {
+    return '<div class="empty-msg">per-core readings appear after the second sample</div>';
+  }
+  return '<div class="core-grid">' + cores.map(c => {
+    const heat = Math.min(1, Math.max(0, c.totalPercent / 100));
+    const a = (0.05 + 0.45 * heat).toFixed(3);
+    const b = (0.12 + 0.5 * heat).toFixed(3);
+    return '<div class="core" style="background:rgba(78,205,196,' + a +
+      ');border-color:rgba(78,205,196,' + b + ')">' +
+      '<div class="core-id">core ' + c.index + '</div>' +
+      '<div class="core-pct">' + c.totalPercent.toFixed(0) + '%</div></div>';
+  }).join('') + '</div>';
 }
 
-function metricLine(label,m,fmt){
-  const v=mval(m,fmt);
-  return `<div class="iface-row"><span>${esc(label)}</span>${
-    v!=null?`<span class="acc">${esc(v)}</span>`:`<span class="chip na" ${tip(m.unavailableReason||'')}>unavailable — ${esc(m.unavailableReason||'not readable')}</span>`
-  }</div>`;
+function volumeRows(vols) {
+  if (!vols || !vols.length) return '<div class="empty-msg">no volumes reported</div>';
+  return '<div class="row-list">' + vols.map(v => {
+    const used = v.totalBytes - v.availableBytes;
+    const pct = v.totalBytes ? (100 * used / v.totalBytes) : 0;
+    const col = pct > 90 ? 'var(--red)' : pct > 75 ? 'var(--amber)' : 'var(--acc)';
+    return '<div class="list-row">' +
+      '<div style="min-width:120px"><div class="vol-name">' + esc(v.name) + '</div>' +
+      '<div class="vol-mount">' + esc(v.mountPoint) + ' · ' + esc(v.fileSystem) +
+      (v.removable ? ' · removable' : '') + '</div></div>' +
+      '<div class="vol-bar"><i style="width:' + Math.min(100, pct) + '%;background:' + col + '"></i></div>' +
+      '<div class="vol-size">' + fmtBytes(used, 1) + ' used<br><span class="muted">' +
+      fmtBytes(v.availableBytes, 1) + ' free of ' + fmtBytes(v.totalBytes, 0) + '</span></div>' +
+      '</div>';
+  }).join('') + '</div>';
 }
 
-function processTable(){
-  const d=S.procData;
-  if(!d) return '<div class="loading-msg">loading processes…</div>';
-  const th=(key,label,extra)=>`<th data-k="${key}" class="${S.procSort===key?'sorted':''}">${label}${S.procSort===key?(S.procDir==='desc'?' ↓':' ↑'):''}</th>`;
-  const rows=d.items.map(p=>`<tr>
-    <td class="muted">${p.pid}</td>
-    <td style="font-family:var(--sans)">${esc(p.name)}</td>
-    <td class="${p.cpuPercent>50?'red':p.cpuPercent>10?'amber':''}">${p.cpuPercent.toFixed(1)}%</td>
-    <td>${p.memoryReadable===false?'<span class="muted" title="macOS denies reading other users\' process memory without root">n/a</span>':fmtBytes(p.memoryBytes,1)}</td>
-  </tr>`).join('');
-  return `
-  <input id="procSearch" class="proc-search" type="text" placeholder="search by name or pid…" value="${esc(S.procQuery)}">
-  <span class="muted" style="font-family:var(--mono);font-size:11px;margin-left:10px">showing ${d.items.length} of ${d.total}${S.demo?' · DEMO':''}</span>
-  <div class="table-scroll"><table>
-    <thead><tr>${th('pid','PID')}${th('name','Process')}${th('cpu','CPU %')}${th('memory','Memory')}</tr></thead>
-    <tbody>${rows||'<tr><td colspan="4" class="muted" style="text-align:center;padding:20px">no matching processes</td></tr>'}</tbody>
-  </table></div>
-  <div class="hint" style="font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-top:10px">
-    read-only view — this dashboard never terminates processes</div>`;
+function ifaceRows(ifaces) {
+  if (!ifaces || !ifaces.length) return '<div class="empty-msg">no interfaces reported</div>';
+  const sorted = ifaces.slice().sort((a, b) =>
+    (b.receivedPerSec + b.transmittedPerSec) - (a.receivedPerSec + a.transmittedPerSec));
+  return '<div class="row-list">' + sorted.map(i =>
+    '<div class="iface-row">' +
+    '<span>' + esc(i.name) + ' ' + (i.active
+      ? '<span class="chip ok">active</span>'
+      : '<span class="chip na">idle</span>') + '</span>' +
+    '<span class="dim">↓ ' + fmtRate(i.receivedPerSec) + ' · ↑ ' + fmtRate(i.transmittedPerSec) + '</span>' +
+    '<span class="muted">Σ ↓' + fmtBytes(i.totalReceived, 0) + ' ↑' + fmtBytes(i.totalTransmitted, 0) + '</span>' +
+    '</div>').join('') + '</div>';
 }
 
-function render(){
-  // nav
-  $('nav').innerHTML=VIEWS.map(([id,label])=>
-    `<div class="nav-item ${S.view===id?'active':''}" data-view="${id}">${label.replace(/^./,c=>c)}</div>`).join('');
-  $('nav').querySelectorAll('.nav-item').forEach(el=>el.onclick=()=>{S.view=el.dataset.view;render();if(S.view==='processes')refreshProcesses();});
+function metricLine(label, m, fmt) {
+  const v = mval(m, fmt);
+  return '<div class="iface-row"><span>' + esc(label) + '</span>' +
+    (v != null
+      ? '<span class="acc">' + esc(v) + '</span>'
+      : '<span class="chip na" ' + tip((m && m.unavailableReason) || '') + '">unavailable</span>') +
+    '</div>';
+}
 
-  const titles={overview:['Overview','system summary'],cpu:['CPU','processor load'],memory:['Memory','RAM &amp; swap'],
-    disk:['Disk','volumes &amp; I/O'],network:['Network','interfaces &amp; throughput'],gpu:['GPU &amp; Thermals','graphics &amp; thermal state'],
-    battery:['Battery','power &amp; health'],processes:['Processes','read-only process table']};
-  $('pageTitle').innerHTML=titles[S.view][0];
-  $('pageSub').innerHTML=titles[S.view][1]+(S.demo?' · <span class="amber">DEMO DATA</span>':'');
-  $('refreshNote').textContent=`updated ${ago(S.lastFetch)} · every ${S.overview?S.overview.intervalMs:2000} ms`;
+/* ================================================================
+   View renderers
+   ================================================================ */
+function viewOverview() {
+  const o = S.overview, snap = S.snapshot;
+  if (!o) return '<div class="loading-msg">waiting for metrics…</div>';
+  const hs = histSeries();
 
-  let html='';
-  if(S.error) html+=`<div class="error-banner">failed to fetch metrics: ${esc(S.error)} — retrying…</div>`;
-  if(S.demo) html+=`<div class="demo-banner">⚠ DEMO MODE — these are synthetic metrics for offline UI testing, not real measurements from this Mac.</div>`;
+  const memPct = o.memoryTotalBytes ? 100 * o.memoryUsedBytes / o.memoryTotalBytes : 0;
+  const up = snap ? fmtUptime(snap.uptimeSecs) : null;
+  const la = snap && snap.cpu && snap.cpu.loadAverage;
 
-  const snap=S.snapshot, hs=histSeries();
-
-  if(S.view==='overview'){
-    html+=kpiRow();
-    html+=`<div class="grid">
-      <div class="card"><h3>CPU load</h3><div class="hint">busy % across all cores, since the monitor started</div><div class="chart-wrap">${lineChart(hs.cpu,{max:100,fmtY:v=>v.toFixed(0)+'%'})}</div></div>
-      <div class="card"><h3>Memory pressure</h3><div class="hint">used RAM and swap over time</div><div class="chart-wrap">${lineChart(hs.mem,{fmtY:v=>fmtBytes(v,0)})}</div></div>
-      <div class="card"><h3>Network throughput</h3><div class="hint">physical interfaces, loopback excluded</div><div class="chart-wrap">${lineChart(hs.net,{fmtY:v=>fmtBytes(v,0)})}</div></div>
-      <div class="card"><h3>Disk throughput</h3><div class="hint">reads and writes per second</div><div class="chart-wrap">${lineChart(hs.disk,{fmtY:v=>fmtBytes(v,0)})}</div></div>
-    </div>`;
+  let cards = '';
+  cards += kpiCard('CPU', fmtPct(o.cpuPercent),
+    'user ' + fmtPct(o.cpuUserPercent, 0) + ' · sys ' + fmtPct(o.cpuSystemPercent, 0),
+    'Aggregate busy percentage across all logical cores (Mach tick deltas)',
+    o.cpuPercent);
+  cards += kpiCard('MEMORY', fmtBytes(o.memoryUsedBytes, 1),
+    'of ' + fmtBytes(o.memoryTotalBytes, 0) + ' · swap ' +
+      (o.swapUsedBytes != null ? fmtBytes(o.swapUsedBytes, 1) : 'n/a'),
+    'macOS "used" = wired + compressed + app memory; file cache is reclaimable and excluded',
+    memPct, 'var(--violet)');
+  cards += kpiCard('DISK I/O',
+    o.diskReadPerSec != null ? fmtRate(o.diskReadPerSec) : 'pending',
+    o.diskWritePerSec != null ? 'write ' + fmtRate(o.diskWritePerSec) : 'first sample seeds counters',
+    'Read/write throughput across volumes over the last sampling window');
+  cards += kpiCard('NETWORK', fmtRate(o.netRecvPerSec),
+    'upload ' + fmtRate(o.netSentPerSec),
+    'Download/upload rate summed over physical interfaces (loopback excluded)');
+  if (snap && snap.gpu) {
+    const g = snap.gpu;
+    const gu = mval(g.utilizationPercent);
+    cards += kpiCard('GPU', gu != null ? fmtPct(gu) : 'Unavailable',
+      (g.model && g.model.available) ? esc(g.model.value) :
+        esc((g.utilizationPercent && g.utilizationPercent.unavailableReason) || ''),
+      'GPU device utilization from IOKit AGXAccelerator PerformanceStatistics',
+      gu != null ? gu : null, 'var(--blue)', gu == null);
   }
-  else if(S.view==='cpu'){
-    const c=snap&&snap.cpu;
-    if(c){
-      html+=`<div class="kpis">
-        <div class="kpi"><div class="kpi-label">TOTAL</div><div class="kpi-value">${fmtPct(c.usagePercent)}</div><div class="kpi-sub">user ${fmtPct(c.userPercent,0)} · sys ${fmtPct(c.systemPercent,0)} · idle ${fmtPct(c.idlePercent,0)}</div><div class="bar"><i style="width:${Math.min(100,c.usagePercent)}%;background:var(--acc)"></i></div></div>
-        <div class="kpi"><div class="kpi-label">CORES</div><div class="kpi-value">${c.logical_cores??c.logicalCores??'—'}</div><div class="kpi-sub">${c.physicalCores!=null?c.physicalCores+' physical':''}</div></div>
-        <div class="kpi"><div class="kpi-label">LOAD AVG</div><div class="kpi-value" style="font-size:19px">${c.loadAverage?(''+c.loadAverage.one.toFixed(2)+' '+c.loadAverage.five.toFixed(2)+' '+c.loadAverage.fifteen.toFixed(2)):'—'}</div><div class="kpi-sub">1 / 5 / 15 min</div></div>
-        <div class="kpi"><div class="kpi-label">CHIP</div><div class="kpi-value" style="font-size:17px">${c.brand?esc(c.brand):'—'}</div><div class="kpi-sub">user/system/idle from Mach tick counters</div></div>
-      </div>`;
-      html+=`<div class="card"><h3>Per-core usage</h3><div class="hint">each cell is one logical core; brightness tracks load</div>${coreGrid(c.cores)}</div>`;
-      html+=`<div class="card" style="margin-top:16px"><h3>History</h3><div class="hint">user / system / total since the monitor started</div><div class="chart-wrap">${lineChart(hs.cpu,{max:100,fmtY:v=>v.toFixed(0)+'%'})}</div></div>`;
+  if (snap && snap.battery) {
+    const b = snap.battery;
+    const bp = mval(b.chargePercent);
+    if (bp != null) {
+      cards += kpiCard('BATTERY', fmtPct(bp, 0),
+        esc(mval(b.status) || '') +
+          (mval(b.timeRemainingMinutes) != null ? ' · ' + mval(b.timeRemainingMinutes) + ' min' : ''),
+        'Battery charge percentage (AppleSmartBattery)',
+        bp, bp < 20 ? 'var(--red)' : bp < 50 ? 'var(--amber)' : 'var(--acc)');
     }
   }
-  else if(S.view==='memory'){
-    const m=snap&&snap.memory;
-    if(m){
-      const pct=m.totalBytes?100*m.usedBytes/m.totalBytes:0;
-      html+=`<div class="kpis">
-        <div class="kpi"><div class="kpi-label" ${tip('macOS "used" = wired + compressed + app memory; file cache excluded because it is reclaimable')}>USED<span>ⓘ</span></div><div class="kpi-value">${fmtBytes(m.usedBytes,1)}</div><div class="kpi-sub">of ${fmtBytes(m.totalBytes,0)} physical</div><div class="bar"><i style="width:${Math.min(100,pct)}%;background:var(--violet)"></i></div></div>
-        <div class="kpi"><div class="kpi-label" ${tip('Memory the system can reclaim under pressure — what Activity Monitor calls "available"')}>AVAILABLE<span>ⓘ</span></div><div class="kpi-value">${fmtBytes(m.availableBytes,1)}</div><div class="kpi-sub">free ${fmtBytes(m.freeBytes,1)}</div></div>
-        <div class="kpi"><div class="kpi-label">SWAP USED</div><div class="kpi-value">${m.swapUsedBytes!=null?fmtBytes(m.swapUsedBytes,1):'—'}</div><div class="kpi-sub">of ${fmtBytes(m.swapTotalBytes,0)} swap space</div><div class="bar"><i style="width:${m.swapTotalBytes?Math.min(100,100*m.swapUsedBytes/m.swapTotalBytes):0}%;background:var(--amber)"></i></div></div>
-        <div class="kpi"><div class="kpi-label">PRESSURE</div><div class="kpi-value" style="font-size:19px">${m.pressureLevel!=null?esc(({1:'nominal',2:'warning',3:'critical'})[m.pressureLevel]||('level '+m.pressureLevel)):'—'}</div><div class="kpi-sub">kernel memorystatus level</div></div>
-      </div>`;
-      html+=`<div class="card"><h3>History</h3><div class="hint">used memory and swap over time</div><div class="chart-wrap">${lineChart(hs.mem,{fmtY:v=>fmtBytes(v,0)})}</div></div>`;
-      html+=`<div class="card" style="margin-top:16px"><h3>About macOS memory semantics</h3>
-        <div class="hint" style="line-height:1.8">A near-zero <b>free</b> value is normal and healthy: macOS fills RAM with reclaimable file cache.
-        <b>Available</b> = free + cached memory reclaimable under pressure. <b>Used</b> follows Activity Monitor's "app memory + wired + compressed".
-        Swap usage is cumulative since boot and does not by itself indicate a problem.</div></div>`;
-    }
+  if (up != null) {
+    cards += kpiCard('UPTIME', esc(up), 'since boot',
+      'Time since the system booted (sysinfo boot_time)');
   }
-  else if(S.view==='disk'){
-    const d=snap;
-    if(d){
-      const io=d.diskIo||{};
-      html+=`<div class="kpis">
-        <div class="kpi"><div class="kpi-label">READ RATE</div><div class="kpi-value">${io.valid?fmtRate(io.readBytesPerSec):'pending'}</div><div class="kpi-sub">last ${Math.round((S.overview&&S.overview.intervalMs)||2000)} ms window</div></div>
-        <div class="kpi"><div class="kpi-label">WRITE RATE</div><div class="kpi-value">${io.valid?fmtRate(io.writtenBytesPerSec):'pending'}</div><div class="kpi-sub">${io.valid?fmtBytes(io.writtenBytes,1)+' written in window':'first sample seeds counters'}</div></div>
-      </div>`;
-      html+=`<div class="card"><h3>Volumes</h3><div class="hint">mounted filesystems and capacity</div>${volumeRows(d.volumes)}</div>`;
-      html+=`<div class="card" style="margin-top:16px"><h3>Throughput history</h3><div class="hint">reads and writes per second since the monitor started</div><div class="chart-wrap">${lineChart(hs.disk,{fmtY:v=>fmtBytes(v,0)})}</div></div>`;
-    }
+  if (la != null) {
+    cards += kpiCard('LOAD AVG',
+      la.one.toFixed(2) + ' ' + la.five.toFixed(2) + ' ' + la.fifteen.toFixed(2),
+      '1 / 5 / 15 min', 'Unix load averages');
   }
-  else if(S.view==='network'){
-    const n=snap;
-    if(n){
-      const t=n.networkTotals||{};
-      html+=`<div class="kpis">
-        <div class="kpi"><div class="kpi-label">DOWNLOAD</div><div class="kpi-value">${fmtRate(t.receivedPerSec)}</div><div class="kpi-sub">Σ ${fmtBytes(t.totalReceived,1)}</div></div>
-        <div class="kpi"><div class="kpi-label">UPLOAD</div><div class="kpi-value">${fmtRate(t.transmittedPerSec)}</div><div class="kpi-sub">Σ ${fmtBytes(t.totalTransmitted,1)}</div></div>
-      </div>`;
-      html+=`<div class="card"><h3>Interfaces</h3><div class="hint">live rates and lifetime totals per interface</div>${ifaceRows(n.interfaces)}</div>`;
-      html+=`<div class="card" style="margin-top:16px"><h3>Throughput history</h3><div class="hint">physical interfaces aggregated, loopback excluded</div><div class="chart-wrap">${lineChart(hs.net,{fmtY:v=>fmtBytes(v,0)})}</div></div>`;
-    }
-  }
-  else if(S.view==='gpu'){
-    const g=snap&&snap.gpu;
-    if(g){
-      html+=`<div class="kpis">${metricKpi('UTILIZATION',g.utilizationPercent,v=>fmtPct(v))}
-        ${metricKpi('RENDERER',g.rendererUtilizationPercent,v=>fmtPct(v))}
-        ${metricKpi('TILER',g.tilerUtilizationPercent,v=>fmtPct(v))}
-        ${metricKpi('GPU MEMORY',g.memoryUsedBytes,v=>fmtBytes(v,1))}
-        ${metricKpi('TEMPERATURE',g.temperatureCelsius,v=>v.toFixed(0)+' °C')}
-        ${metricKpi('THERMAL PRESSURE',g.thermalPressure)}</div>`;
-      html+=`<div class="card"><h3>Reading GPU metrics on macOS</h3>
-        <div class="hint" style="line-height:1.8">Utilization comes from IOKit's <span class="acc">AGXAccelerator</span> PerformanceStatistics — readable without root.
-        GPU <b>temperature</b> requires <span class="mono">sudo powermetrics</span>, so this dashboard marks it unavailable instead of estimating it.
-        Thermal pressure comes from <span class="mono">pmset -g therm</span>.</div></div>`;
-    }
-  }
-  else if(S.view==='battery'){
-    const b=snap&&snap.battery;
-    if(b){
-      html+=`<div class="kpis">${metricKpi('CHARGE',b.chargePercent,v=>fmtPct(v,0))}
-        ${metricKpi('STATUS',b.status)}
-        ${metricKpi('TIME LEFT',b.timeRemainingMinutes,v=>v+' min')}
-        ${metricKpi('HEALTH',b.healthPercent,v=>fmtPct(v,1))}
-        ${metricKpi('CYCLES',b.cycleCount,v=>''+v)}</div>`;
-      html+=`<div class="card"><h3>Capacity detail</h3><div class="hint">from AppleSmartBattery via ioreg</div>
-        ${metricLine('Design capacity',b.designCapacity_mah||b.designCapacityMah,v=>v+' mAh')}
-        ${metricLine('Full-charge capacity',b.maxCapacity_mah||b.maxCapacityMah,v=>v+' mAh')}
-        ${metricLine('Health (full/design)',b.healthPercent,v=>fmtPct(v,1))}</div>`;
-    }
-  }
-  else if(S.view==='processes'){
-    html+=`<div class="card">${processTable()}</div>`;
-  }
+  cards += kpiCard('PROCESSES', String(o.processCount),
+    'sample #' + o.sampleCount, 'Processes visible to this user');
 
-  html+=`<footer class="note">
-    Metrics are collected locally by sampling this Mac every ${S.overview?S.overview.intervalMs:2000} ms — nothing leaves localhost.
-    CPU percentages derive from Mach per-core tick deltas; memory follows macOS Activity Monitor semantics; GPU utilization from IOKit; battery from AppleSmartBattery.
-    History covers only this monitor's runtime (${S.history?Math.max(...['cpuPercent','memoryUsedBytes','netRecvPerSec'].map(k=>(S.history[k]||[]).length),0)} samples) and is kept in memory, never written to disk.
-    Unavailable metrics are shown as unavailable with their reason — values are never fabricated.
-  </footer>`;
+  return '<div class="kpis">' + cards + '</div>' +
+    '<div class="grid">' +
+      card('CPU load', 'busy % across all cores', chartPlaceholder('ovCpu')) +
+      card('Memory', 'used RAM and swap over time', chartPlaceholder('ovMem')) +
+      card('Network', 'physical interfaces, loopback excluded', chartPlaceholder('ovNet')) +
+      card('Disk', 'reads and writes per second', chartPlaceholder('ovDisk')) +
+    '</div>' +
+    '<script type="application/json" class="chart-registry">' + jsonSafe(JSON.stringify({
+      ovCpu:  {series: hs.cpu, max: 100, fmtY: 'pctY', fmtVal: 'pctV', warn: 80},
+      ovMem:  {series: hs.mem, fmtY: 'bytesY', fmtVal: 'bytesV'},
+      ovNet:  {series: hs.net, fmtY: 'bytesY', fmtVal: 'rateV'},
+      ovDisk: {series: hs.disk, fmtY: 'bytesY', fmtVal: 'rateV'},
+    })) + '</scr' + 'ipt>';
+}
 
-  $('content').innerHTML=html;
+function card(title, hint, bodyHtml) {
+  return '<div class="card"><h3>' + esc(title) + '</h3>' +
+    '<div class="hint">' + esc(hint) + '</div>' + bodyHtml + '</div>';
+}
 
-  // wire process-table interactions
-  const search=$('procSearch');
-  if(search){
-    let deb;
-    search.oninput=()=>{clearTimeout(deb);deb=setTimeout(()=>{S.procQuery=search.value;refreshProcesses();},250);};
-    document.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
-      const k=th.dataset.k;
-      if(S.procSort===k) S.procDir=S.procDir==='desc'?'asc':'desc';
-      else {S.procSort=k;S.procDir='desc';}
-      refreshProcesses();
+function viewCpu() {
+  const c = S.snapshot && S.snapshot.cpu;
+  if (!c) return '<div class="loading-msg">waiting for metrics…</div>';
+  const hs = histSeries();
+  const la = c.loadAverage;
+  return '<div class="kpis">' +
+    kpiCard('TOTAL', fmtPct(c.usagePercent),
+      'user ' + fmtPct(c.userPercent, 0) + ' · sys ' + fmtPct(c.systemPercent, 0) +
+        ' · idle ' + fmtPct(c.idlePercent, 0),
+      'Busy percentage from Mach per-core tick deltas',
+      c.usagePercent, 'var(--acc)') +
+    kpiCard('CORES',
+      (c.logicalCores != null ? String(c.logicalCores) : '—'),
+      (c.physicalCores != null ? c.physicalCores + ' physical' : ''),
+      'Logical vs physical processor counts') +
+    kpiCard('LOAD AVG',
+      la ? la.one.toFixed(2) + ' ' + la.five.toFixed(2) + ' ' + la.fifteen.toFixed(2) : '—',
+      '1 / 5 / 15 min', 'Unix load averages') +
+    kpiCard('CHIP', c.brand ? esc(c.brand) : '—',
+      'user/system/idle from Mach counters', 'Processor brand string') +
+    '</div>' +
+    '<div class="card" style="margin-bottom:14px"><h3>Per-core usage</h3>' +
+      '<div class="hint">each cell is one logical core; brightness tracks load</div>' +
+      coreGrid(c.cores) + '</div>' +
+    card('History', 'user / system / total since the monitor started',
+      chartPlaceholder('cpuHist') +
+      '<script type="application/json" class="chart-registry">' + jsonSafe(JSON.stringify({
+        cpuHist: {series: hs.cpu, max: 100, fmtY: 'pctY', fmtVal: 'pctV', warn: 80},
+      })) + '</scr' + 'ipt>');
+}
+
+function viewMemory() {
+  const m = S.snapshot && S.snapshot.memory;
+  if (!m) return '<div class="loading-msg">waiting for metrics…</div>';
+  const hs = histSeries();
+  const usedPct = m.totalBytes ? 100 * m.usedBytes / m.totalBytes : 0;
+  const swapPct = (m.swapTotalBytes && m.swapUsedBytes != null)
+    ? 100 * m.swapUsedBytes / m.swapTotalBytes : null;
+  const pressure = m.pressureLevel != null
+    ? ({1:'nominal', 2:'warning', 3:'critical'})[m.pressureLevel] || ('level ' + m.pressureLevel)
+    : null;
+  return '<div class="kpis">' +
+    kpiCard('USED', fmtBytes(m.usedBytes, 1), 'of ' + fmtBytes(m.totalBytes, 0) + ' physical',
+      'macOS "used" = app memory + wired + compressed (file cache excluded)',
+      usedPct, 'var(--violet)') +
+    kpiCard('AVAILABLE', fmtBytes(m.availableBytes, 1), 'free ' + fmtBytes(m.freeBytes, 1),
+      'Memory reclaimable under pressure — what Activity Monitor calls available') +
+    kpiCard('SWAP', m.swapUsedBytes != null ? fmtBytes(m.swapUsedBytes, 1) : 'Unavailable',
+      m.swapUsedBytes != null ? 'of ' + fmtBytes(m.swapTotalBytes, 0) + ' swap space'
+                             : 'swap disabled or not reported',
+      'Swap in use; cumulative since boot and not itself a problem indicator',
+      swapPct, 'var(--amber)', m.swapUsedBytes == null) +
+    kpiCard('PRESSURE', pressure != null ? esc(pressure) : 'Unavailable',
+      'kernel memorystatus level',
+      'kern.memorystatus_vm_pressure_level: 1=nominal 2=warning 3=critical',
+      null, null, pressure == null) +
+    '</div>' +
+    card('History', 'used memory and swap over time',
+      chartPlaceholder('memHist') +
+      '<script type="application/json" class="chart-registry">' + jsonSafe(JSON.stringify({
+        memHist: {
+          series: hs.mem, fmtY: 'bytesY', fmtVal: 'bytesV',
+          warn: (S.snapshot && S.snapshot.memory && S.snapshot.memory.totalBytes)
+            ? S.snapshot.memory.totalBytes * 0.9 : null,
+        },
+      })) + '</scr' + 'ipt>') +
+    '<div class="card" style="margin-top:14px"><h3>About macOS memory semantics</h3>' +
+    '<div class="hint" style="line-height:1.8">A near-zero <b>free</b> value is normal and healthy: ' +
+    'macOS fills RAM with reclaimable file cache. <b>Available</b> = free + reclaimable cache. ' +
+    '<b>Used</b> follows Activity Monitor\'s app memory + wired + compressed.</div></div>';
+}
+
+function viewDisk() {
+  const snap = S.snapshot;
+  if (!snap) return '<div class="loading-msg">waiting for metrics…</div>';
+  const io = snap.diskIo || {};
+  const hs = histSeries();
+  const iv = (S.overview && S.overview.intervalMs) || 2000;
+  return '<div class="kpis">' +
+    kpiCard('READ RATE', io.valid ? fmtRate(io.readBytesPerSec) : 'pending',
+      'last ' + Math.round(iv / 1000) + 's window',
+      'Cumulative counter delta across all volumes') +
+    kpiCard('WRITE RATE', io.valid ? fmtRate(io.writtenBytesPerSec) : 'pending',
+      io.valid ? fmtBytes(io.writtenBytes, 1) + ' written in window'
+               : 'first sample seeds counters',
+      'Cumulative counter delta across all volumes') +
+    '</div>' +
+    '<div class="card" style="margin-bottom:14px"><h3>Volumes</h3>' +
+      '<div class="hint">mounted filesystems and capacity</div>' + volumeRows(snap.volumes) + '</div>' +
+    card('Throughput history', 'reads and writes per second since the monitor started',
+      chartPlaceholder('diskHist') +
+      '<script type="application/json" class="chart-registry">' + jsonSafe(JSON.stringify({
+        diskHist: {series: hs.disk, fmtY: 'bytesY', fmtVal: 'rateV'},
+      })) + '</scr' + 'ipt>');
+}
+
+function viewNetwork() {
+  const snap = S.snapshot;
+  if (!snap) return '<div class="loading-msg">waiting for metrics…</div>';
+  const t = snap.networkTotals || {};
+  const hs = histSeries();
+  return '<div class="kpis">' +
+    kpiCard('DOWNLOAD', fmtRate(t.receivedPerSec), 'Σ ' + fmtBytes(t.totalReceived, 1),
+      'Summed download rate over physical interfaces') +
+    kpiCard('UPLOAD', fmtRate(t.transmittedPerSec), 'Σ ' + fmtBytes(t.totalTransmitted, 1),
+      'Summed upload rate over physical interfaces') +
+    '</div>' +
+    '<div class="card" style="margin-bottom:14px"><h3>Interfaces</h3>' +
+      '<div class="hint">live rates and lifetime totals per interface</div>' +
+      ifaceRows(snap.interfaces) + '</div>' +
+    card('Throughput history', 'physical interfaces aggregated, loopback excluded',
+      chartPlaceholder('netHist') +
+      '<script type="application/json" class="chart-registry">' + jsonSafe(JSON.stringify({
+        netHist: {series: hs.net, fmtY: 'bytesY', fmtVal: 'rateV'},
+      })) + '</scr' + 'ipt>');
+}
+
+function viewGpu() {
+  const g = S.snapshot && S.snapshot.gpu;
+  if (!g) return '<div class="loading-msg">waiting for metrics…</div>';
+  return '<div class="kpis">' +
+    metricCard('MODEL', g.model, v => v) +
+    metricCard('UTILIZATION', g.utilizationPercent, v => fmtPct(v)) +
+    metricCard('RENDERER', g.rendererUtilizationPercent, v => fmtPct(v)) +
+    metricCard('TILER', g.tilerUtilizationPercent, v => fmtPct(v)) +
+    metricCard('MEMORY IN USE', g.memoryUsedBytes, v => fmtBytes(v, 1)) +
+    metricCard('TEMPERATURE', g.temperatureCelsius, v => v.toFixed(0) + ' °C') +
+    metricCard('THERMAL PRESSURE', g.thermalPressure, v => v) +
+    '</div>' +
+    '<div class="card"><h3>Reading GPU metrics on macOS</h3>' +
+    '<div class="hint" style="line-height:1.8">Utilization comes from IOKit\'s ' +
+    '<span class="acc">AGXAccelerator</span> PerformanceStatistics — readable without root, ' +
+    'sampled every interval. GPU <b>temperature</b> requires ' +
+    '<span class="mono">sudo powermetrics</span>, so it is reported as unavailable rather ' +
+    'than estimated. Thermal pressure comes from <span class="mono">pmset -g therm</span> ' +
+    'and is re-read at most every 10 minutes — it changes on the scale of minutes, not seconds.' +
+    '</div></div>';
+}
+
+function viewBattery() {
+  const b = S.snapshot && S.snapshot.battery;
+  if (!b) return '<div class="loading-msg">waiting for metrics…</div>';
+  const anyAvailable = ['chargePercent','status','cycleCount','healthPercent']
+    .some(k => b[k] && b[k].available);
+  if (!anyAvailable) {
+    return '<div class="card"><h3>Battery</h3>' +
+      '<div class="hint" style="line-height:1.8">No battery was detected on this Mac ' +
+      '(desktop machines have none). Nothing is estimated.</div></div>';
+  }
+  return '<div class="kpis">' +
+    metricCard('CHARGE', b.chargePercent, v => fmtPct(v, 0)) +
+    metricCard('STATUS', b.status, v => v) +
+    metricCard('TIME LEFT', b.timeRemainingMinutes, v => v + ' min') +
+    metricCard('HEALTH', b.healthPercent, v => fmtPct(v, 1)) +
+    metricCard('CYCLES', b.cycleCount, v => String(v)) +
+    '</div>' +
+    '<div class="card"><h3>Capacity detail</h3>' +
+      '<div class="hint">from AppleSmartBattery via ioreg</div>' +
+      '<div class="row-list">' +
+        metricLine('Design capacity', b.designCapacityMah, v => v + ' mAh') +
+        metricLine('Full-charge capacity', b.maxCapacityMah, v => v + ' mAh') +
+        metricLine('Health (full ÷ design)', b.healthPercent, v => fmtPct(v, 1)) +
+      '</div></div>' +
+    '<div class="card"><h3>Update cadence</h3>' +
+      '<div class="hint" style="line-height:1.8">Charge, status and the time estimate are ' +
+      're-read every slow sampling pass (~5 intervals). Cycle count and capacities change ' +
+      'only when the battery is actually cycled, so they are re-read at most hourly and ' +
+      'served from cache in between — the values shown are never estimated.</div></div>';
+}
+
+function viewProcesses() {
+  const d = S.procData;
+  if (!d) return '<div class="loading-msg">loading processes…</div>';
+  const th = (key, label) =>
+    '<th data-k="' + key + '" class="' + (S.procSort === key ? 'sorted' : '') + '">' + esc(label) +
+    (S.procSort === key ? (S.procDir === 'desc' ? ' ↓' : ' ↑') : '') + '</th>';
+  const rows = d.items.map(p =>
+    '<tr><td class="muted">' + p.pid + '</td>' +
+    '<td style="font-family:var(--sans)">' + esc(p.name) + '</td>' +
+    '<td class="' + (p.cpuPercent > 50 ? 'red' : p.cpuPercent > 10 ? 'amber' : '') + '">' +
+      p.cpuPercent.toFixed(1) + '%</td>' +
+    '<td>' + (p.memoryReadable === false
+      ? '<span class="muted" ' + tip('macOS denies reading other users\' process memory without root') + '>n/a</span>'
+      : fmtBytes(p.memoryBytes, 1)) + '</td></tr>').join('');
+  return '<div class="card">' +
+    '<div class="proc-toolbar">' +
+      '<input id="procSearch" class="proc-search" type="text" ' +
+        'placeholder="search by name or pid…" value="' + esc(S.procQuery) + '">' +
+      '<span class="proc-count">showing ' + d.items.length + ' of ' +
+        (d.matched != null ? d.matched + ' matching (' + d.total + ' total)' : d.total) +
+        (S.demo ? ' · demo' : '') + '</span>' +
+    '</div>' +
+    '<div class="table-scroll"><table><thead><tr>' +
+      th('pid','PID') + th('name','Process') + th('cpu','CPU %') + th('memory','Memory') +
+    '</tr></thead><tbody>' +
+    (rows || '<tr><td colspan="4" class="muted" style="text-align:center;padding:18px">' +
+      'no matching processes</td></tr>') +
+    '</tbody></table></div>' +
+    '<div class="readonly-note">read-only view — this dashboard never terminates processes</div>' +
+    '</div>';
+}
+
+/* ================================================================
+   Render — rebuilds only the content region; nav/topbar are patched
+   in place so focus and scroll position survive refreshes.
+   ================================================================ */
+const VIEW_RENDERERS = {
+  overview: viewOverview,
+  cpu: viewCpu,
+  memory: viewMemory,
+  disk: viewDisk,
+  network: viewNetwork,
+  gpu: viewGpu,
+  battery: viewBattery,
+  processes: viewProcesses,
+};
+const VIEW_TITLES = {
+  overview:  ['Overview', 'system summary'],
+  cpu:       ['CPU', 'processor load'],
+  memory:    ['Memory', 'RAM & swap'],
+  disk:      ['Disk', 'volumes & I/O'],
+  network:   ['Network', 'interfaces & throughput'],
+  gpu:       ['GPU & Thermals', 'graphics & thermal state'],
+  battery:   ['Battery', 'power & health'],
+  processes: ['Processes', 'read-only process table'],
+};
+
+function renderNav() {
+  const nav = $('nav');
+  const wanted = VIEWS.map(v => v[0]).join(',');
+  if (nav.dataset.builtFor !== wanted) {
+    nav.innerHTML = VIEWS.map(v =>
+      '<div class="nav-item' + (S.view === v[0] ? ' active' : '') + '" data-view="' + v[0] + '" ' +
+      'title="' + esc(v[1]) + '">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+      'stroke-linecap="round" stroke-linejoin="round"><path d="' + v[2] + '"/></svg>' +
+      '<span>' + esc(v[1]) + '</span></div>').join('');
+    nav.dataset.builtFor = wanted;
+    nav.querySelectorAll('.nav-item').forEach(el => {
+      el.addEventListener('click', () => {
+        if (S.view === el.dataset.view) return;
+        S.view = el.dataset.view;
+        if (S.view === 'processes') refreshProcesses(); else render();
+      });
+    });
+  } else {
+    nav.querySelectorAll('.nav-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.view === S.view);
     });
   }
 }
 
-/* ============ interval control ============ */
-$('intervalSel').onchange=async e=>{
-  const ms=+e.target.value;
-  try{
-    const r=await fetch('/api/sys/interval',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ms})});
-    if(!r.ok) throw new Error(await r.text());
-    refresh();
-  }catch(err){ S.error='interval change failed: '+err.message; render(); }
-};
+function render() {
+  renderNav();
 
-/* ============ boot ============ */
-(async function boot(){
-  await refresh();
-  const iv=()=>refresh();
-  window.setInterval(iv, Math.max(1500, S.overview?S.overview.intervalMs:2000));
-  window.setInterval(()=>{ if(S.view==='processes') refreshProcesses(); }, 3000);
+  const t = VIEW_TITLES[S.view] || VIEW_TITLES.overview;
+  $('pageTitle').textContent = t[0];
+  $('pageSub').textContent = t[1] + (S.demo ? ' · DEMO DATA' : '');
+
+  const note = 'updated ' + ago(S.lastFetch) + ' · every ' +
+    ((S.overview && S.overview.intervalMs) || 2000) + ' ms';
+  if ($('refreshNote').textContent !== note) $('refreshNote').textContent = note;
+  $('retryBtn').style.display = S.error ? 'inline-block' : 'none';
+
+  const renderer = VIEW_RENDERERS[S.view] || viewOverview;
+  let html = '';
+  if (S.error) {
+    html += '<div class="banner error">failed to fetch metrics: ' + esc(S.error) +
+      ' — retrying automatically, or press “retry now”</div>';
+  }
+  if (S.demo) {
+    html += '<div class="banner demo">DEMO MODE — synthetic metrics for offline UI testing, ' +
+      'not real measurements from this Mac.</div>';
+  }
+
+  let body;
+  try {
+    body = renderer();
+  } catch (e) {
+    body = '<div class="banner error">render error: ' + esc(e.message) + '</div>';
+  }
+  html += body;
+
+  const samples = S.history
+    ? Math.max(histPoints('cpuPercent').length, histPoints('memoryUsedBytes').length)
+    : 0;
+  html += '<footer class="note">Metrics are collected locally by sampling this Mac — ' +
+    'nothing leaves localhost. CPU percentages derive from Mach per-core tick deltas; ' +
+    'memory follows macOS Activity Monitor semantics; GPU utilization from IOKit; ' +
+    'battery from AppleSmartBattery. History covers this monitor\'s runtime (' + samples +
+    ' samples), kept in memory only. Unavailable metrics are shown with their reason — ' +
+    'values are never fabricated.</footer>';
+
+  // Replace only the content region; sidebar/topbar keep their DOM nodes.
+  const inner = $('content').querySelector('.content-inner');
+  inner.innerHTML = html;
+
+  // Mount interactive charts declared by this view. Each view embeds exactly
+  // one registry; query all and merge so per-card registries also work.
+  const registries = inner.querySelectorAll('script[type="application/json"].chart-registry');
+  if (registries.length) {
+    let merged = {};
+    let parseError = null;
+    registries.forEach(function (r) {
+      try {
+        Object.assign(merged, JSON.parse(r.textContent));
+      } catch (e) {
+        parseError = e;
+      }
+    });
+    if (parseError) {
+      const grid = inner.querySelector('.grid') || inner;
+      grid.insertAdjacentHTML('afterbegin',
+        '<div class="banner error">chart setup failed: ' + esc(parseError.message) + '</div>');
+    } else {
+      Object.keys(merged).forEach(function (k) { resolveFormatters(merged[k]); });
+      try {
+        mountChartsIn(inner, merged);
+      } catch (e) {
+        const grid = inner.querySelector('.grid') || inner;
+        grid.insertAdjacentHTML('afterbegin',
+          '<div class="banner error">chart setup failed: ' + esc(e.message) + '</div>');
+      }
+    }
+  }
+  wireViewHandlers();
+}
+
+function wireViewHandlers() {
+  const search = $('procSearch');
+  if (search && !search.dataset.wired) {
+    search.dataset.wired = '1';
+    let deb;
+    search.addEventListener('input', () => {
+      clearTimeout(deb);
+      deb = setTimeout(() => { S.procQuery = search.value; refreshProcesses(); }, 250);
+    });
+  }
+  document.querySelectorAll('th[data-k]').forEach(thEl => {
+    if (thEl.dataset.wired) return;
+    thEl.dataset.wired = '1';
+    thEl.addEventListener('click', () => {
+      const k = thEl.dataset.k;
+      if (S.procSort === k) S.procDir = S.procDir === 'desc' ? 'asc' : 'desc';
+      else { S.procSort = k; S.procDir = 'desc'; }
+      refreshProcesses();
+    });
+  });
+}
+
+/* ================================================================
+   Interval control
+   ================================================================ */
+$('intervalSel').addEventListener('change', async e => {
+  const ms = Number(e.target.value);
+  try {
+    const r = await fetch('/api/sys/interval', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({ms}),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    await refresh();
+  } catch (err) {
+    S.error = 'interval change failed: ' + (err.message || err);
+    render();
+  }
+});
+
+$('retryBtn').addEventListener('click', () => refresh());
+
+/* ================================================================
+   Boot
+   ================================================================ */
+(async function boot() {
+  try {
+    await refresh();
+  } catch (e) {
+    S.error = e.message || String(e);
+    render();
+  }
+  // Fallback poller in case refresh() above didn't schedule one (error path).
+  if (S.timerId == null) scheduleTimers();
+  // Process view refreshes a bit more often than metrics when active.
+  S.procTimerId = setInterval(() => {
+    if (S.view === 'processes' && document.visibilityState === 'visible') {
+      refreshProcesses();
+    }
+  }, 3000);
+  // Keep "updated Xs ago" fresh between polls.
+  setInterval(() => {
+    if (S.lastFetch) {
+      const note = 'updated ' + ago(S.lastFetch) + ' · every ' +
+        ((S.overview && S.overview.intervalMs) || 2000) + ' ms';
+      if ($('refreshNote').textContent !== note) $('refreshNote').textContent = note;
+    }
+  }, 1000);
+
+  // Self-audit mode (?audit=1): measures the rendered layout and reports
+  // overflow as JSON in a <pre id="AUDIT_RESULT">. Used by headless
+  // verification; harmless (and inert) in normal use.
+  if (new URLSearchParams(location.search).get('audit') === '1') {
+    runSelfAudit();
+  }
 })();
+
+/* ================================================================
+   Layout self-audit (?audit=1)
+   Verifies charts/cards stay inside their containers at the current
+   viewport. Runs after data-driven rendering settles.
+   ================================================================ */
+function auditLayoutOnce() {
+  const problems = [];
+  const info = {charts: 0, cards: 0, docScrollW: 0, docClientW: 0, view: S.view};
+  const de = document.documentElement;
+  info.docScrollW = de.scrollWidth;
+  info.docClientW = de.clientWidth;
+  if (de.scrollWidth > de.clientWidth + 1) {
+    problems.push('document horizontal overflow: scrollWidth ' + de.scrollWidth +
+                  ' > clientWidth ' + de.clientWidth);
+  }
+
+  const cardTitle = c => { const h = c.querySelector('h3'); return h ? h.textContent : '(untitled)'; };
+
+  document.querySelectorAll('.card').forEach(card => {
+    const cr = card.getBoundingClientRect();
+    Array.prototype.forEach.call(card.children, child => {
+      const r = child.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return;
+      // Overflow = child extends past the card's box on any side.
+      const outRight = r.right - cr.right;      // >0 → past right edge
+      const outLeft = cr.left - r.left;         // >0 → past LEFT edge (child starts before card)
+      const outBottom = r.bottom - cr.bottom;   // >0 → below card
+      if (outRight > 1.5 || outLeft > 1.5) {
+        problems.push('card "' + cardTitle(card) + '" child .' + child.className +
+                      ' overflows horizontally by ' + Math.max(outRight, outLeft).toFixed(1) + 'px');
+      }
+      if (outBottom > 1.5) {
+        problems.push('card "' + cardTitle(card) + '" child .' + child.className +
+                      ' overflows bottom by ' + outBottom.toFixed(1) + 'px');
+      }
+    });
+  });
+
+  document.querySelectorAll('svg').forEach((svg, i) => {
+    const card = svg.closest('.card');
+    if (!card) return;
+    info.charts++;
+    const sr = svg.getBoundingClientRect();
+    const cr = card.getBoundingClientRect();
+    if (sr.width === 0) return;
+    if (sr.right > cr.right + 1.5) problems.push('svg[' + i + '] exceeds card right by ' + (sr.right - cr.right).toFixed(1) + 'px');
+    if (sr.left < cr.left - 1.5) problems.push('svg[' + i + '] exceeds card left by ' + (cr.left - sr.left).toFixed(1) + 'px');
+    if (sr.right > de.clientWidth + 1) problems.push('svg[' + i + '] extends past viewport by ' + (sr.right - de.clientWidth).toFixed(1) + 'px');
+    // Labels must stay within the svg's own box.
+    Array.prototype.forEach.call(svg.querySelectorAll('text'), t => {
+      const tr = t.getBoundingClientRect();
+      if (tr.left < sr.left - 1 || tr.right > sr.right + 1) {
+        problems.push('svg[' + i + '] text "' + t.textContent.slice(0, 20) + '" escapes chart bounds');
+      }
+    });
+  });
+
+  const kpis = document.querySelector('.kpis');
+  if (kpis) {
+    const kr = kpis.getBoundingClientRect();
+    Array.prototype.forEach.call(kpis.children, k => {
+      const r = k.getBoundingClientRect();
+      if (r.right > kr.right + 1.5) problems.push('kpi exceeds grid by ' + (r.right - kr.right).toFixed(1) + 'px');
+    });
+  }
+  document.querySelectorAll('.chart-legend').forEach((lg, i) => {
+    const card = lg.closest('.card');
+    if (!card) return;
+    const cr = card.getBoundingClientRect(), lr = lg.getBoundingClientRect();
+    if (lr.right > cr.right + 1.5) problems.push('legend[' + i + '] overflows card by ' + (lr.right - cr.right).toFixed(1) + 'px');
+  });
+  return {problems, info};
+}
+
+function runSelfAudit() {
+  // Wait for the first data-driven render, then measure each view in turn.
+  const views = VIEWS.map(v => v[0]);
+  let vi = 0;
+  const results = [];
+  const step = () => {
+    if (vi >= views.length) {
+      const pre = document.createElement('pre');
+      pre.id = 'AUDIT_RESULT';
+      pre.textContent = 'AUDIT_JSON_START' + JSON.stringify(results) + 'AUDIT_JSON_END';
+      document.body.appendChild(pre);
+      return;
+    }
+    S.view = views[vi];
+    render();
+    // Let charts mount and ResizeObservers fire.
+    setTimeout(() => {
+      try { results.push(auditLayoutOnce()); }
+      catch (e) { results.push({problems: ['audit error: ' + e.message], info: {}}); }
+      vi++;
+      step();
+    }, 350);
+  };
+  setTimeout(step, 1200);
+}
 </script>
 </body>
 </html>
