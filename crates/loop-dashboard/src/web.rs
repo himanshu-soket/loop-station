@@ -48,6 +48,28 @@ const SFT_ARCHITECTURE_HTML: &str = include_str!("assets/sft_architecture.html")
 /// and scripts stay isolated from the console shell.
 const SFT_BOARD_HTML: &str = include_str!("assets/sft_board.html");
 
+/// EKA SFT data-pipeline map (`assets/sft_pipeline_map.html`).
+///
+/// The original `eka-sft-board-2.html` — dark pipeline board with the
+/// stage strip, run controls ("now running" panel + log), six columns of
+/// stage cards, dashed cross-stage flows, reject lane, repair routes and
+/// the tap drawer — copied in byte-for-byte and served verbatim as a
+/// self-contained page. Same pattern as the other pipeline pages: mounted
+/// behind the session guard and opened from the SFT DataTrove workspace's
+/// "Open pipeline map" entry in a new browser tab.
+const SFT_PIPELINE_MAP_HTML: &str = include_str!("assets/sft_pipeline_map.html");
+
+/// EKA checkpoints-by-level report (`assets/eka_checkpoints.html`).
+///
+/// The original "EKA Checkpoints by Level" webpage — verdict panel, the
+/// level-wise and per-checkpoint accuracy tables with their tinted cells,
+/// reference-model rows and the collapsible older-checkpoint tables —
+/// copied in byte-for-byte and served verbatim as a self-contained page.
+/// Mounted inside the console SPA at `#eval/model` (Model Evaluation) in an
+/// iframe that fills the workspace, so its styles stay fully isolated from
+/// the console shell. Like the other static assets it contains no user data.
+const EKA_CHECKPOINTS_HTML: &str = include_str!("assets/eka_checkpoints.html");
+
 /// Pretraining pipeline architecture report.
 ///
 /// The navigable engineering reference for the pretraining data pipeline:
@@ -164,6 +186,19 @@ async fn sft_architecture_page() -> Response {
 /// console at `#sft/board`.
 async fn sft_board_page() -> Response {
     html(SFT_BOARD_HTML)
+}
+
+/// `GET /sft-pipeline-map` — the original EKA SFT data-pipeline board
+/// (`eka-sft-board-2.html`), opened from the SFT DataTrove workspace's
+/// "Open pipeline map" entry in a new browser tab.
+async fn sft_pipeline_map_page() -> Response {
+    html(SFT_PIPELINE_MAP_HTML)
+}
+
+/// `GET /eka-checkpoints` — the original EKA Checkpoints by Level webpage,
+/// mounted inside the console at `#eval/model` (Model Evaluation).
+async fn eka_checkpoints_page() -> Response {
+    html(EKA_CHECKPOINTS_HTML)
 }
 
 /// `GET /pretrain-report` — the pretraining pipeline architecture report,
@@ -385,6 +420,10 @@ pub fn web_router() -> Router {
         .route("/sft-architecture/index.html", get(sft_architecture_page))
         .route("/sft-board", get(sft_board_page))
         .route("/sft-board/index.html", get(sft_board_page))
+        .route("/sft-pipeline-map", get(sft_pipeline_map_page))
+        .route("/sft-pipeline-map/index.html", get(sft_pipeline_map_page))
+        .route("/eka-checkpoints", get(eka_checkpoints_page))
+        .route("/eka-checkpoints/index.html", get(eka_checkpoints_page))
         .route("/pretrain-report", get(pretrain_report_page))
         .route("/pretrain-report/index.html", get(pretrain_report_page))
         .route("/shell.css", get(shell_css))

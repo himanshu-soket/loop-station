@@ -182,6 +182,7 @@ async fn eval_api_requires_a_session() {
         "/api/eval/docs",
         "/api/eval/benchmarks",
         "/api/eval/comparison",
+        "/api/eval/reports",
     ] {
         let (status, _) = get(&app, uri, None).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{uri} must be guarded");
@@ -195,6 +196,7 @@ async fn eval_api_requires_a_session() {
         "/api/eval/docs",
         "/api/eval/benchmarks",
         "/api/eval/comparison",
+        "/api/eval/reports",
     ] {
         let (status, body) = get(&app, uri, Some(&_cookie)).await;
         assert_eq!(status, StatusCode::OK, "{uri}: {body}");
@@ -379,6 +381,316 @@ async fn missing_kit_reports_not_configured_without_errors() {
     std::env::remove_var("LOOP_EVAL_ROOT");
 }
 
+// A fixture that mirrors an imported report bundle (the eka_all_eval_reports
+// ZIP shape): checkpoint folders of self-contained HTML reports with an
+// embedded `report-data` JSON block, plus settings-sweep summary pages and
+// _overview hub pages.
+fn imported_reports_fixture() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let kit = dir.path().join("internal_eval");
+    std::fs::create_dir_all(kit.join("banks")).unwrap();
+    std::fs::write(kit.join("banks/qbank.jsonl"), "{}\n{}\n").unwrap();
+    std::fs::write(kit.join("README.md"), "# kit\n").unwrap();
+
+    // One live run with report.json/report.html/graded_flat.csv.
+    let run = kit.join("runs/EKA_live_20261101");
+    std::fs::create_dir_all(run.join("settings/med06")).unwrap();
+    std::fs::write(
+        run.join("config.json"),
+        r#"{"model":"eka-live","label":"EKA live","input":"qbank",
+           "settings":[{"name":"med06","temperature":0.6}]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        run.join("settings/med06/report.json"),
+        r#"{"n":100,"overall":{"eka":{"n":100,"acc":72.5,"strict":60.0}}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        run.join("settings/med06/report.html"),
+        "<html>gap report</html>",
+    )
+    .unwrap();
+    std::fs::write(
+        run.join("settings/med06/graded_flat.csv"),
+        "id,answer,grade\nQ1,foo,correct\n",
+    )
+    .unwrap();
+
+    // Imported bundle: a detail report with embedded JSON.
+    let bundle = kit.join("runs/eka_imported/sft6-x");
+    std::fs::create_dir_all(&bundle).unwrap();
+    let embedded = r#"{"n_sampled":96500,"n_graded":96500,
+        "models":["eka","gpt-oss-120b"],
+        "overall":{"eka":{"n":96500,"acc":66.4,"strict":45.2},
+                   "gpt-oss-120b":{"n":96500,"acc":90.9}},
+        "suites":{"school":{"n":34450}},
+        "all":{"n":96500},
+        "gen_stats":{"gpt-oss-120b":{"n":96500,"empty":1}},
+        "eka_stats":{"n":96500,"empty":2664,"median_tokens":1342},
+        "eka_name":"EKA sft6-x full high04",
+        "lede":"EKA sft6-x full high04 (eka-sft6-x) answered 96,500 questions.",
+        "method":["Questions: 96,500 from <code>qbank-v2-all</code>; 96,500 graded.",
+                  "EKA sft6-x full high04: served by vLLM at http://h:8000, temperature 0.4.",
+                  "Judge: gpt-oss-120b (reasoning high) saw everything blind."]}"#;
+    let detail_html = format!(
+        "<!doctype html><html><head><title>EKA sft6-x t0</title></head><body>\
+         <h1>EKA sft6-x full high04 Gap Report</h1>\
+         <script id=\"report-data\" type=\"application/json\">{embedded}</script>\
+         </body></html>"
+    );
+    std::fs::write(bundle.join("full__high04.html"), detail_html).unwrap();
+
+    // Imported settings-sweep summary page.
+    let sweep_html = concat!(
+        "<!doctype html><html><body>",
+        "<h1>EKA sft6-x full settings sweep</h1>",
+        "<p class=\"muted\"><b>EKA sft6-x full</b> (<code>eka-sft6-x</code> at http://h:8000) ",
+        "answered 1,950 questions from <code>qbank-v2-sample</code> at 2 decoding settings.</p>",
+        "<div class=\"meta\"><span>1,950 questions</span><span>2 settings</span>",
+        "<span>judge: gpt-oss-120b, blind, shuffled</span><span>22 Oct 2026, 01:58</span></div>",
+        "<section><h2 id=\"o\">Overall</h2><div class=\"tbl\"><table>",
+        "<thead><tr><th>Model and setting</th><th class=\"num\">Accuracy</th>",
+        "<th class=\"num\">Fully correct</th><th class=\"num\">Empty answers</th>",
+        "<th class=\"num\">Median tokens</th></tr></thead>",
+        "<tbody><tr><th>High @0.4</th><td class=\"num\">78.5</td><td class=\"num\">64.1</td>",
+        "<td class=\"num\">8 (0.4%)</td><td class=\"num\">849</td></tr>",
+        "<tr><th>High @0.6</th><td class=\"num\">77.7</td><td class=\"num\">62.7</td>",
+        "<td class=\"num\">11 (0.6%)</td><td class=\"num\">886</td></tr></tbody>",
+        "<tbody><tr class=\"ref\"><th>gpt-oss-120b</th><td class=\"num\">95.9</td>",
+        "<td class=\"num\">92.8</td><td>\u{2013}</td><td>\u{2013}</td></tr></tbody>",
+        "</table></div></section></body></html>"
+    );
+    std::fs::write(
+        bundle.join("full__EKA_sft6_x_full_20261101_0000__summary.html"),
+        sweep_html,
+    )
+    .unwrap();
+
+    // _overview hub page without its own data (embed fragment).
+    let ov = kit.join("runs/eka_imported/_overview");
+    std::fs::create_dir_all(&ov).unwrap();
+    std::fs::write(
+        ov.join("index.html"),
+        concat!(
+            "<html><h1>EKA sft6-x evaluation hub</h1><table>",
+            "<tr><th>Model</th><th>Setting</th><th>Accuracy</th></tr></table></html>"
+        ),
+    )
+    .unwrap();
+    std::fs::write(ov.join("all_artifacts.csv"), "a,b\n1,2\n").unwrap();
+    dir
+}
+
+#[allow(clippy::await_holding_lock)]
+#[tokio::test(flavor = "multi_thread")]
+async fn imported_reports_flow_through_the_card_api() {
+    let _env = env_lock();
+    let kit = imported_reports_fixture();
+    std::env::set_var("LOOP_EVAL_ROOT", kit.path());
+    let (app, cookie, _auth) = app_with_owner().await;
+
+    // The card list covers all three families, deduplicated.
+    let (_, body) = get(&app, "/api/eval/reports", Some(&cookie)).await;
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let items = v["items"].as_array().unwrap();
+    assert!(
+        items.len() >= 4,
+        "live report + summary + imported detail + sweep + hub"
+    );
+    let ids: Vec<&str> = items.iter().map(|c| c["id"].as_str().unwrap()).collect();
+    let unique: std::collections::HashSet<&&str> = ids.iter().collect();
+    assert_eq!(unique.len(), ids.len(), "no duplicate cards");
+
+    // Live-run card carries real metrics from report.json.
+    let live = items
+        .iter()
+        .find(|c| c["source"] == "run_report")
+        .expect("live run report card");
+    assert_eq!(live["acc"], 72.5);
+    assert_eq!(live["samples"], 100);
+    assert_eq!(live["status"], "completed");
+    assert!(
+        live["artifacts"]["csv"].is_string(),
+        "graded_flat.csv catalogued"
+    );
+
+    // Imported detail card parses the embedded JSON honestly.
+    let detail = items
+        .iter()
+        .find(|c| c["source"] == "imported_html")
+        .expect("imported detail card");
+    assert_eq!(detail["title"], "EKA sft6-x full high04");
+    assert_eq!(detail["acc"], 66.4);
+    assert_eq!(detail["strict"], 45.2);
+    assert_eq!(detail["samples"], 96500);
+    assert_eq!(detail["graded"], 96500);
+    assert_eq!(detail["model"], "EKA sft6-x full high04");
+    assert_eq!(detail["input"], "qbank-v2-all");
+    assert_eq!(detail["judge"], "gpt-oss-120b");
+    assert_eq!(
+        detail["comparisons"][0]["model"], "gpt-oss-120b",
+        "comparison models follow the model under test"
+    );
+
+    // Sweep card: best own accuracy from the Overall table.
+    let sweep = items
+        .iter()
+        .find(|c| c["source"] == "imported_overview" && c["setting"] == "sweep")
+        .expect("sweep card");
+    assert_eq!(sweep["acc"], 78.5);
+    assert_eq!(sweep["samples"], 1950);
+    assert_eq!(sweep["model"], "eka-sft6-x");
+    assert_eq!(sweep["input"], "qbank-v2-sample");
+
+    // Detail endpoint returns parsed sweep rows + method notes.
+    let id = detail["id"].as_str().unwrap();
+    let (_, body) = get(&app, &format!("/api/eval/reports/{id}"), Some(&cookie)).await;
+    let d: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert!(d["lede"].as_str().unwrap().contains("answered 96,500"));
+    assert_eq!(d["method"].as_array().unwrap().len(), 3);
+    assert!(d["overall"]["eka"]["acc"] == 66.4);
+
+    // Artifact serving: HTML verbatim, JSON download, CSV download.
+    let (status, body) = get(
+        &app,
+        &format!("/api/eval/reports/{id}/file?as=html"),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("report-data"), "original HTML preserved");
+
+    let (status, body) = get(
+        &app,
+        &format!("/api/eval/reports/{id}/file?as=json"),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let j: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        j["overall"]["eka"]["acc"], 66.4,
+        "embedded JSON served verbatim"
+    );
+
+    let live_id = live["id"].as_str().unwrap();
+    let (status, body) = get(
+        &app,
+        &format!("/api/eval/reports/{live_id}/file?as=csv"),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.starts_with("id,answer,grade"), "CSV downloads intact");
+
+    // Unknown ids and bogus ?as= are honest errors.
+    let (status, _) = get(&app, "/api/eval/reports/nope", Some(&cookie)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = get(
+        &app,
+        &format!("/api/eval/reports/{id}/file?as=bogus"),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // A card without a CSV artifact answers 404 rather than guessing.
+    let (status, _) = get(
+        &app,
+        &format!("/api/eval/reports/{id}/file?as=csv"),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    std::env::remove_var("LOOP_EVAL_ROOT");
+}
+
+#[allow(clippy::await_holding_lock)]
+#[tokio::test(flavor = "multi_thread")]
+async fn html_artifacts_render_as_webpages_not_source() {
+    let _env = env_lock();
+    let kit = imported_reports_fixture();
+    std::env::set_var("LOOP_EVAL_ROOT", kit.path());
+    let (app, cookie, _auth) = app_with_owner().await;
+
+    // The catalog id of the imported detail report.
+    let id = "runs::eka_imported::sft6-x::full__high04.html";
+
+    // 1. Default preview still returns a JSON payload (mode: text) — the
+    //    existing preview contract is unchanged for non-render callers.
+    let (status, body) = get(&app, &format!("/api/eval/file/{id}"), Some(&cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["mode"], "text", "plain preview stays a JSON payload");
+
+    // 2. ?render=html serves the file as a real webpage: verbatim bytes,
+    //    HTML content type, inline disposition, no-cache.
+    let (status, body) = get(
+        &app,
+        &format!("/api/eval/file/{id}?render=html"),
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("<script id=\"report-data\""),
+        "the original markup is served verbatim, unescaped"
+    );
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/eval/file/{id}?render=html"))
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        res.headers().get(header::CONTENT_TYPE).unwrap(),
+        "text/html; charset=utf-8",
+        "HTML responses must be served as webpages"
+    );
+    assert!(res
+        .headers()
+        .get(header::CONTENT_DISPOSITION)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .starts_with("inline"));
+    assert_eq!(
+        res.headers().get(header::CACHE_CONTROL).unwrap(),
+        "no-cache"
+    );
+
+    // 3. Non-HTML resources refuse render mode honestly.
+    let (status, _) = get(
+        &app,
+        "/api/eval/file/banks::qbank.jsonl?render=html",
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // 4. Render mode is session-guarded like every other eval route.
+    let (status, _) = get(&app, &format!("/api/eval/file/{id}?render=html"), None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // 5. Traversal ids never resolve in render mode either.
+    let (status, _) = get(
+        &app,
+        "/api/eval/file/..::etc::passwd?render=html",
+        Some(&cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    std::env::remove_var("LOOP_EVAL_ROOT");
+}
+
 // ---------------------------------------------------------- UI wiring ----
 
 const CONSOLE_HTML: &str = include_str!("../src/assets/console.html");
@@ -400,7 +712,8 @@ fn console_loads_the_eval_script_before_the_app() {
 }
 
 #[test]
-fn console_app_registers_all_six_routes_and_cards() {
+fn console_app_registers_the_unified_eval_workspace() {
+    // The route dispatcher mounts every section inside ONE workspace.
     for route in [
         "evalbank",
         "evaldata",
@@ -413,28 +726,28 @@ fn console_app_registers_all_six_routes_and_cards() {
             CONSOLE_APP_JS.contains(&format!("case '{route}':")),
             "route {route} dispatched"
         );
-        assert!(
-            CONSOLE_APP_JS.contains(&format!("'{route}',")),
-            "route {route} in WS_ROUTES or nav"
-        );
     }
-    // The six cards with their icons and destinations.
-    for id in [
-        "evalbank",
-        "evaldata",
-        "evalbench",
-        "evalmodel",
-        "evalreport",
-        "evaltools",
+    // The unified shell exists and owns all sections.
+    assert!(CONSOLE_APP_JS.contains("case 'eval':"), "the #eval route");
+    assert!(
+        EVAL_JS.contains("async function renderEvalWorkspace("),
+        "unified workspace renderer"
+    );
+    assert!(EVAL_JS.contains("renderEvalOverview"), "overview page");
+    // ONE Home card named Internal Evaluation — not six cards.
+    assert!(CONSOLE_APP_JS.contains("title: 'Internal Evaluation'"));
+    assert!(!CONSOLE_APP_JS.contains("EVAL_WORKSPACES"));
+    // The sidebar lists all seven destinations.
+    for label in [
+        "'Overview'",
+        "'Question Bank'",
+        "'Datasets'",
+        "'Benchmarks'",
+        "'Model Evaluation'",
+        "'Reports'",
+        "'Tools'",
     ] {
-        assert!(
-            CONSOLE_APP_JS.contains(&format!("id: '{id}',")),
-            "card {id}"
-        );
-        assert!(
-            CONSOLE_APP_JS.contains(&format!("{id}:'<svg")),
-            "icon {id} in ICONS"
-        );
+        assert!(EVAL_JS.contains(label), "sidebar label {label}");
     }
     // The badge filler runs from the overview renderer.
     assert!(CONSOLE_APP_JS.contains("fillEvalCards()"));
@@ -460,20 +773,84 @@ fn eval_script_defines_all_six_renderers() {
     for helper in ["api(", "esc(", "$('#pageTitle')", "renderPager", "mdToHtml"] {
         assert!(EVAL_JS.contains(helper), "uses {helper}");
     }
-    // No iframes: the workspaces render natively inside the SPA.
-    assert!(!EVAL_JS.contains("<iframe"));
-    assert!(!EVAL_JS.contains("iframe"));
+    // Five workspaces render natively inside the SPA; Model Evaluation is
+    // the one exception — it mounts the ORIGINAL EKA Checkpoints by Level
+    // webpage (served verbatim at /eka-checkpoints) in an iframe that fills
+    // the pane, so the page keeps its own styles and interactions. That is
+    // the single allowed iframe, and it may appear only there.
+    let before = EVAL_JS.find("async function renderEvalModel(").unwrap();
+    let after = EVAL_JS[before..]
+        .find("\n}\n")
+        .map(|i| before + i)
+        .unwrap_or(EVAL_JS.len());
+    assert!(
+        !EVAL_JS[..before].contains("<iframe"),
+        "no iframes outside Model Evaluation"
+    );
+    assert!(
+        !EVAL_JS[after..].contains("<iframe"),
+        "no iframes after Model Evaluation"
+    );
+    assert!(
+        EVAL_JS[before..after].contains("<iframe"),
+        "Model Evaluation embeds the original webpage"
+    );
 }
 
 #[test]
 fn eval_styles_are_part_of_the_console_stylesheet() {
     for cls in [
-        ".ev-grid",
+        ".evws",
+        ".evws-side",
+        ".evws-main",
         ".ev-facets",
         ".ev-chip",
         ".ev-md",
-        ".ev-portal-head",
+        // Report cards (Internal Evaluation → Reports).
+        ".ev-rep-grid",
+        ".ev-rep-card",
+        ".ev-rep-acc",
+        ".ev-rep-btn",
     ] {
         assert!(CONSOLE_HTML.contains(cls), "{cls} styled");
     }
+}
+
+#[test]
+fn reports_dashboard_uses_the_card_api_and_downloads() {
+    // The renderer talks to the card API, not just the file catalog.
+    assert!(EVAL_JS.contains("api('/api/eval/reports')"));
+    // Card actions hit the artifact route; the four artifact kinds are
+    // wired through it.
+    assert!(EVAL_JS.contains("/api/eval/reports/${encodeURIComponent(c.id)}/file?as=${as}"));
+    for label in ["View Report", "View Summary", "View JSON", "Download CSV"] {
+        assert!(EVAL_JS.contains(label), "card action {label}");
+    }
+    // Cards show the required metadata fields.
+    for needle in [
+        "c.title",
+        "c.model",
+        "c.setting",
+        "c.input",
+        "c.samples",
+        "c.graded",
+        "c.acc",
+        "c.status",
+        "c.modifiedMs",
+        "c.judge",
+    ] {
+        assert!(EVAL_JS.contains(needle), "card renders {needle}");
+    }
+    // The honest empty state only fires when there are no cards AND no
+    // artifacts.
+    assert!(EVAL_JS.contains("!items.length && !artifacts.length"));
+    // HTML artifacts open as rendered webpages, never as source previews.
+    assert!(
+        EVAL_JS.contains("?render=html"),
+        "the render route is used for HTML artifacts"
+    );
+    assert!(
+        EVAL_JS.contains("window.open(url, '_blank', 'noopener')"),
+        "HTML opens in a new tab"
+    );
 }

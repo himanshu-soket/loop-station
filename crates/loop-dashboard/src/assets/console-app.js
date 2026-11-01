@@ -169,7 +169,9 @@ const ICONS = {
   pretrain:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>',
   /* Phase 10: Fun Time — a game controller. */
   funtime:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h4M8 10v4"/><circle cx="15.5" cy="11" r=".6"/><circle cx="17.5" cy="13" r=".6"/><rect x="2.5" y="7" width="19" height="10" rx="5"/></svg>',
-  /* Internal evaluation workspaces — one icon per card. */
+  /* Internal evaluation workspaces — one icon per section, used by the
+   * unified workspace's own compact sidebar. */
+  eval:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
   evalbank:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v16"/><path d="M6 17h12v3H6a2 2 0 0 1 0-4h12"/><path d="M9 7h6"/></svg>',
   evaldata:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13"/><path d="M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></svg>',
   evalbench:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M6 20V9m6 11V4m6 16v-7"/><path d="M3 4l4 3 4-4 4 3 4-4"/></svg>',
@@ -194,17 +196,7 @@ const NAV_GROUPS = [
     ['sft', 'SFT DataTrove'],
     ['pretrain', 'Pretraining DataTrove'],
     ['funtime', 'Fun Time'],
-  ] },
-  /* Internal evaluation kit — six read-only surfaces over ~/.loop/eval.
-   * Grouped separately because they share one data source and read as one
-   * product inside the portal. */
-  { label: 'Internal Evaluation', items: [
-    ['evalbank', 'Question Bank'],
-    ['evaldata', 'Datasets'],
-    ['evalbench', 'Benchmarks'],
-    ['evalmodel', 'Model Evaluation'],
-    ['evalreport', 'Reports'],
-    ['evaltools', 'Tools'],
+    ['eval', 'Internal Evaluation'],
   ] },
   /* Sections of the Loop AI Console workspace (rendered by this shell).
    * `ws` ties the group to its owning workspace so renderNav() can show a
@@ -224,12 +216,10 @@ const WS_ROUTES = {
   sft: ['sft'],
   pretrain: ['pretrain'],
   funtime: ['funtime'],
-  evalbank: ['evalbank'],
-  evaldata: ['evaldata'],
-  evalbench: ['evalbench'],
-  evalmodel: ['evalmodel'],
-  evalreport: ['evalreport'],
-  evaltools: ['evaltools'],
+  /* One unified Internal Evaluation workspace: #eval is the shell; its
+   * sections (#eval/bank, #eval/data, …) all belong to it. */
+  eval: ['eval', 'evalbank', 'evaldata', 'evalbench', 'evalmodel',
+    'evalreport', 'evaltools'],
 };
 function renderNav() {
   const nav = $('#nav'); nav.innerHTML = '';
@@ -351,37 +341,14 @@ const WORKSPACES = [
     href: '#funtime',
     blurb: 'Take a break. Play a game.',
     open: 'Play Now' },
-];
-
-/* Internal evaluation workspaces: six read-only surfaces over the
- * internal_eval kit at ~/.loop/eval. Rendered as their own card group on
- * the Welcome page (a second grid, so the primary workspaces keep their
- * layout) with real counts from /api/eval/overview — never invented. */
-const EVAL_WORKSPACES = [
-  { id: 'evalbank', title: 'Question Bank',
-    href: '#evalbank',
-    blurb: 'Browse and search the internal question banks by suite, group, subject and difficulty.',
-    open: 'Open Question Bank' },
-  { id: 'evaldata', title: 'Evaluation Datasets',
-    href: '#evaldata',
-    blurb: 'Explore dataset files in the kit: formats, sizes, record counts and live previews.',
-    open: 'Open Datasets' },
-  { id: 'evalbench', title: 'Benchmark Center',
-    href: '#evalbench',
-    blurb: 'Benchmark presets, decoding settings and the comparison-model registry.',
-    open: 'Open Benchmarks' },
-  { id: 'evalmodel', title: 'Model Evaluation',
-    href: '#evalmodel',
-    blurb: 'Evaluation runs, per-setting results and cross-model accuracy comparison.',
-    open: 'Open Model Evaluation' },
-  { id: 'evalreport', title: 'Reports & Analytics',
-    href: '#evalreport',
-    blurb: 'Run summaries, per-setting gap reports and graded answer data.',
-    open: 'Open Reports' },
-  { id: 'evaltools', title: 'Evaluation Tools',
-    href: '#evaltools',
-    blurb: 'Pipeline stages, Slurm jobs, configurations, tests and documentation.',
-    open: 'Open Tools' },
+  /* Internal evaluation: ONE workspace card. The unified dashboard it opens
+   * carries its own compact sidebar (Overview, Question Bank, Datasets,
+   * Benchmarks, Model Evaluation, Reports, Tools) inside #eval — the Home
+   * page no longer shows one card per section. */
+  { id: 'eval', title: 'Internal Evaluation',
+    href: '#eval',
+    blurb: 'Benchmarks, question banks, datasets, evaluation runs and reports.',
+    open: 'Open Internal Evaluation' },
 ];
 
 /* One workspace card. The entire card is a single anchor so the whole
@@ -428,18 +395,6 @@ async function renderOverview() {
     <div class="ws-grid" id="wsGrid">
       ${WORKSPACES.map(portalCardSkeleton).join('')}
     </div>
-
-    <div class="ev-portal-head">
-      <div>
-        <div class="ev-portal-t">Internal Evaluation</div>
-        <div class="ev-portal-s">question banks, benchmarks, runs and reports from the
-          internal evaluation kit · read-only</div>
-      </div>
-      <span class="ws-badge sk" id="evPortalBadge">…</span>
-    </div>
-    <div class="ws-grid ev-grid" id="evGrid">
-      ${EVAL_WORKSPACES.map(portalCardSkeleton).join('')}
-    </div>
   </div></div>`;
 
   // Workspace status badges load independently; failures stay local.
@@ -452,10 +407,11 @@ async function renderOverview() {
   if (btn) btn.onclick = () => renderOverview();
 }
 
-/* ---- Internal evaluation cards --------------------------------------
- * Real source: /api/eval/overview. One request feeds all six badges plus
- * the group badge; every number is a real count from the kit on disk. A
- * missing kit shows an honest "not configured" state on each card. */
+/* ---- Internal evaluation card ---------------------------------------
+ * Real source: /api/eval/overview. The single Home card carries the kit's
+ * headline numbers (questions, datasets, runs); every number is a real
+ * count from the kit on disk. A missing kit shows an honest "not
+ * configured" state. */
 async function fillEvalCards() {
   const setBadge = (id, html) => {
     const card = document.getElementById('ws-' + id);
@@ -465,52 +421,27 @@ async function fillEvalCards() {
   try {
     o = await api('/api/eval/overview');
   } catch {
-    for (const w of EVAL_WORKSPACES) setBadge(w.id, wsBadge('status unknown', 'err'));
-    const g = $('#evPortalBadge');
-    if (g) g.outerHTML = wsBadge('unavailable', 'err');
+    setBadge('eval', wsBadge('status unknown', 'err'));
     return;
-  }
-
-  const group = $('#evPortalBadge');
-  if (group) {
-    // Replace the contents/classes but keep the element (and its id) so
-    // tests and repeated refreshes can find it again.
-    group.className = 'ws-badge ' + (o.integration === 'connected' ? 'ok' : 'na');
-    group.classList.remove('sk');
-    group.textContent = o.integration === 'connected'
-      ? `${fmtInt(o.files)} files · ${fmtBytes(o.bytes)}`
-      : 'not configured';
   }
 
   if (o.integration === 'not_configured') {
-    for (const w of EVAL_WORKSPACES) setBadge(w.id, wsBadge('not configured', 'na'));
+    setBadge('eval', wsBadge('not configured', 'na'));
     return;
   }
 
-  // Per-card badges carry the workspace's own headline number.
-  const b = o.banks || {}, d = o.datasets || {}, k = o.benchmarks || {},
-        m = o.evaluations || {}, r = o.reports || {}, t = o.tools || {};
-  const has = n => (n || 0) > 0;
-  setBadge('evalbank',
-    has(b.questions)
-      ? wsBadge(`${fmtTokensEst(b.questions)} questions`, 'ok')
-      : wsBadge('no banks', 'idle'));
-  setBadge('evaldata',
-    has(d.files) ? wsBadge(`${d.files} dataset${d.files === 1 ? '' : 's'}`, 'ok')
-                 : wsBadge('none discovered', 'idle'));
-  setBadge('evalbench',
-    has(k.presets) ? wsBadge(`${k.presets} presets`, 'ok')
-                   : wsBadge('no presets', 'idle'));
-  setBadge('evalmodel',
-    has(m.runs) ? (m.best ? wsBadge(`${m.runs} runs · best ${m.best.acc.toFixed(1)}%`, 'ok')
-                          : wsBadge(`${m.runs} runs`, 'idle'))
-                : wsBadge('no runs yet', 'idle'));
-  setBadge('evalreport',
-    has(r.files) ? wsBadge(`${r.files} artifacts`, 'ok')
-                 : wsBadge('no reports', 'idle'));
-  setBadge('evaltools',
-    has(t.scripts) ? wsBadge(`${t.scripts} scripts · ${t.docs} docs`, 'ok')
-                   : wsBadge('empty', 'idle'));
+  // One badge with the workspace's own headline numbers.
+  const b = o.banks || {}, d = o.datasets || {}, m = o.evaluations || {};
+  const parts = [];
+  if ((b.questions || 0) > 0) parts.push(`${fmtTokensEst(b.questions)} questions`);
+  if ((d.files || 0) > 0) parts.push(`${d.files} dataset${d.files === 1 ? '' : 's'}`);
+  if ((m.runs || 0) > 0) {
+    parts.push(m.best
+      ? `${m.runs} run${m.runs === 1 ? '' : 's'} · best ${m.best.acc.toFixed(1)}%`
+      : `${m.runs} run${m.runs === 1 ? '' : 's'}`);
+  }
+  setBadge('eval',
+    parts.length ? wsBadge(parts.join(' · '), 'ok') : wsBadge('connected · empty', 'idle'));
 }
 
 /* ---- Pipeline cards (SFT + Pretraining DataTrove) -------------------
@@ -602,7 +533,7 @@ async function fillLoopCard() {
 async function renderSftPipeline() {
   // Sub-route: the interactive workflow canvas (documented design).
   if (paSubRoute() === 'workflow') return renderSftWorkflow();
-  // Sub-route: the pipeline map transcribed from the sftqc source.
+  // Sub-route: the architecture canvas transcribed from the sftqc source.
   if (paSubRoute() === 'sft-architecture') return renderSftArchitecture();
   // Sub-route: the EKA SFT data-pipeline board (embedded page).
   if (paSubRoute() === 'sft-board') return renderSftBoard();
@@ -637,18 +568,22 @@ async function renderSftPipeline() {
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
       </div>
+
       <div class="pa-entry">
         <div>
-          <div class="pa-entry-t">SFT pipeline architecture</div>
-          <div class="pa-entry-s">The pipeline map transcribed from the actual sftqc source —
-            every layer, function and decision in execution order. No runs are needed
-            to explore it.</div>
+          <div class="pa-entry-t">SFT pipeline map</div>
+          <div class="pa-entry-s">The original EKA SFT data-pipeline board —
+            the dark board with the stage strip, run controls, live log,
+            reject lane and repair routes, exactly as built. Opens in a
+            new tab.</div>
         </div>
-        <a class="pa-entry-btn" href="#sft/architecture">Open pipeline map
+        <a class="pa-entry-btn" href="/sft-pipeline-map" target="_blank"
+           rel="noopener">Open pipeline map
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
       </div>
+
       <div class="pa-entry">
         <div>
           <div class="pa-entry-t">Code explorer</div>
@@ -721,12 +656,14 @@ async function renderSftPipeline() {
 
     <div class="pa-entry">
       <div>
-        <div class="pa-entry-t">SFT pipeline architecture</div>
-        <div class="pa-entry-s">The pipeline map transcribed from the actual sftqc source —
-          rules → LM audit → embeddings → judge → routing — with live run counts
-          attached where the report records them.</div>
+        <div class="pa-entry-t">SFT pipeline map</div>
+        <div class="pa-entry-s">The original EKA SFT data-pipeline board —
+          the dark board with the stage strip, run controls, live log,
+          reject lane and repair routes, exactly as built. Opens in a
+          new tab.</div>
       </div>
-      <a class="pa-entry-btn" href="#sft/architecture">Open pipeline map
+      <a class="pa-entry-btn" href="/sft-pipeline-map" target="_blank"
+         rel="noopener">Open pipeline map
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
@@ -1638,7 +1575,8 @@ async function renderSftBoard() {
         <a class="pa-open-standalone" href="/sft-board" target="_blank"
            rel="noopener">Open standalone ↗</a>
         <span class="pa-sep"></span>
-        <a class="pa-open-standalone" href="#sft/architecture">Pipeline map →</a>
+        <a class="pa-open-standalone" href="/sft-pipeline-map" target="_blank"
+           rel="noopener">Pipeline map ↗</a>
       </div>
       <div class="pa-toolbar-r">
         <button type="button" class="pa-btn" id="sbFsBtn" aria-pressed="false"
@@ -1747,7 +1685,8 @@ async function renderSftCodeExplorer() {
             <path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
           Runs</button>
         <span class="pa-sep"></span>
-        <a class="pa-open-standalone" href="#sft/architecture">Pipeline map →</a>
+        <a class="pa-open-standalone" href="/sft-pipeline-map" target="_blank"
+           rel="noopener">Pipeline map ↗</a>
       </div>
       <div class="pa-toolbar-r">
         <span class="pa-demo-flag" title="Read-only view of the real source. Nothing is executed.">READ-ONLY · live source</span>
@@ -5123,7 +5062,7 @@ const FT_DIFFS = [
  *   #pretrain/architecture   -> pretraining architecture canvas
  *   #sft                     -> run history (default)
  *   #sft/workflow            -> SFT workflow canvas (documented design)
- *   #sft/architecture        -> SFT pipeline map from the sftqc source
+ *   #sft/architecture        -> SFT architecture canvas (transcribed)
  *   #sft/board               -> EKA SFT data-pipeline board (iframe)
  *   #sft/code                -> code explorer over the real Python files
  */
@@ -7960,6 +7899,19 @@ const CR = {
    * bodies by the same factor, keeping perspective consistent between
    * vehicles while matching the player's arcade proportion. */
   CAR_VIS_K: 0.62,
+  /* BUGFIX (scenery/wheels) · two constants were referenced by the
+   * renderer but never declared, silently poisoning three systems:
+   *
+   * WHEEL_R — wheel radius in world units. g.wheelSpin accumulated
+   *   speed/undefined = NaN, so the player's wheel spokes never drew
+   *   (cos(NaN) drops the path). Radius ~34u matches the drawn sprite.
+   *
+   * RAIL_H — guardrail height in world units. Every rail-top projection
+   *   was seg.y + undefined = NaN, so the guardrail FACES and neon rail
+   *   tops never rendered at all — the road ran beside an invisible
+   *   barrier. ~85u reads as a waist-high motorway barrier at CAM_H. */
+  WHEEL_R: 34,
+  RAIL_H: 85,
 };
 
 /* =====================================================================
@@ -7993,6 +7945,11 @@ const CRP = {
   GRIP_SPEED_LOSS:  2.1,   // grip lost at top speed (quadratic)
   DRIFT_GRIP:       0.52,  // grip multiplier while drift is HELD
   DRIFT_GRIP_RECOVER: 0.72,// grip multiplier while still sliding after release
+  /* NATURAL STEERING FIX · extra tyre bite when the wheel is released and
+   * no slide is in progress — kills the floaty post-release drift so the
+   * car settles where the input stops. 1.6 ≈ lateral velocity halves
+   * every ~90ms on release. */
+  GRIP_RELEASE_BITE: 1.6,  // grip multiplier with no input & no slide
   GRASS_GRIP:       0.42,  // grip multiplier on the verge
   VLAT_SNAP:        0.004, // residual lateral velocity snapped to zero
   DRIFT_SLIP_MIN:   0.62,  // lateral slip that counts as a drift
@@ -8669,6 +8626,15 @@ function crStep(dt) {
   if (driftHeld) grip *= DRIFT_GRIP;
   else if (g.drifting) grip *= P.DRIFT_GRIP_RECOVER;   // sliding after release
   if (onGrass) grip *= P.GRASS_GRIP;
+  /* NATURAL STEERING FIX · grip recovers sharply once the player releases
+   * the wheel: with no steering input and no active drift the tyres bite
+   * again at ~1.6× base grip, so lateral velocity decays in ~0.15–0.25s
+   * instead of the old ~0.6s+ tail-off. The car now STOPS where the input
+   * stops (crisp, planted feel) while genuine drifts keep their long,
+   * controlled slides. Only applies to the no-input coast case, so drift
+   * recovery and grass behaviour are untouched. */
+  if (!driftHeld && !g.drifting && Math.abs(steerInput) < 0.05)
+    grip *= P.GRIP_RELEASE_BITE;
 
   // Sideways acceleration = steering force; grip is EXPONENTIAL DECAY
   // (frame-rate independent) so velocity settles at a real equilibrium
@@ -9780,11 +9746,24 @@ function crDraw() {
   /* PHASE 5 · four parallax layers. The new ultra-far layer sits higher
    * and dimmer than the old three, so the city now reads as receding to
    * an actual horizon instead of a single wall of towers. */
+  /* BUGFIX (skyline stability) · the skyline OFFSET now carries a
+   * persistent world-position term so the city is a fixed object we
+   * drive past, plus a gentle sway for corner feel:
+   *   • worldPan: distance-driven pan (position/SEG_LEN * k per layer) —
+   *     buildings slide by as you drive, exactly like roadside objects.
+   *   • curve sway: eased from the CURRENT curve but small, and applied
+   *     only as an offset — building identity is hashed on slot index,
+   *     not on the offset (see crDrawSkyline), so the city can never
+   *     "rebuild itself" when the sway changes through a corner. The old
+   *     code hashed towers on (bx + offset) with curve folded into the
+   *     offset, so every corner entry morphed the whole skyline. */
+  const worldPan = (g.position / CR.SEG_LEN);
   const par = -(g.playerX * 26) - baseSeg.curve * 8;
-  crDrawSkyline(c, W, horizon, par * 0.18, 0.22, '#0c1120', 148);   // ultra-far
-  crDrawSkyline(c, W, horizon, par * 0.38, 0.36, '#111729', 118);   // far
-  crDrawSkyline(c, W, horizon, par * 0.62, 0.56, '#161d33', 92);    // mid
-  crDrawSkyline(c, W, horizon, par, 1, '#212a45', 60);              // near
+  const sway = Math.max(-40, Math.min(40, par));
+  crDrawSkyline(c, W, horizon, worldPan * 2.0 + sway * 0.18, 0.22, '#0c1120', 148); // ultra-far
+  crDrawSkyline(c, W, horizon, worldPan * 3.4 + sway * 0.38, 0.36, '#111729', 118); // far
+  crDrawSkyline(c, W, horizon, worldPan * 5.6 + sway * 0.62, 0.56, '#161d33', 92);  // mid
+  crDrawSkyline(c, W, horizon, worldPan * 9.0 + sway,      1,    '#212a45', 60);    // near
 
   /* BUGFIX 8 · atmospheric horizon. The old full-width glow rect ended
    * abruptly at the skyline base and again at the road, reading as a
@@ -9851,6 +9830,18 @@ function crDraw() {
   let x = 0;
   let dx = -(baseSeg.curve * ((camZ % CR.SEG_LEN) / CR.SEG_LEN));
 
+  /* PLAYER-TRACK FIX · curve-offset lookup for EVERY world object.
+   * The road polygons bend via the x/dx accumulator below, but sprites
+   * (traffic, scenery, player, skids, smoke) projected straight through
+   * crProject ignored that accumulation — so in corners cars and lamps
+   * floated off the bent road by up to hundreds of pixels. This table
+   * records the accumulated road-center offset at each segment ahead of
+   * the camera, so any object at depth `n` can add curveX[n] to its own
+   * lateral position and land ON the road, in the same coordinate system
+   * the tarmac itself uses. Rebuilt every frame with the walk (cheap:
+   * it is just the running x value already computed). */
+  const curveX = new Float32Array(CR.DRAW_DIST + 2);
+
   // The near edge of segment 0 is the camera plane itself; project the
   // player's own segment with a small epsilon depth so it never divides
   // by zero and fills the bottom of the screen.
@@ -9863,6 +9854,9 @@ function crDraw() {
     const segStartAbs = (camSegIdx + n) * CR.SEG_LEN;
     const d1 = Math.max(segStartAbs - camZ, 1);      // clamp at camera plane
     const d2 = Math.max(segStartAbs + CR.SEG_LEN - camZ, 2);
+
+    // Road-center offset at this segment's NEAR edge (world units).
+    if (n <= CR.DRAW_DIST + 1) curveX[n] = x;
 
     const p1 = prevP || crProject(d1, x, seg.y);
     const p2 = crProject(d2, x + dx, seg.y);
@@ -9877,6 +9871,10 @@ function crDraw() {
     if (p2.y >= maxY && n > 0) continue;
     maxY = p2.y;
   }
+  /* Edge values for depths one past the walk (sprites can sit slightly
+   * beyond the last drawn segment before their own cull kicks in). */
+  curveX[Math.min(CR.DRAW_DIST + 1, visible.length)] = x;
+  CR._curveX = curveX;          // consumed by crDrawSprite / crDrawPlayer
 
   // Draw far-to-near so nearer polygons overwrite farther ones, with a
   // light fog pass on the distant third so the road melts into the night.
@@ -9885,6 +9883,34 @@ function crDraw() {
     const alt = Math.floor(v.n / 3) % 2 === 0;
     crDrawSegment(c, v, alt, W);
     crDrawFog(c, v, W);
+  }
+
+  /* ROAD SURFACE FIX · one continuous depth gradient across the whole
+   * visible road span. Replaces the per-segment ambient wash + sheen +
+   * seam lines that used to stack 8+ flat colors and read as horizontal
+   * stripes. A single linear gradient from the player's row (ambient-lit,
+   * cool lift) to the horizon row (melting into the violet haze) is drawn
+   * over the full-width ground band — so the surface shades smoothly with
+   * perspective and consecutive segments are visually ONE plane.
+   * Drawn AFTER the segments (so it tints them) but BEFORE the lane
+   * markings' re-pass? No: markings are drawn inside crDrawSegment, so
+   * this pass must stay TRANSLUCENT enough (≤0.55 at the very top, where
+   * fog already dominates) that dashes/edges remain visible — verified:
+   * alpha ramps from 0.10 near the camera to 0.55 only in the last 20%,
+   * where CR_LIGHT.FOG_MAX already covers the markings. */
+  if (visible.length > 1) {
+    const vNear = visible[0], vFar = visible[visible.length - 1];
+    const yBot = Math.min(H, Math.max(vNear.p1.y, vFar.p1.y));
+    const yTop = Math.max(0, vFar.p2.y);
+    if (yBot - yTop > 4) {
+      const dg = c.createLinearGradient(0, yBot, 0, yTop);
+      dg.addColorStop(0, CR_ROAD_SURFACE.GRAD_NEAR);
+      dg.addColorStop(0.62, 'rgba(148,170,205,0.035)');
+      dg.addColorStop(0.85, 'rgba(38,28,66,0.22)');
+      dg.addColorStop(1, CR_ROAD_SURFACE.GRAD_FAR);
+      c.fillStyle = dg;
+      c.fillRect(0, yTop, W, yBot - yTop);
+    }
   }
 
   // --- sprites (traffic + pylons), far to near ---
@@ -9976,7 +10002,11 @@ function crDraw() {
     const d = sk.z - g.position;
     if (d < 30 || d > CR.DRAW_DIST * CR.SEG_LEN) continue;
     const seg2 = g.segs[Math.floor(sk.z / CR.SEG_LEN) % g.totalSegs];
-    const p = crProject(d, sk.x * CR.ROAD_W, seg2.y);
+    /* PLAYER-TRACK FIX · curve-aware: skids are laid on the bent road. */
+    const skRel = Math.round(d / CR.SEG_LEN);
+    const skCX = (CR._curveX && skRel >= 0 && skRel <= CR.DRAW_DIST + 1)
+               ? CR._curveX[skRel] : 0;
+    const p = crProject(d, sk.x * CR.ROAD_W + skCX, seg2.y);
     if (p.y < 0 || p.y > H) continue;
     c.fillStyle = `rgba(10,10,14,${Math.min(0.5, sk.t * 0.22)})`;
     const mw = Math.max(1, p.w * 0.045);
@@ -10012,9 +10042,17 @@ function crDraw() {
     // plume trails across the road like real tyre smoke.
     const xx = sm.x + (sm.vx ? age * sm.vx * 0.0012 : 0);
     const yy = segS.y + age * sm.vy * 8;           // rises as it ages
-    const p = crProject(Math.max(d, 30), xx * CR.ROAD_W, yy);
+    /* PLAYER-TRACK FIX · curve-aware: smoke puffs are emitted at the
+     * player's depth, so they must ride the same bent road. */
+    const smRel = Math.round(d / CR.SEG_LEN);
+    const smCX = (CR._curveX && smRel >= 0 && smRel <= CR.DRAW_DIST + 1)
+               ? CR._curveX[smRel] : 0;
+    const p = crProject(Math.max(d, 30), xx * CR.ROAD_W + smCX, yy);
     if (p.y < 0 || p.y > H) continue;
-    const r = sm.r * p.scale * 26;
+    /* BUGFIX (scenery scale family) · smoke radius now derives from the
+     * px-per-world-unit chain (p.w / ROAD_W) like every other sprite —
+     * the old sm.r * p.scale * 26 drew puffs at ~0.8px (invisible). */
+    const r = sm.r * (p.w / CR.ROAD_W) * 0.55;
     if (r < 0.6) continue;
     c.fillStyle = `rgba(190,196,210,${(sm.life * 0.30).toFixed(3)})`;
     c.beginPath(); c.arc(p.x, p.y - r * 0.4, r, 0, Math.PI * 2); c.fill();
@@ -10083,13 +10121,19 @@ function crDraw() {
       const d = p.z - g.position;
       if (d > 20 && d < CR.DRAW_DIST * CR.SEG_LEN) {
         const segD = g.segs[Math.floor(p.z / CR.SEG_LEN) % g.totalSegs];
-        const pr = crProject(d, p.x * CR.ROAD_W, segD.y + p.y);
+        /* PLAYER-TRACK FIX · curve-aware dust motes. */
+        const dmRel = Math.round(d / CR.SEG_LEN);
+        const dmCX = (CR._curveX && dmRel >= 0 && dmRel <= CR.DRAW_DIST + 1)
+                   ? CR._curveX[dmRel] : 0;
+        const pr = crProject(d, p.x * CR.ROAD_W + dmCX, segD.y + p.y);
         if (pr.y > 0 && pr.y < H && pr.w > 8) {
           // Motion stretch: the mote is drawn as a short line whose length
           // grows with proximity — reads as motion blur, costs one stroke.
           const len = Math.max(1.5, pr.w * 0.05);
           c.strokeStyle = `rgba(200,214,236,${(p.life * 0.20).toFixed(3)})`;
-          c.lineWidth = Math.max(0.7, p.r * pr.scale * 3);
+          /* BUGFIX (scenery scale family) · dust-mote width through the
+           * world-unit chain (was p.r * pr.scale * 3 ≈ sub-pixel). */
+          c.lineWidth = Math.max(0.7, p.r * (pr.w / CR.ROAD_W) * 2.4);
           c.beginPath();
           c.moveTo(pr.x, pr.y);
           c.lineTo(pr.x, pr.y - len);
@@ -10257,15 +10301,24 @@ function crDrawSkyline(c, W, horizon, offset, alpha, color, maxH) {
    *   • a window grid with warm/cool lights
    *   • occasional antenna spires with blinking beacons
    *   • occasional horizontal neon signage bands
-   */
+   * BUGFIX (skyline stability) · towers are hashed on their WORLD SLOT
+   * index (slot = floor((bx - offset)/step)), not on the raw screen x +
+   * offset. The old hash keyed on (bx + offset): any change to the
+   * offset — corner sway, player steering — changed every building's
+   * height/width/seed at once, so the city visibly "rebuilt itself"
+   * through corners. With slot-keyed hashing the skyline is a fixed
+   * city that SLIDES when the offset moves, exactly like a real
+   * skyline seen from a moving car. */
   c.save();
   c.globalAlpha = alpha;
   const step = 40;
   const start = Math.floor((-offset) / step) * step - step;
   for (let bx = start; bx < W + step * 2; bx += step) {
-    const seed = Math.abs(Math.sin((bx + offset) * 12.9898) * 43758.5453) % 1;
-    const seed2 = Math.abs(Math.sin((bx + offset) * 78.233) * 24634.6345) % 1;
-    const seed3 = Math.abs(Math.sin((bx + offset) * 39.425) * 12345.6789) % 1;
+    // World slot index for this screen column: stable across offset changes.
+    const slot = Math.round((bx - offset) / step);
+    const seed = Math.abs(Math.sin(slot * 12.9898) * 43758.5453) % 1;
+    const seed2 = Math.abs(Math.sin(slot * 78.233) * 24634.6345) % 1;
+    const seed3 = Math.abs(Math.sin(slot * 39.425) * 12345.6789) % 1;
     // Varied width: some towers are slim, some are wide slabs.
     const bw = step * (0.42 + seed2 * 0.44);
     const bxx = bx + offset;
@@ -10299,7 +10352,7 @@ function crDrawSkyline(c, W, horizon, offset, alpha, color, maxH) {
       c.fillStyle = '#141b2b';
       c.fillRect(bxx + bw / 2 - 1, top - bh * 0.16, 2, bh * 0.16);
       // Blinking beacon (deterministic phase, no random flicker).
-      if (((bx / step) | 0) % 2 === 0) {
+      if (((slot) | 0) % 2 === 0) {
         c.fillStyle = 'rgba(255,92,168,.85)';
         c.beginPath(); c.arc(bxx + bw / 2, top - bh * 0.16, 1.8, 0, Math.PI * 2); c.fill();
       }
@@ -10311,7 +10364,7 @@ function crDrawSkyline(c, W, horizon, offset, alpha, color, maxH) {
       const rows = Math.floor((bh - 10) / 8);
       for (let wy = 0; wy < rows; wy++) {
         for (let wx = 0; wx < cols; wx++) {
-          const hsh = Math.abs(Math.sin((bx + wx * 13.7 + wy * 7.3 + offset) * 91.17) * 4127.3) % 1;
+          const hsh = Math.abs(Math.sin((slot + wx * 13.7 + wy * 7.3) * 91.17) * 4127.3) % 1;
           if (hsh < 0.32) {
             c.fillStyle = hsh < 0.05 ? 'rgba(255,140,200,.60)'
                         : hsh < 0.15 ? 'rgba(180,140,255,.48)'
@@ -10334,7 +10387,7 @@ function crDrawSkyline(c, W, horizon, offset, alpha, color, maxH) {
       c.fillStyle = 'rgba(7,10,16,.75)';
       const dashes = Math.max(2, Math.floor((bw - 8) / 6));
       for (let dI = 0; dI < dashes; dI++) {
-        if ((dI + Math.floor(bx / step)) % 3 === 0) continue;
+        if ((dI + slot) % 3 === 0) continue;
         c.fillRect(bxx + 4 + dI * 6, sy + 1, 3.5, sh - 2);
       }
     }
@@ -10348,15 +10401,64 @@ function crDrawSkyline(c, W, horizon, offset, alpha, color, maxH) {
 /** Asphalt palette: four subtle tints, fixed per segment (crHash) so the
  *  surface has believable variation that never shimmers between frames.
  *  Two ramps (dark/lit) alternate every 3 segments like real tarmac bands,
- *  which is also what makes the road speed readable. */
-const CR_ASPH = ['#141a25', '#161d29', '#131924', '#182030'];
-const CR_ASPH_LIT = ['#1a2231', '#1c2434', '#19212e', '#1e2739'];
+ *  which is also what makes the road speed readable.
+ *  LIGHTING FIX · raised ~2 stops from the old near-black ramp (#14-18)
+ *  into a readable blue-grey (#25-2e). The road now reads as asphalt lit
+ *  by ambient city glow instead of a void, while the neon edges keep
+ *  their contrast against it. Tint spread widened slightly so the
+ *  per-segment surface variation is visible at speed. */
+const CR_ASPH = ['#242b39', '#283042', '#222936', '#2a3345'];
+const CR_ASPH_LIT = ['#2e374a', '#323c52', '#2c3547', '#343f57'];
+/* ROAD SURFACE FIX · one continuous tarmac.
+ * The old renderer painted each segment from alt(2) × tint(4) = up to 8
+ * different flat shades, then layered a per-segment ambient wash, an
+ * alternate-band sheen and seam lines on top. At speed that read as a
+ * stack of horizontal rectangles — exactly the "striped road" artifact.
+ * The fix keeps TWO alternating shades (the classic pseudo-3D rhythm,
+ * needed for the sense of motion) but makes them nearly identical in
+ * luminance, drops the per-segment tint/sheen/seam/ambient banding, and
+ * replaces all of it with ONE vertical gradient drawn across the whole
+ * visible road span (near → horizon) plus a subtle continuous speckle.
+ * The result is one continuous surface whose shading follows perspective
+ * naturally: bright near the camera, melting into the horizon fog. */
+const CR_ROAD_SURFACE = {
+  /* The two alternating shades: same hue, ΔL ≈ 1.5% — enough to keep the
+   * motion rhythm when driving, invisible as static stripes. */
+  BAND_A: '#232a38',
+  BAND_B: '#252c3b',
+  /* Depth gradient stops (screen-fraction of the road span, color pairs).
+   * Drawn once per frame over the full road polygon; blends the tarmac
+   * from its near-camera shade into the horizon fog tone. */
+  GRAD_NEAR: 'rgba(148,170,205,0.10)',   // ambient lift near the camera
+  GRAD_FAR:  'rgba(20,17,52,0.55)',      // melts into the violet haze
+};
 
 /* Neon edge palette: the signature synthwave look. Left edge glows cyan
  * (cool), right edge glows magenta (warm) — complementary hues that read
- * instantly at any speed and never blur into the asphalt tint. */
-const CR_NEON_L = 'rgba(64,224,255,';    // cyan
-const CR_NEON_R = 'rgba(255,92,168,';    // hot pink
+ * instantly at any speed and never blur into the asphalt tint.
+ * LIGHTING FIX · same hues, softened channels: the pink drops from full
+ * saturation (255,92,168) toward a rose tone so it no longer blooms into
+ * a hard hot line; cyan is nudged off pure-blue so both edges sit at a
+ * similar perceived brightness. Identity preserved, glare removed. */
+const CR_NEON_L = 'rgba(88,214,255,';    // cyan
+const CR_NEON_R = 'rgba(240,120,178,';   // soft pink
+
+/* LIGHTING FIX · road-lighting tunables in ONE place (same pattern as
+ * CRP): ambient lift, reflection sheen, lamp-pool strength and the neon
+ * intensity ceiling. Render code reads these — no magic numbers inline. */
+const CR_LIGHT = {
+  AMBIENT_NEAR:   0.10,   // cool ambient wash on the nearest third
+  AMBIENT_FAR:    0.03,   // eases out with distance (fog takes over)
+  SHEEN_ALPHA:    0.05,   // wet-asphalt reflection band (lit segments)
+  LANE_ALPHA:     0.85,   // lane-dash visibility (was 0.78)
+  EDGE_LINE_ALPHA:0.42,   // solid edge lines (was 0.34)
+  NEON_MAX:       0.58,   // edge-line ceiling (was 0.85 — the bloom)
+  NEON_GLOW:      0.13,   // outer glow quad (was 0.20)
+  RUMBLE_PINK:    '#c94e8f',  // rumble strip (was #ff5ca8 — too hot)
+  RUMBLE_SLATE:   '#333c50',  // alternating dark band (lifted to match)
+  LAMP_POOL:      0.16,   // tarmac light pool under each street lamp
+  FOG_MAX:        0.72,   // distant fog ceiling (was 0.82)
+};
 
 /** One road segment: verge, shoulder, barrier, asphalt, lane markers.
  *  Drawn far-to-near by the caller; every polygon shares edges with its
@@ -10371,7 +10473,15 @@ function crDrawSegment(c, v, alt, W) {
   const seg = v.seg;
 
   // --- verge / off-road ground band -----------------------------------
-  c.fillStyle = alt ? '#0b1018' : '#0d131d';
+  /* LIGHTING FIX · verge lifted slightly so the ground beside the road
+   * reads as dark terrain catching ambient light — not a black void that
+   * makes the tarmac edge look pasted on. Still clearly darker than the
+   * shoulder, preserving the road's read.
+   * ROAD SURFACE FIX · the verge no longer alternates two shades per
+   * segment: that produced the same horizontal striping on the ground
+   * beside the road. One flat tone; its depth shading comes from the
+   * same full-span gradient pass as the tarmac. */
+  c.fillStyle = '#141b28';
   c.fillRect(0, p2.y, W, p1.y - p2.y + 1);
 
   // Distance-based alpha for edge furniture: full strength near the
@@ -10383,10 +10493,19 @@ function crDrawSegment(c, v, alt, W) {
   // The rail is a thin quad just outside the rumble strip. Its top edge is
   // projected at RAIL_H world units above the road, which makes it follow
   // hills and curves exactly like the tarmac does.
-  const railT1 = crProject(v.d1, v.x1 - 1.16, seg.y + CR.RAIL_H);
-  const railT2 = crProject(v.d2, v.x2 - 1.16, seg.y + CR.RAIL_H);
-  const railT3 = crProject(v.d1, v.x1 + 1.16, seg.y + CR.RAIL_H);
-  const railT4 = crProject(v.d2, v.x2 + 1.16, seg.y + CR.RAIL_H);
+  /* ROAD SURFACE FIX · CRITICAL: the rail tops were projected at
+   * v.x1 ± 1.16 — but v.x1 is in WORLD units, where the road spans
+   * ±ROAD_W (±2200). "1.16" therefore meant 1.16 world units from the
+   * road CENTER, so every segment drew its rail-face quads as a band
+   * straight across the middle of the tarmac. That was the dominant
+   * horizontal-striping artifact: alternating bright/dark rows covering
+   * the entire road width. The offset must be ±1.16 ROAD WIDTHS
+   * (±1.16 × ROAD_W world units), placing the rail just outside the
+   * rumble strips where it belongs. */
+  const railT1 = crProject(v.d1, v.x1 - 1.16 * CR.ROAD_W, seg.y + CR.RAIL_H);
+  const railT2 = crProject(v.d2, v.x2 - 1.16 * CR.ROAD_W, seg.y + CR.RAIL_H);
+  const railT3 = crProject(v.d1, v.x1 + 1.16 * CR.ROAD_W, seg.y + CR.RAIL_H);
+  const railT4 = crProject(v.d2, v.x2 + 1.16 * CR.ROAD_W, seg.y + CR.RAIL_H);
   const railA = 0.55 + 0.45 * (v.n < 40 ? 1 : Math.max(0, 1 - (v.n - 40) / 60));
   // Left rail face (lit side faces the road).
   c.fillStyle = `rgba(96,116,158,${(railA * 0.75).toFixed(3)})`;
@@ -10410,67 +10529,71 @@ function crDrawSegment(c, v, alt, W) {
   c.stroke();
 
   // --- rumble strips (outer coloured edge) ----------------------------
-  // Alternating hot-pink / deep-slate bands: the classic OutRun rumble
+  // Alternating pink / deep-slate bands: the classic OutRun rumble
   // that strobes toward the player and sells speed better than anything.
+  // LIGHTING FIX · rumble colours come from CR_LIGHT: the pink band is a
+  // rose tone instead of full-brightness magenta, and the dark band is
+  // lifted so the alternation stays visible without either extreme.
   const rumble1 = p1.w * 0.14, rumble2 = p2.w * 0.14;
-  c.fillStyle = alt ? '#2a3347' : '#ff5ca8';
+  c.fillStyle = alt ? CR_LIGHT.RUMBLE_SLATE : CR_LIGHT.RUMBLE_PINK;
   crPoly(c, p1.x - p1.w - rumble1, p1.y, p1.x - p1.w, p1.y,
          p2.x - p2.w, p2.y, p2.x - p2.w - rumble2, p2.y);
   crPoly(c, p1.x + p1.w + rumble1, p1.y, p1.x + p1.w, p1.y,
          p2.x + p2.w, p2.y, p2.x + p2.w + rumble2, p2.y);
 
   // --- shoulder (paved margin inside the rumble) ----------------------
-  c.fillStyle = alt ? '#10151f' : '#121826';
+  /* LIGHTING FIX · shoulder lifted in step with the asphalt ramp so the
+   * margin stays a shade darker than the running lanes (real motorway
+   * look) instead of reading as a black gutter beside them.
+   * ROAD SURFACE FIX · single tone (was two alternating shades). */
+  c.fillStyle = '#1d2432';
   crPoly(c, p1.x - p1.w, p1.y, p1.x - p1.w * 0.94, p1.y,
          p2.x - p2.w * 0.94, p2.y, p2.x - p2.w, p2.y);
   crPoly(c, p1.x + p1.w * 0.94, p1.y, p1.x + p1.w, p1.y,
          p2.x + p2.w, p2.y, p2.x + p2.w * 0.94, p2.y);
 
-  // --- asphalt with per-segment tint variation ------------------------
-  const lit = alt ? CR_ASPH_LIT[seg.tint] : CR_ASPH[seg.tint];
-  c.fillStyle = lit;
+  // --- asphalt: ONE continuous surface ---------------------------------
+  /* ROAD SURFACE FIX · the tarmac is now a single continuous plane.
+   *   • Only TWO alternating shades, ΔL≈1.5% — the motion rhythm survives
+   *     (bands strobe toward you at speed) but as a STATIC image there are
+   *     no visible horizontal stripes.
+   *   • The per-segment tint variation, ambient wash, reflection sheen and
+   *     seam joints are all REMOVED from here: they stacked up to 8+ flat
+   *     colors side by side, which is what made the road read as stacked
+   *     rectangles. Depth shading is done ONCE per frame by a full-span
+   *     gradient (crDrawRoadDepth) after all segments are drawn.
+   * Lane dashes, edge lines, rumble strips and neon rails are untouched —
+   * they are the intentional markings. */
+  c.fillStyle = alt ? CR_ROAD_SURFACE.BAND_B : CR_ROAD_SURFACE.BAND_A;
   crPoly(c, p1.x - p1.w, p1.y, p1.x + p1.w, p1.y,
          p2.x + p2.w, p2.y, p2.x - p2.w, p2.y);
 
-  // --- wet-asphalt sheen: a faint light band across the top of each lit
-  //     segment, as if the neon above reflects off the tarmac. One thin
-  //     quad — cheap, but massively increases perceived glossiness. ---
-  if (alt && v.n < 70 && p1.y - p2.y > 2) {
-    c.fillStyle = 'rgba(120,160,255,.028)';
-    crPoly(c, p1.x - p1.w, p2.y, p1.x + p1.w, p2.y,
-           p2.x + p2.w * 0.98, p2.y + (p1.y - p2.y) * 0.42,
-           p2.x - p2.w * 0.98, p2.y + (p1.y - p2.y) * 0.42);
-  }
-
-  // Centre seam: a faint joint every few segments sells surface texture.
-  if (seg.seam && v.n < 60) {
-    c.fillStyle = 'rgba(232,236,244,.05)';
-    crPoly(c, p1.x - p1.w * 0.98, p1.y, p1.x + p1.w * 0.98, p1.y,
-           p2.x + p2.w * 0.98, p2.y + 1, p2.x - p2.w * 0.98, p2.y + 1);
-  }
-
   // --- lane markers: dashes scale correctly toward the horizon --------
+  /* LIGHTING FIX · dash alpha/width come from CR_LIGHT so the markings
+   *  stay clearly readable against the lifted asphalt — the old 0.78
+   *  flat alpha greyed out at distance. Dashes are slightly wider too,
+   *  which keeps them visible in the far half where they compress. */
   if (alt) {
-    c.fillStyle = 'rgba(232,236,244,.78)';
+    c.fillStyle = `rgba(238,242,250,${CR_LIGHT.LANE_ALPHA})`;
     const lanes = CR.LANES;
     for (let l = 1; l < lanes; l++) {
       const t = -1 + (2 * l) / lanes;
       crPoly(c,
-        p1.x + p1.w * t - p1.w * 0.011, p1.y,
-        p1.x + p1.w * t + p1.w * 0.011, p1.y,
-        p2.x + p2.w * t + p2.w * 0.011, p2.y,
-        p2.x + p2.w * t - p2.w * 0.011, p2.y);
+        p1.x + p1.w * t - p1.w * 0.014, p1.y,
+        p1.x + p1.w * t + p1.w * 0.014, p1.y,
+        p2.x + p2.w * t + p2.w * 0.014, p2.y,
+        p2.x + p2.w * t - p2.w * 0.014, p2.y);
     }
   }
   // Solid edge lines just inside the shoulders (real motorway marking).
   if (!alt) {
-    c.fillStyle = 'rgba(232,236,244,.34)';
+    c.fillStyle = `rgba(238,242,250,${CR_LIGHT.EDGE_LINE_ALPHA})`;
     for (const t of [-0.90, 0.90]) {
       crPoly(c,
-        p1.x + p1.w * t - p1.w * 0.008, p1.y,
-        p1.x + p1.w * t + p1.w * 0.008, p1.y,
-        p2.x + p2.w * t + p2.w * 0.008, p2.y,
-        p2.x + p2.w * t - p2.w * 0.008, p2.y);
+        p1.x + p1.w * t - p1.w * 0.009, p1.y,
+        p1.x + p1.w * t + p1.w * 0.009, p1.y,
+        p2.x + p2.w * t + p2.w * 0.009, p2.y,
+        p2.x + p2.w * t - p2.w * 0.009, p2.y);
     }
   }
 
@@ -10478,20 +10601,24 @@ function crDrawSegment(c, v, alt, W) {
   // Continuous bright lines just inside each rumble: cyan left, magenta
   // right. Drawn AFTER the asphalt so they stay crisp over every band.
   // Alpha eases out with distance so the far road melts into haze.
+  /* LIGHTING FIX · the lines no longer run at near-full alpha: the
+   * ceiling comes from CR_LIGHT.NEON_MAX and the outer glow quads are
+   * halved, which removes the hard bloom while keeping both hues clearly
+   * readable as the track's identity. Nitro still swells them. */
   if (v.n < 110) {
     const lw1 = Math.max(1, p1.w * 0.013);
     const lw2 = Math.max(0.6, p2.w * 0.013);
     // Left (cyan)
     // Phase 3: neon intensity swells while boosting (road lighting).
     const nBoost = 1 + CRG.nitroVis * 0.35;
-    c.fillStyle = `${CR_NEON_L}${Math.min(1, 0.85 * edgeA * nBoost).toFixed(3)})`;
+    c.fillStyle = `${CR_NEON_L}${Math.min(1, CR_LIGHT.NEON_MAX * edgeA * nBoost).toFixed(3)})`;
     crPoly(c,
       p1.x - p1.w * 0.965 - lw1, p1.y,
       p1.x - p1.w * 0.965 + lw1, p1.y,
       p2.x - p2.w * 0.965 + lw2, p2.y,
       p2.x - p2.w * 0.965 - lw2, p2.y);
     // Right (magenta)
-    c.fillStyle = `${CR_NEON_R}${Math.min(1, 0.85 * edgeA * nBoost).toFixed(3)})`;
+    c.fillStyle = `${CR_NEON_R}${Math.min(1, CR_LIGHT.NEON_MAX * edgeA * nBoost).toFixed(3)})`;
     crPoly(c,
       p1.x + p1.w * 0.965 - lw1, p1.y,
       p1.x + p1.w * 0.965 + lw1, p1.y,
@@ -10502,13 +10629,13 @@ function crDrawSegment(c, v, alt, W) {
     if (v.n < 46) {
       const g1 = Math.max(1.5, p1.w * 0.030);
       const g2 = Math.max(1, p2.w * 0.030);
-      c.fillStyle = `${CR_NEON_L}${Math.min(1, 0.20 * edgeA * nBoost).toFixed(3)})`;
+      c.fillStyle = `${CR_NEON_L}${Math.min(1, CR_LIGHT.NEON_GLOW * edgeA * nBoost).toFixed(3)})`;
       crPoly(c,
         p1.x - p1.w * 0.965 - g1, p1.y,
         p1.x - p1.w * 0.965 + g1 * 0.4, p1.y,
         p2.x - p2.w * 0.965 + g2 * 0.4, p2.y,
         p2.x - p2.w * 0.965 - g2, p2.y);
-      c.fillStyle = `${CR_NEON_R}${Math.min(1, 0.20 * edgeA * nBoost).toFixed(3)})`;
+      c.fillStyle = `${CR_NEON_R}${Math.min(1, CR_LIGHT.NEON_GLOW * edgeA * nBoost).toFixed(3)})`;
       crPoly(c,
         p1.x + p1.w * 0.965 - g1 * 0.4, p1.y,
         p1.x + p1.w * 0.965 + g1, p1.y,
@@ -10543,43 +10670,98 @@ function crDrawSprite(c, s, W, H) {
   const seg = CRG.segs[segIdx];
   const isCar = s.kind === 'car';
   const lateral = isCar ? s.car.x * CR.ROAD_W : s.side * CR.ROAD_W * 1.35;
-  const p = crProject(d, lateral, seg.y);
+  /* PLAYER-TRACK FIX · curve-aware sprite projection: add the road's
+   * accumulated center offset at this depth so the object sits ON the
+   * bent road, in the same coordinate system as the tarmac polygons.
+   * (Before: sprites projected on the straight-ahead axis and visibly
+   * detached from the road through corners.) */
+  const cx0 = (CR._curveX
+            && Math.abs(s.rel) <= CR.DRAW_DIST)
+    ? CR._curveX[Math.max(0, Math.min(CR.DRAW_DIST + 1, Math.round(s.rel)))]
+    : 0;
+  const p = crProject(d, lateral + cx0, seg.y);
   if (p.y < 0 || p.y > H) return;
+
+  /* =================================================================
+     BUGFIX (scenery scale) · WORLD-UNIT SPRITE PROJECTION.
+     Every roadside object below used to size itself as p.scale * N
+     (world units). But p.scale = camD/d is DIMENSIONLESS (~1/2400 at
+     mid-field) — it is missing the screen factor that crProject folds
+     into p.w (scale × ROAD_W × vW/2). Result: lamps, pylons, trees,
+     billboards, gantries and arrows all drew at 0.3–1px — completely
+     invisible — leaving an empty road beside a rich skyline. That is
+     the single biggest reason the track read as "artificial".
+     Fix: one shared converter, u(N) = N world units in pixels, built
+     from the SAME chain as traffic cars (p.w / ROAD_W = px per world
+     unit), so scenery, cars and the player share one perspective.
+     ================================================================= */
+  const u = n => n * (p.w / CR.ROAD_W);          // world units -> px
 
   if (s.kind === 'lamp') {
     // Street lamp: post, arm reaching over the road, glowing head. The
     // pool of light on the tarmac is what makes the road feel lit.
-    const h = p.scale * 1500;
-    const w = Math.max(1, p.scale * 46);
-    const armLen = p.scale * 620 * -s.side;       // reaches toward the road
+    /* BUGFIX (scenery scale) · dimensions now in real world units through
+     * u(): a ~10m lamp next to a ~10m half-width road ≈ 0.75×ROAD_W tall,
+     * arm ~0.28×ROAD_W — reads at every depth exactly like traffic does. */
+    const h = u(1650);
+    const w = Math.max(1, u(52));
+    const armLen = u(700) * -s.side;             // reaches toward the road
     c.fillStyle = '#2b3345';
     c.fillRect(p.x - w / 2, p.y - h, w, h);
     c.fillRect(Math.min(p.x, p.x + armLen), p.y - h, Math.abs(armLen) || w, w);
+    /* LIGHTING FIX · the lamp now actually LIGHTS THE ROAD: an elliptical
+     * warm pool is projected onto the tarmac under the lamp head, fading
+     * with distance exactly like every other sprite. This distributes
+     * light along the track (the old renderer had a glow around the bulb
+     * only, leaving the surface beneath it as dark as everywhere else).
+     * One radial gradient per lamp — lamps are ~1 per 7 segments, so at
+     * most ~20 gradients in view, and skipped entirely when tiny. */
+    if (p.w > 24) {
+      const px0 = p.x + armLen * 0.65;
+      const poolR = p.w * 0.55;
+      if (poolR > 3) {
+        const pg = c.createRadialGradient(px0, p.y, 1, px0, p.y, poolR);
+        pg.addColorStop(0, `rgba(255,224,160,${CR_LIGHT.LAMP_POOL})`);
+        pg.addColorStop(0.6, `rgba(255,214,150,${(CR_LIGHT.LAMP_POOL * 0.45).toFixed(3)})`);
+        pg.addColorStop(1, 'rgba(255,214,150,0)');
+        c.save();
+        // Squash the pool vertically so it reads as light ON the ground
+        // plane, not a ball around the bulb.
+        c.translate(px0, p.y);
+        c.scale(1, 0.32);
+        c.translate(-px0, -p.y);
+        c.fillStyle = pg;
+        c.beginPath(); c.arc(px0, p.y, poolR, 0, Math.PI * 2); c.fill();
+        c.restore();
+      }
+    }
     // Lamp head + glow.
     const hx = p.x + armLen, hy = p.y - h;
     c.fillStyle = '#ffe9a8';
-    c.beginPath(); c.arc(hx, hy, Math.max(1.2, p.scale * 95), 0, Math.PI * 2); c.fill();
-    if (p.scale > 0.004) {
-      const gg = c.createRadialGradient(hx, hy, 1, hx, hy, p.scale * 900);
+    c.beginPath(); c.arc(hx, hy, Math.max(1.2, u(105)), 0, Math.PI * 2); c.fill();
+    if (u(1000) > 3) {
+      const gg = c.createRadialGradient(hx, hy, 1, hx, hy, u(1000));
       gg.addColorStop(0, 'rgba(255,222,150,.30)');
       gg.addColorStop(1, 'rgba(255,222,150,0)');
       c.fillStyle = gg;
-      c.beginPath(); c.arc(hx, hy, p.scale * 900, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.arc(hx, hy, u(1000), 0, Math.PI * 2); c.fill();
     }
     return;
   }
   if (s.kind === 'arrow') {
     // Glowing chevron pointing into the turn, on the outside verge.
-    const h = p.scale * 780;
-    const w = p.scale * 560;
+    /* BUGFIX (scenery scale) · u()-based: ~0.35×ROAD_W tall chevrons —
+     * clearly readable at approach distance, shrinking with perspective. */
+    const h = u(780);
+    const w = u(560);
     const dir = s.dir || 1;
     c.save();
     c.translate(p.x, p.y - h / 2);
     c.strokeStyle = 'rgba(255,196,90,.92)';
-    c.lineWidth = Math.max(1.5, p.scale * 74);
+    c.lineWidth = Math.max(1.5, u(74));
     c.lineJoin = 'round'; c.lineCap = 'round';
     c.shadowColor = 'rgba(255,196,90,.8)';
-    c.shadowBlur = Math.min(14, p.scale * 2600);
+    c.shadowBlur = Math.min(14, u(2600));
     c.beginPath();
     c.moveTo(-w * 0.28 * dir, -h * 0.30);
     c.lineTo(w * 0.24 * dir, 0);
@@ -10589,8 +10771,10 @@ function crDrawSprite(c, s, W, H) {
     return;
   }
   if (s.kind === 'pylon') {
-    const h = p.scale * 900;
-    const w = p.scale * 130;
+    /* BUGFIX (scenery scale) · u()-based delineator post: slim, ~0.4×
+     * ROAD_W tall — a real roadside marker, not a pixel speck. */
+    const h = u(900);
+    const w = Math.max(1, u(130));
     c.fillStyle = '#ff5ca8';
     c.fillRect(p.x - w / 2, p.y - h, w, h * 0.82);
     c.fillStyle = '#e8ecf4';
@@ -10599,8 +10783,10 @@ function crDrawSprite(c, s, W, H) {
   }
   if (s.kind === 'tree') {
     // Dark conifer: trunk + two stacked triangles.
-    const h = p.scale * 2600;
-    const w = p.scale * 900;
+    /* BUGFIX (scenery scale) · u()-based conifer ~1.2×ROAD_W tall —
+     * a background tree that reads at mid-distance. */
+    const h = u(2600);
+    const w = u(900);
     c.fillStyle = '#1a1410';
     c.fillRect(p.x - w * 0.06, p.y - h * 0.3, w * 0.12, h * 0.3);
     c.fillStyle = '#12241c';
@@ -10614,10 +10800,12 @@ function crDrawSprite(c, s, W, H) {
   if (s.kind === 'gantry') {
     /* Full-width overhead sign bridge: two lattice legs + truss beam +
      * a green direction panel with route bars. Scaled purely by the
-     * projection so it grows and sweeps overhead exactly like the road. */
-    const legH = p.scale * 3400;
+     * projection so it grows and sweeps overhead exactly like the road.
+     * BUGFIX (scenery scale) · leg height now u()-based (~1.55×ROAD_W —
+     * clears trucks under the beam); the span already used p.w (correct). */
+    const legH = u(3400);
     const spanW = p.w * 2.5;                       // wider than the road
-    const legW = Math.max(1.5, p.scale * 150);
+    const legW = Math.max(1.5, u(150));
     c.fillStyle = '#1b2231';
     // Legs (just outside each rumble).
     c.fillRect(p.x - spanW / 2, p.y - legH, legW, legH);
@@ -10641,7 +10829,7 @@ function crDrawSprite(c, s, W, H) {
     c.fillStyle = '#0d2418';
     c.fillRect(p.x - pw / 2, p.y - legH + legW * 1.9, pw, ph);
     c.strokeStyle = 'rgba(120,255,200,.4)';
-    c.lineWidth = Math.max(0.8, p.scale * 26);
+    c.lineWidth = Math.max(0.8, u(260));
     c.strokeRect(p.x - pw / 2, p.y - legH + legW * 1.9, pw, ph);
     c.fillStyle = 'rgba(190,255,225,.75)';
     const bars = 2, bbw = pw * 0.55 / bars;
@@ -10655,9 +10843,10 @@ function crDrawSprite(c, s, W, H) {
     /* TASK 7.1 · checkpoint gate: two neon pylons + a beam across the
      * road, coloured by state — cyan pending, green when this lap's gate
      * is already crossed, gold for the start/finish line. Scales with the
-     * same projection as everything else. */
-    const h = p.scale * 1500;
-    const legW = Math.max(1.5, p.scale * 60);
+     * same projection as everything else.
+     * BUGFIX (scenery scale) · pylon height u()-based (~0.68×ROAD_W). */
+    const h = u(1500);
+    const legW = Math.max(1.5, u(60));
     const spanW = p.w * 2.05;
     const col = s.isFinish ? '#ffc857' : (s.gateHit ? '#5ef2c0' : '#40e0ff');
     c.save();
@@ -10667,9 +10856,9 @@ function crDrawSprite(c, s, W, H) {
     c.fillRect(p.x + spanW / 2 - legW, p.y - h, legW, h);
     // Cross beam with glow.
     c.shadowColor = col;
-    c.shadowBlur = Math.min(16, p.scale * 3000);
+    c.shadowBlur = Math.min(16, u(3000));
     c.strokeStyle = col;
-    c.lineWidth = Math.max(1.5, p.scale * 110);
+    c.lineWidth = Math.max(1.5, u(110));
     c.beginPath();
     c.moveTo(p.x - spanW / 2, p.y - h);
     c.lineTo(p.x + spanW / 2, p.y - h);
@@ -10688,23 +10877,33 @@ function crDrawSprite(c, s, W, H) {
   }
   if (s.kind === 'billboard') {
     // Neon hoarding on two legs — a landmark that sells speed as it grows.
-    const h = p.scale * 2300;
-    const w = p.scale * 3000;
-    const legW = Math.max(1, p.scale * 90);
+    /* BUGFIX (scenery scale) · u()-based sizing.
+     * VISUAL COMPOSITION FIX · billboards reduced to ~55% of their first
+     * restored size and pushed further out on the verge (the sprite's
+     * lateral placement already sits at 1.35×ROAD_W; the panel now leans
+     * AWAY from the road by its own half-width so it never overhangs the
+     * driving lanes). At 2300u tall the hoardings towered over the road
+     * and blocked the view into corners; at 1250u they read as roadside
+     * signage beside the track, not above it. */
+    const h = u(1250);
+    const w = u(1650);
+    const legW = Math.max(1, u(70));
+    // Shift the whole board outward so its inner edge stays off the tarmac.
+    const out = s.side < 0 ? -w * 0.12 : w * 0.12;
     c.fillStyle = '#232b3a';
-    c.fillRect(p.x - w * 0.3, p.y - h * 0.55, legW, h * 0.55);
-    c.fillRect(p.x + w * 0.3 - legW, p.y - h * 0.55, legW, h * 0.55);
+    c.fillRect(p.x - w * 0.3 + out, p.y - h * 0.55, legW, h * 0.55);
+    c.fillRect(p.x + w * 0.3 + out - legW, p.y - h * 0.55, legW, h * 0.55);
     const hue = s.hue || 300;
     c.fillStyle = `hsl(${hue} 60% 16%)`;
-    c.fillRect(p.x - w / 2, p.y - h, w, h * 0.5);
+    c.fillRect(p.x - w / 2 + out, p.y - h, w, h * 0.5);
     c.strokeStyle = `hsl(${hue} 85% 62%)`;
-    c.lineWidth = Math.max(1, p.scale * 40);
-    c.strokeRect(p.x - w / 2, p.y - h, w, h * 0.5);
+    c.lineWidth = Math.max(1, u(40));
+    c.strokeRect(p.x - w / 2 + out, p.y - h, w, h * 0.5);
     // Simple bar motif instead of text (text at distance shimmers).
     c.fillStyle = `hsl(${hue} 90% 70%)`;
     const bars = 3, bw = w * 0.6 / (bars * 2 - 1);
     for (let b = 0; b < bars; b++) {
-      c.fillRect(p.x - w * 0.3 + b * 2 * bw, p.y - h * 0.78, bw, h * 0.26);
+      c.fillRect(p.x - w * 0.3 + out + b * 2 * bw, p.y - h * 0.78, bw, h * 0.26);
     }
     return;
   }
@@ -11069,7 +11268,25 @@ function crDrawPlayer(c, W, H) {
    * perspective. The sprite width becomes the projected width of
    * PLAYER_WIDTH road units × the same CAR_VIS_K factor as traffic:
    * cars and player are now in identical units at identical depths. */
-  const pSelf = crProject(CR.CAM_TRAIL, g.playerX * CR.ROAD_W, 0);
+  /* PLAYER-TRACK FIX · the car is now positioned by TRUE PROJECTION.
+   * The old code drew the sprite at W/2 + (playerX-camX)*W*0.09 — an
+   * arbitrary screen-space offset that ignored the road's accumulated
+   * curve offset, the perspective scale and the camera geometry. In
+   * corners the road swept sideways while the car stayed put: up to a
+   * 90px disconnect (measured), which read as the car sliding on top of
+   * a separate background instead of driving ON the track.
+   * Now: world lateral = curveX(playerDepth) + playerX*ROAD_W, projected
+   * through the very same crProject() the tarmac uses — one coordinate
+   * system for road, traffic, scenery and player. The camera lag (camX
+   * easing toward the player) still produces the natural "car moves
+   * within the frame" feel, because crProject subtracts camX internally
+   * exactly as it does for the road. */
+  const pCurveX = (CR._curveX && CR._curveX.length)
+    ? CR._curveX[Math.min(CR.DRAW_DIST + 1,
+        Math.max(0, Math.round(CR.CAM_TRAIL / CR.SEG_LEN)))]
+    : 0;
+  const pSelf = crProject(CR.CAM_TRAIL,
+                          pCurveX + g.playerX * CR.ROAD_W, 0);
   /* Width uses the SAME chain as traffic (p.w * 0.56 * bodyK * CAR_VIS_K)
    * with the player's own body factor — identical units, identical depth,
    * so a sedan alongside renders at a believable size relative to us. */
@@ -11079,14 +11296,9 @@ function crDrawPlayer(c, W, H) {
   const bodyK = 0.72 * (BODY.w / 156);
   const cw = Math.max(90, pSelf.w * 0.56 * bodyK * CR.CAR_VIS_K);
   const ch = cw * (BODY.h / BODY.w);
-  // The camera follows the car with damping, so the car sits near centre but
-  // keeps a small residual offset while the camera catches up — that lag IS
-  // the sense of the car moving within the world.
-  /* FULLSCREEN/VIEWPORT FIX · the lateral chase-lag offset scales with
-   * the LIVE view width so the car sits bottom-centre of the actual
-   * viewport (W here is already the live logical width passed in). */
-  const residual = (g.playerX - g.camX) * W * 0.09;
-  const cx = W / 2 + Math.max(-W * 0.12, Math.min(W * 0.12, residual));
+  // Screen x IS the projection — the car sits exactly where its world
+  // position lands on the projected road. (No arbitrary offsets.)
+  const cx = pSelf.x;
   const speedRatio = g.speed / g.maxSpeed;
 
   /* PHASE 5 · suspension. Two independent springs:
@@ -11964,7 +12176,10 @@ function crDrawFog(c, v, W) {
   const depth = v.n / CR.DRAW_DIST;
   if (depth < 0.45) return;
   const a = (depth - 0.45) / 0.55;                 // 0..1 in the far half
-  const alpha = Math.min(0.82, a * a * 0.95);
+  /* LIGHTING FIX · fog ceiling from CR_LIGHT (was 0.82): the far third
+   * still melts into the night but the distant road GEOMETRY — curves,
+   * lane dashes, edge lines — stays legible instead of vanishing. */
+  const alpha = Math.min(CR_LIGHT.FOG_MAX, a * a * 0.95);
   if (alpha <= 0.01) return;
   // A violet-blue haze that lands between the sky and the road so distant
   // geometry melts into the night without ever looking like more tarmac.
@@ -13193,7 +13408,7 @@ async function render() {
   // normal shell. (Unknown routes fall through to the Welcome renderer,
   // hence the inclusive list rather than an exclusion.)
   const WORKSPACE_VIEWS = ['loop', 'chat', 'traces', 'requests', 'models',
-    'analytics', 'settings', 'sft', 'pretrain', 'funtime',
+    'analytics', 'settings', 'sft', 'pretrain', 'funtime', 'eval',
     'evalbank', 'evaldata', 'evalbench', 'evalmodel', 'evalreport', 'evaltools'];
   document.body.classList.toggle('ws-launcher', !WORKSPACE_VIEWS.includes(S.route));
   // Leaving a pipeline workspace must release its canvas listeners.
@@ -13214,14 +13429,18 @@ async function render() {
       case 'sft': return await renderSftPipeline();
       case 'pretrain': return await renderPretrainPipeline();
       case 'funtime': return await renderFunTime();
-      // Internal evaluation workspaces (renderers live in
-      // eval-workspaces.js, loaded before this script).
-      case 'evalbank': return await renderEvalBank(evSubRoute('evalbank'));
-      case 'evaldata': return await renderEvalData();
-      case 'evalbench': return await renderEvalBench();
-      case 'evalmodel': return await renderEvalModel();
-      case 'evalreport': return await renderEvalReport();
-      case 'evaltools': return await renderEvalTools();
+      // Internal evaluation: ONE unified workspace. #eval renders the
+      // Overview; its sections are sub-routes of the same shell
+      // (renderers live in eval-workspaces.js, loaded before this
+      // script). Legacy top-level hashes (#evalbank …) keep working —
+      // they map onto the matching section inside the workspace.
+      case 'eval': return await renderEvalWorkspace('overview');
+      case 'evalbank': return await renderEvalWorkspace('bank', evSubRoute('evalbank'));
+      case 'evaldata': return await renderEvalWorkspace('data');
+      case 'evalbench': return await renderEvalWorkspace('bench');
+      case 'evalmodel': return await renderEvalWorkspace('model');
+      case 'evalreport': return await renderEvalWorkspace('report');
+      case 'evaltools': return await renderEvalWorkspace('tools');
       default: return await renderOverview();
     }
   } catch (e) { return errorView(e); }
@@ -13238,12 +13457,17 @@ function boot() {
     if (h.startsWith('funtime/')) h = 'funtime';
     if (h.startsWith('pretrain/')) h = 'pretrain';
     if (h.startsWith('sft/')) h = 'sft';
-    if (h.startsWith('evalbank/')) h = 'evalbank';
-    if (h.startsWith('evaldata/')) h = 'evaldata';
-    if (h.startsWith('evalbench/')) h = 'evalbench';
-    if (h.startsWith('evalmodel/')) h = 'evalmodel';
-    if (h.startsWith('evalreport/')) h = 'evalreport';
-    if (h.startsWith('evaltools/')) h = 'evaltools';
+    // Unified Internal Evaluation sub-routes: #eval/bank, #eval/data, …
+    // map onto the section routes; the raw hash stays intact so the
+    // workspace renderer can read its own deep links (#eval/bank/<file>).
+    if (h.startsWith('eval/')) {
+      const sec = h.slice(5);
+      for (const r of ['bank', 'data', 'bench', 'model', 'report', 'tools']) {
+        if (sec === r || sec.startsWith(r + '/')) { h = 'eval' + r; break; }
+      }
+      if (h.startsWith('eval/')) h = 'eval';
+    }
+    // Legacy top-level eval hashes stay valid as-is.
     if (h !== S.route) S.route = h;
     renderNav();
     render();

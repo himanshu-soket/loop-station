@@ -87,6 +87,231 @@ async function evOverview(force) {
 }
 
 /* ============================================================
+   0 · UNIFIED INTERNAL EVALUATION WORKSPACE (route: eval)
+   One workspace, one compact left sidebar:
+     Overview · Question Bank · Datasets · Benchmarks ·
+     Model Evaluation · Reports · Tools
+   Every section renders into the same main pane (#evMain) — no card
+   landing pages, no nested frames. Sub-routes: #eval/bank, #eval/data,
+   #eval/bench, #eval/model, #eval/report, #eval/tools.
+   ============================================================ */
+
+/* Section registry: id → label, icon, hash route. */
+const EV_SECTIONS = [
+  { id: 'overview', label: 'Overview',    route: '#eval' },
+  { id: 'bank',     label: 'Question Bank', route: '#eval/bank' },
+  { id: 'data',     label: 'Datasets',    route: '#eval/data' },
+  { id: 'bench',    label: 'Benchmarks',  route: '#eval/bench' },
+  { id: 'model',    label: 'Model Evaluation', route: '#eval/model' },
+  { id: 'report',   label: 'Reports',     route: '#eval/report' },
+  { id: 'tools',    label: 'Tools',       route: '#eval/tools' },
+];
+
+/* Which section is active right now (drives sidebar highlight). */
+EV.section = 'overview';
+
+/* The mount point for every section view. Falls back to #viewRoot when
+ * the shell has not been drawn yet (defensive; renderEvalWorkspace always
+ * draws it first). */
+function evRoot() {
+  return document.getElementById('evMain') || $('#viewRoot');
+}
+
+/* Read the current section from the raw hash (#eval/bank/… → bank). */
+function evHashSection() {
+  const h = (location.hash || '').replace(/^#/, '');
+  if (!h.startsWith('eval/')) return null;
+  const rest = h.slice(5);
+  const sec = rest.split('/')[0];
+  return EV_SECTIONS.some(s => s.id === sec && sec !== 'overview') ? sec : null;
+}
+
+/* Draw the workspace chrome once: compact sidebar + empty main pane.
+ * The topbar title/subtitle are set per-section by the renderers. */
+function evShell(active) {
+  EV.section = active;
+  $('#pageTitle').textContent = 'Internal Evaluation';
+  $('#pageSub').textContent = 'internal AI evaluation, benchmarks and model performance';
+  $('#viewRoot').innerHTML = `<div class="evws">
+    <aside class="evws-side" id="evSide">
+      <button type="button" class="evws-item${active === 'overview' ? ' on' : ''}"
+        data-sec="overview">${ICONS.eval}<span>Overview</span></button>
+      <div class="evws-sep"></div>
+      ${EV_SECTIONS.filter(s => s.id !== 'overview').map(s => `
+        <button type="button" class="evws-item${active === s.id ? ' on' : ''}"
+          data-sec="${s.id}">${ICONS['eval' + (s.id === 'bank' ? '' : s.id)] || ICONS.overview}<span>${s.label}</span></button>`).join('')}
+      <div class="evws-foot">read-only · ~/.loop/eval</div>
+    </aside>
+    <div class="evws-main" id="evMain"></div>
+  </div>`;
+  $('#evSide').querySelectorAll('.evws-item').forEach(btn => {
+    btn.onclick = () => {
+      const sec = btn.dataset.sec;
+      location.hash = sec === 'overview' ? '#eval' : '#eval/' + sec;
+    };
+  });
+}
+
+/* Route table for the dispatcher in console-app.js. `sub` carries deep
+ * links (e.g. a bank file name for the Question Bank). */
+async function renderEvalWorkspace(section, sub) {
+  // Normalize legacy top-level hashes onto the unified sub-route form so
+  // the URL bar and the sidebar agree.
+  const fromHash = evHashSection();
+  const active = section || fromHash || 'overview';
+
+  evShell(active);
+
+  switch (active) {
+    case 'bank':   return renderEvalBank(sub);
+    case 'data':   return renderEvalData();
+    case 'bench':  return renderEvalBench();
+    case 'model':  return renderEvalModel();
+    case 'report': return renderEvalReport();
+    case 'tools':  return renderEvalTools();
+    default:       return renderEvalOverview();
+  }
+}
+
+/* ============================================================
+   OVERVIEW (workspace home)
+   Real data only, from /api/eval/overview (+ runs/reports where they
+   add detail). Counts come from the kit on disk; nothing is invented.
+   ============================================================ */
+async function renderEvalOverview() {
+  const root = evRoot();
+  root.innerHTML = `<div class="content"><div class="content-inner">
+    <div class="sk-line"></div><div class="sk-line short"></div></div></div>`;
+
+  let o, runs;
+  try {
+    [o, runs] = await Promise.all([
+      api('/api/eval/overview'),
+      api('/api/eval/runs').catch(() => ({ items: [] })),
+    ]);
+  } catch (e) { return errorView(e); }
+
+  if (o.integration === 'not_configured') {
+    root.innerHTML = `<div class="content"><div class="content-inner">
+      ${evNotConfigured('The internal evaluation kit was not found on this machine.')}
+    </div></div>`;
+    return;
+  }
+
+  const b = o.banks || {}, d = o.datasets || {}, k = o.benchmarks || {},
+        m = o.evaluations || {}, r = o.reports || {}, t = o.tools || {};
+  const runItems = runs.items || [];
+
+  /* KPI strip — the six headline numbers, all real. */
+  const kpis = `
+    <div class="kpis">
+      <div class="kpi" style="--kcol:var(--acc)"><div class="kpi-k">datasets</div>
+        <div class="kpi-v">${evFmtInt(d.files)}</div>
+        <div class="kpi-s">${evFmtInt(d.rows)} records · ${evFmtBytes(o.bytes)} kit total</div></div>
+      <div class="kpi" style="--kcol:var(--blue)"><div class="kpi-k">questions</div>
+        <div class="kpi-v">${evFmtInt(b.questions)}</div>
+        <div class="kpi-s">${evFmtInt(b.files)} bank files · largest ${esc(b.largest || '—')}</div></div>
+      <div class="kpi" style="--kcol:var(--violet)"><div class="kpi-k">benchmarks</div>
+        <div class="kpi-v">${evFmtInt(k.presets)}</div>
+        <div class="kpi-s">${evFmtInt(k.settings)} settings · ${evFmtInt(k.comparisonModels)} comparison models</div></div>
+      <div class="kpi" style="--kcol:var(--amber)"><div class="kpi-k">evaluation runs</div>
+        <div class="kpi-v">${evFmtInt(m.runs)}</div>
+        <div class="kpi-s">${evFmtInt(m.settingsEvaluated)} graded settings</div></div>
+    </div>`;
+
+  /* Latest results: best measured accuracy per run (model under test),
+   * straight from report.json files. */
+  const latestRows = runItems.length
+    ? runItems.slice(0, 8).map(run => {
+        const scored = (run.reports || []).filter(x => x.hasReport);
+        const accs = scored.flatMap(x => x.overall || [])
+          .filter(s => s.model === 'eka' && s.acc != null);
+        const best = accs.length ? Math.max(...accs.map(a => a.acc)) : null;
+        return `<tr>
+          <td class="mono" style="color:var(--acc)">${esc(run.label || run.id)}</td>
+          <td class="mono dim">${esc(run.model || '—')}</td>
+          <td class="mono dim">${esc(run.input || '—')}</td>
+          <td class="mono dim">${best != null ? evFmtPct(best) : '<span class="faint">not graded</span>'}</td>
+          <td class="mono faint">${evAgo(run.modifiedMs)}</td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="5">${evEmpty('No evaluation runs yet',
+        'Each run of ./submit.sh writes a folder under internal_eval/runs/.')}</td></tr>`;
+
+  /* Recent reports: newest report artifacts on disk. */
+  let recentReports = [];
+  try {
+    const files = await api('/api/eval/files?workspace=reports');
+    recentReports = (files.items || [])
+      .slice()
+      .sort((a, c) => (c.modifiedMs || 0) - (a.modifiedMs || 0))
+      .slice(0, 6);
+  } catch { /* honest degradation */ }
+
+  /* Resource activity: most recently touched kit files. */
+  let activity = [];
+  try {
+    const files = await api('/api/eval/files');
+    activity = (files.items || [])
+      .slice()
+      .sort((a, c) => (c.modifiedMs || 0) - (a.modifiedMs || 0))
+      .slice(0, 8);
+  } catch { /* honest degradation */ }
+
+  root.innerHTML = `<div class="content"><div class="content-inner">
+    ${kpis}
+
+    <div class="panel">
+      <div class="panel-h"><div>
+        <div class="panel-t">Latest evaluation results</div>
+        <div class="panel-sub">best accuracy per run, model under test · from report.json</div>
+      </div></div>
+      <div class="table-scroll"><table>
+        <thead><tr><th>run</th><th>model</th><th>input</th><th>best accuracy</th><th>modified</th></tr></thead>
+        <tbody>${latestRows}</tbody>
+      </table></div>
+    </div>
+
+    <div class="ev-two-col">
+      <div class="panel">
+        <div class="panel-h"><div>
+          <div class="panel-t">Recent reports</div>
+          <div class="panel-sub">newest artifacts on disk</div>
+        </div></div>
+        ${recentReports.length ? `<div class="table-scroll"><table>
+          <thead><tr><th>artifact</th><th>size</th><th>modified</th></tr></thead>
+          <tbody>${recentReports.map(f => `<tr>
+            <td class="mono dim">${esc(f.relPath)}</td>
+            <td class="mono dim">${evFmtBytes(f.bytes)}</td>
+            <td class="mono faint">${evAgo(f.modifiedMs)}</td></tr>`).join('')}
+          </tbody></table></div>`
+          : `<div style="padding:20px">${evEmpty('No report artifacts',
+              'summary.html/json and report.html/json appear here once runs finish.')}</div>`}
+      </div>
+
+      <div class="panel">
+        <div class="panel-h"><div>
+          <div class="panel-t">Resource activity</div>
+          <div class="panel-sub">most recently updated files in the kit</div>
+        </div></div>
+        ${activity.length ? `<div class="table-scroll"><table>
+          <thead><tr><th>file</th><th>kind</th><th>modified</th></tr></thead>
+          <tbody>${activity.map(f => `<tr>
+            <td class="mono dim">${esc(f.relPath)}</td>
+            <td><span class="pill inc">${esc(f.kind)}</span></td>
+            <td class="mono faint">${evAgo(f.modifiedMs)}</td></tr>`).join('')}
+          </tbody></table></div>`
+          : `<div style="padding:20px">${evEmpty('No resources', '')}</div>`}
+      </div>
+    </div>
+
+    <div class="pa-note-line">All numbers are read live from the evaluation kit at
+      <code>${esc(o.root)}</code> through <code>/api/eval/*</code>. Read-only — the kit's own
+      <code>./submit.sh</code> and <code>sbatch</code> runners stay authoritative.</div>
+  </div></div>`;
+}
+
+/* ============================================================
    1 · QUESTION BANK  (route: evalbank)
    Browse and search the kit's question banks: facets, filters,
    pagination, full question detail with answer keys.
@@ -95,7 +320,7 @@ async function renderEvalBank(sub) {
   $('#pageTitle').textContent = 'Question Bank';
   $('#pageSub').textContent = 'browse and search the internal evaluation question banks';
 
-  const root = $('#viewRoot');
+  const root = evRoot();
   root.innerHTML = `<div class="content"><div class="content-inner">
     <div class="sk-line"></div><div class="sk-line short"></div></div></div>`;
 
@@ -181,7 +406,7 @@ async function renderEvalBank(sub) {
     EV.banks.page = 1;
     EV.banks.q = ''; EV.banks.suite = 'all'; EV.banks.group = 'all';
     EV.banks.difficulty = 'all'; EV.banks.language = 'all';
-    location.hash = '#evalbank/' + encodeURIComponent(EV.banks.sel);
+    location.hash = '#eval/bank/' + encodeURIComponent(EV.banks.sel);
     renderEvalBank(EV.banks.sel);
   };
   $('#evQ').oninput = debounce(() => {
@@ -297,7 +522,7 @@ function evQuestionDetail(q) {
     `<div class="dm"><div class="dm-k">${esc(k)}</div>
      <div class="dm-v" style="white-space:pre-wrap">${esc(String(v).slice(0, 2000))}</div></div>`).join('');
 
-  $('#viewRoot').innerHTML = `<div class="content"><div class="content-inner">
+  evRoot().innerHTML = `<div class="content"><div class="content-inner">
     <button class="adv-toggle" id="evBackToBank" style="margin-bottom:12px">← back to bank</button>
     <div class="detail-grid">
       <div class="panel"><div class="panel-h"><div>
@@ -330,7 +555,7 @@ function evQuestionDetail(q) {
         </div></div>
     </div>
   </div></div>`;
-  $('#evBackToBank').onclick = () => { location.hash = '#evalbank'; renderEvalBank(); };
+  $('#evBackToBank').onclick = () => { location.hash = '#eval/bank'; renderEvalWorkspace('bank'); };
 }
 
 /* ============================================================
@@ -342,7 +567,7 @@ async function renderEvalData() {
   $('#pageTitle').textContent = 'Evaluation Datasets';
   $('#pageSub').textContent = 'datasets in the evaluation kit · sizes, formats, record counts';
 
-  const root = $('#viewRoot');
+  const root = evRoot();
   root.innerHTML = `<div class="content"><div class="content-inner">
     <div class="sk-line"></div><div class="sk-line short"></div></div></div>`;
 
@@ -415,12 +640,23 @@ async function renderEvalData() {
   });
 }
 
-/* Bounded preview of any catalogued file (shared by datasets + tools). */
+/* Bounded preview of any catalogued file (shared by datasets + tools).
+ * HTML artifacts are the exception: they are self-contained report pages,
+ * so clicking one opens the RENDERED webpage in a new browser tab (the
+ * original CSS, scripts, charts and formatting all load) rather than a
+ * text preview of the markup. */
 async function evFilePreview(res) {
+  /* HTML → open as a real webpage, never as source. */
+  if (res.kind === 'HTML' || /\.html?$/i.test(res.name)) {
+    const url = '/api/eval/file/' + encodeURIComponent(res.id) + '?render=html';
+    window.open(url, '_blank', 'noopener');
+    return;
+  }
+
   $('#pageTitle').textContent = res.name;
   $('#pageSub').textContent = `${res.relPath} · ${evFmtBytes(res.bytes)}`;
 
-  const root = $('#viewRoot');
+  const root = evRoot();
   root.innerHTML = `<div class="content"><div class="content-inner">
     <div class="sk-line"></div><div class="sk-line short"></div></div></div>`;
 
@@ -459,6 +695,9 @@ async function evFilePreview(res) {
   // Same-hash navigation fires no hashchange, so re-render explicitly.
   $('#evPvBack').onclick = () => {
     const h = (location.hash || '').replace(/^#/, '');
+    if (h.startsWith('eval/data')) return renderEvalWorkspace('data');
+    if (h.startsWith('eval/report')) return renderEvalWorkspace('report');
+    if (h.startsWith('eval/tools')) return renderEvalWorkspace('tools');
     if (h.startsWith('evaldata')) return renderEvalData();
     if (h.startsWith('evalreport')) return renderEvalReport();
     if (h.startsWith('evaltools')) return renderEvalTools();
@@ -475,7 +714,7 @@ async function renderEvalBench() {
   $('#pageTitle').textContent = 'Benchmark Center';
   $('#pageSub').textContent = 'benchmark presets · decoding settings · comparison models';
 
-  const root = $('#viewRoot');
+  const root = evRoot();
   root.innerHTML = `<div class="content"><div class="content-inner">
     <div class="sk-line"></div><div class="sk-line short"></div></div></div>`;
 
@@ -596,7 +835,7 @@ async function renderEvalBench() {
 function evDocView(doc) {
   $('#pageTitle').textContent = doc.title;
   $('#pageSub').textContent = `${doc.relPath} · ${evFmtBytes(doc.bytes)}`;
-  $('#viewRoot').innerHTML = `<div class="content"><div class="content-inner">
+  evRoot().innerHTML = `<div class="content"><div class="content-inner">
     <button class="adv-toggle" id="evDocBack" style="margin-bottom:12px">← back</button>
     <div class="panel">
       <div class="panel-h"><div>
@@ -610,6 +849,8 @@ function evDocView(doc) {
   // owning renderer directly.
   $('#evDocBack').onclick = () => {
     const h = (location.hash || '').replace(/^#/, '');
+    if (h.startsWith('eval/tools')) return renderEvalWorkspace('tools');
+    if (h.startsWith('eval/bench')) return renderEvalWorkspace('bench');
     if (h.startsWith('evaltools')) return renderEvalTools();
     if (h.startsWith('evalbench')) return renderEvalBench();
     history.back();
@@ -618,115 +859,22 @@ function evDocView(doc) {
 
 /* ============================================================
    4 · MODEL EVALUATION  (route: evalmodel)
-   Discovered runs with their settings, and the cross-run /
-   cross-model comparison table built from real report.json files.
+   The original "EKA Checkpoints by Level" webpage, served verbatim at
+   /eka-checkpoints and mounted here in an iframe that fills the whole
+   workspace pane. The page keeps its own styles, tables and interactions;
+   nothing is recreated or restyled on this side.
    ============================================================ */
 async function renderEvalModel() {
   $('#pageTitle').textContent = 'Model Evaluation';
-  $('#pageSub').textContent = 'evaluation runs · settings · model comparison';
+  $('#pageSub').textContent = 'EKA checkpoints by level';
 
-  const root = $('#viewRoot');
-  root.innerHTML = `<div class="content"><div class="content-inner">
-    <div class="sk-line"></div><div class="sk-line short"></div></div></div>`;
-
-  let runs, cmp;
-  try {
-    [runs, cmp] = await Promise.all([api('/api/eval/runs'), api('/api/eval/comparison')]);
-  } catch (e) { return errorView(e); }
-
-  if (runs.integration === 'not_configured') {
-    root.innerHTML = `<div class="content"><div class="content-inner">
-      ${evNotConfigured('Evaluation results come from run folders under internal_eval/runs/.')}
-    </div></div>`;
-    return;
-  }
-
-  const items = runs.items || [];
-  if (!items.length) {
-    root.innerHTML = `<div class="content"><div class="content-inner">
-      <div class="panel"><div class="panel-h"><div>
-        <div class="panel-t">Model evaluation</div>
-        <div class="panel-sub">no run folders discovered</div></div></div>
-        <div style="padding:20px">${evEmpty('No evaluation runs yet',
-          'Each run of ./submit.sh writes a folder under internal_eval/runs/ containing ' +
-          'config.json, per-setting answers and judge grades. Those folders appear here verbatim.')}</div>
-      </div></div></div>`;
-    return;
-  }
-
-  const scored = items.filter(r => r.reports.some(x => x.hasReport));
-  const best = (cmp.rows || []).filter(r => r.isUnderTest && r.acc != null)
-    .sort((a, b) => b.acc - a.acc)[0];
-
-  root.innerHTML = `<div class="content"><div class="content-inner">
-    <div class="kpis">
-      <div class="kpi"><div class="kpi-k">runs discovered</div>
-        <div class="kpi-v">${evFmtInt(items.length)}</div>
-        <div class="kpi-s">${scored.length} with graded reports</div></div>
-      <div class="kpi"><div class="kpi-k">settings evaluated</div>
-        <div class="kpi-v">${evFmtInt(items.reduce((a, r) => a + r.reports.filter(x => x.hasReport).length, 0))}</div>
-        <div class="kpi-s">report.json files found</div></div>
-      <div class="kpi"><div class="kpi-k">best measured accuracy</div>
-        <div class="kpi-v">${best ? evFmtPct(best.acc) : '—'}</div>
-        <div class="kpi-s">${best ? `${esc(best.label || best.runId)} · ${esc(best.setting)}` : 'no graded settings yet'}</div></div>
-      <div class="kpi"><div class="kpi-k">models compared</div>
-        <div class="kpi-v">${new Set((cmp.rows || []).map(r => r.model)).size}</div>
-        <div class="kpi-s">under test + comparison models</div></div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-h"><div>
-        <div class="panel-t">Runs</div>
-        <div class="panel-sub">each row is a real run folder · click for detail</div></div></div>
-      <div class="table-scroll"><table>
-        <thead><tr><th>run</th><th>model under test</th><th>input</th>
-          <th>settings</th><th>questions</th><th>best accuracy</th><th>modified</th></tr></thead>
-        <tbody>${items.map(r => {
-          const accs = r.reports.flatMap(x => x.overall)
-            .filter(s => s.model === 'eka' && s.acc != null).map(s => s.acc);
-          const bestAcc = accs.length ? Math.max(...accs) : null;
-          return `<tr data-id="${esc(r.id)}">
-            <td class="mono" style="color:var(--acc)">${esc(r.label || r.id)}</td>
-            <td class="mono dim">${esc(r.model || '—')}</td>
-            <td class="mono dim">${esc(r.input || '—')}</td>
-            <td class="mono dim">${r.reports.length}</td>
-            <td class="mono dim">${r.questions != null ? evFmtInt(r.questions) : '—'}</td>
-            <td class="mono dim">${bestAcc != null ? evFmtPct(bestAcc) : '<span class="faint">not graded</span>'}</td>
-            <td class="mono faint">${evAgo(r.modifiedMs)}</td>
-          </tr>`;}).join('')}</tbody>
-      </table></div>
-    </div>
-
-    ${(cmp.rows || []).length ? `
-    <div class="panel">
-      <div class="panel-h"><div>
-        <div class="panel-t">Model comparison</div>
-        <div class="panel-sub">accuracy = (correct + ½·partial) / graded · from report.json files</div>
-      </div></div>
-      <div class="table-scroll"><table>
-        <thead><tr><th>run</th><th>setting</th><th>model</th><th>n</th>
-          <th>accuracy</th><th>fully correct</th><th>lenient</th><th>mean score</th></tr></thead>
-        <tbody>${cmp.rows.map(r => `
-          <tr>
-            <td class="mono dim">${esc(r.runId)}</td>
-            <td class="mono dim">${esc(r.setting)}</td>
-            <td class="mono" style="${r.isUnderTest ? 'color:var(--acc)' : ''}">${esc(r.model)}</td>
-            <td class="mono dim">${r.n != null ? evFmtInt(r.n) : '—'}</td>
-            <td class="mono dim"><strong>${evFmtPct(r.acc)}</strong></td>
-            <td class="mono dim">${evFmtPct(r.strict)}</td>
-            <td class="mono dim">${evFmtPct(r.lenient)}</td>
-            <td class="mono dim">${r.score != null ? r.score.toFixed(2) : '—'}</td>
-          </tr>`).join('')}</tbody>
-      </table></div>
-    </div>` : ''}
-  </div></div>`;
-
-  root.querySelectorAll('tr[data-id]').forEach(tr => {
-    tr.onclick = () => {
-      const r = items.find(x => x.id === tr.dataset.id);
-      if (r) evRunDetail(r);
-    };
-  });
+  /* `full` removes the section padding/scrollbar so the embedded document
+   * is the only thing that scrolls and it uses every pixel of the pane. */
+  evRoot().innerHTML = `<div class="evws-full">
+    <iframe id="evModelFrame" src="/eka-checkpoints"
+      title="EKA checkpoints, level by level"
+      class="evws-full-frame"></iframe>
+  </div>`;
 }
 
 /* One run in full: config, settings, per-group accuracies, errors. */
@@ -789,7 +937,7 @@ function evRunDetail(run) {
     </div>`;
   }).join('');
 
-  $('#viewRoot').innerHTML = `<div class="content"><div class="content-inner">
+  evRoot().innerHTML = `<div class="content"><div class="content-inner">
     <button class="adv-toggle" id="evRunBack" style="margin-bottom:12px">← all runs</button>
     <div class="panel">
       <div class="panel-h"><div>
@@ -808,7 +956,7 @@ function evRunDetail(run) {
     </div>
     ${settingBlock}
   </div></div>`;
-  $('#evRunBack').onclick = () => { location.hash = '#evalmodel'; renderEvalModel(); };
+  $('#evRunBack').onclick = () => { location.hash = '#eval/model'; renderEvalWorkspace('model'); };
 }
 
 /* ============================================================
@@ -816,103 +964,169 @@ function evRunDetail(run) {
    Report artifacts (summary.html/json, report.json/html,
    graded_flat.csv) plus the documentation set.
    ============================================================ */
+/* State for the Reports dashboard (search + filters, kept across visits). */
+EV.reports = EV.reports || { q: '', run: 'all', kind: 'all' };
+
 async function renderEvalReport() {
   $('#pageTitle').textContent = 'Reports & Analytics';
   $('#pageSub').textContent = 'evaluation reports · summaries · graded data';
 
-  const root = $('#viewRoot');
+  const root = evRoot();
   root.innerHTML = `<div class="content"><div class="content-inner">
     <div class="sk-line"></div><div class="sk-line short"></div></div></div>`;
 
-  let files, runs, overview;
+  let files, cards;
   try {
-    [files, runs, overview] = await Promise.all([
+    [files, cards] = await Promise.all([
       api('/api/eval/files?workspace=reports'),
-      api('/api/eval/runs'),
-      evOverview(),
+      api('/api/eval/reports'),
     ]);
   } catch (e) { return errorView(e); }
 
-  const reports = files.items || [];
-  const runItems = runs.items || [];
-  const summaries = runItems.filter(r => r.summary);
-
-  if (!reports.length && !summaries.length) {
+  if (files.integration === 'not_configured') {
     root.innerHTML = `<div class="content"><div class="content-inner">
-      ${files.integration === 'not_configured'
-        ? evNotConfigured('Reports are produced by the final stage of each evaluation run.')
-        : `<div class="panel"><div class="panel-h"><div>
-            <div class="panel-t">Reports & analytics</div>
-            <div class="panel-sub">no report artifacts discovered</div></div></div>
-          <div style="padding:20px">${evEmpty('No reports yet',
-            'The pipeline writes summary.html/json per run and report.html/json + graded_flat.csv per setting.')}</div></div>`}
+      ${evNotConfigured('Reports are produced by the final stage of each evaluation run.')}
     </div></div>`;
     return;
   }
 
-  root.innerHTML = `<div class="content"><div class="content-inner">
+  const items = cards.items || [];
+  const artifacts = files.items || [];
+
+  /* Genuine empty state: no report cards AND no report artifacts on disk. */
+  if (!items.length && !artifacts.length) {
+    root.innerHTML = `<div class="content"><div class="content-inner">
+      <div class="panel"><div class="panel-h"><div>
+        <div class="panel-t">Reports & analytics</div>
+        <div class="panel-sub">no report artifacts discovered</div></div></div>
+        <div style="padding:20px">${evEmpty('No reports yet',
+          'The pipeline writes summary.html/json per run and report.html/json + graded_flat.csv per setting. ' +
+          'Imported report bundles under internal_eval/runs/ appear here too.')}</div></div>
+    </div></div>`;
+    return;
+  }
+
+  /* KPI strip — real counts only. */
+  const completed = items.filter(c => c.status === 'completed');
+  const best = completed.filter(c => c.acc != null).sort((a, b) => b.acc - a.acc)[0];
+  const runs = [...new Set(items.map(c => c.run))];
+  const kpis = `
     <div class="kpis">
-      <div class="kpi"><div class="kpi-k">report artifacts</div>
-        <div class="kpi-v">${evFmtInt(reports.length)}</div>
-        <div class="kpi-s">summary/report files on disk</div></div>
-      <div class="kpi"><div class="kpi-k">runs with summary</div>
-        <div class="kpi-v">${evFmtInt(summaries.length)}</div>
-        <div class="kpi-s">summary.json parsed</div></div>
-      <div class="kpi"><div class="kpi-k">graded settings</div>
-        <div class="kpi-v">${evFmtInt(runItems.reduce((a, r) => a + r.reports.filter(x => x.hasReport).length, 0))}</div>
-        <div class="kpi-s">report.json files</div></div>
-      <div class="kpi"><div class="kpi-k">total report bytes</div>
-        <div class="kpi-v">${evFmtBytes(reports.reduce((a, r) => a + r.bytes, 0))}</div>
-        <div class="kpi-s">unchanged on disk</div></div>
+      <div class="kpi" style="--kcol:var(--acc)"><div class="kpi-k">report cards</div>
+        <div class="kpi-v">${evFmtInt(items.length)}</div>
+        <div class="kpi-s">${evFmtInt(completed.length)} with results</div></div>
+      <div class="kpi" style="--kcol:var(--blue)"><div class="kpi-k">checkpoints</div>
+        <div class="kpi-v">${evFmtInt(runs.length)}</div>
+        <div class="kpi-s">${evFmtInt(artifacts.length)} artifact files on disk</div></div>
+      <div class="kpi" style="--kcol:var(--violet)"><div class="kpi-k">best accuracy</div>
+        <div class="kpi-v">${best ? evFmtPct(best.acc) : '—'}</div>
+        <div class="kpi-s">${best ? esc(best.title) : 'no graded reports yet'}</div></div>
+      <div class="kpi" style="--kcol:var(--amber)"><div class="kpi-k">questions graded</div>
+        <div class="kpi-v">${evFmtInt(Math.max(0, ...items.map(c => c.graded || 0)))}</div>
+        <div class="kpi-s">largest single report</div></div>
+    </div>`;
+
+  /* Filter bar. */
+  const kinds = ['all', 'report', 'sweep'];
+  root.innerHTML = `<div class="content"><div class="content-inner">
+    ${kpis}
+
+    <div class="filters">
+      <span class="filter-label">search</span>
+      <div class="search-box"><input id="evRepQ" placeholder="title, checkpoint, setting, model…"
+        value="${esc(EV.reports.q)}"></div>
+      <span class="filter-label">checkpoint</span>
+      <select class="ev-select" id="evRepRun">
+        <option value="all">all checkpoints</option>
+        ${runs.sort().map(r => `<option value="${esc(r)}"${EV.reports.run === r ? ' selected' : ''}>${esc(r)}</option>`).join('')}
+      </select>
+      <span class="filter-label">kind</span>
+      <select class="ev-select" id="evRepKind">
+        ${kinds.map(k => `<option value="${k}"${EV.reports.kind === k ? ' selected' : ''}>${k === 'all' ? 'all reports' : k === 'report' ? 'per-setting reports' : 'settings sweeps'}</option>`).join('')}
+      </select>
+      <button class="adv-toggle" id="evRepReset">reset</button>
     </div>
 
-    ${reports.length ? `
-    <div class="panel">
-      <div class="panel-h"><div>
-        <div class="panel-t">Report artifacts</div>
-        <div class="panel-sub">click to preview JSON / CSV contents</div></div></div>
-      <div class="table-scroll"><table>
-        <thead><tr><th>artifact</th><th>format</th><th>size</th><th>modified</th></tr></thead>
-        <tbody>${reports.map(r => `
-          <tr data-id="${esc(r.id)}">
-            <td class="mono dim">${esc(r.relPath)}</td>
-            <td><span class="pill inc">${esc(r.kind)}</span></td>
-            <td class="mono dim">${evFmtBytes(r.bytes)}</td>
-            <td class="mono faint">${evAgo(r.modifiedMs)}</td>
-          </tr>`).join('')}</tbody>
-      </table></div>
-    </div>` : ''}
+    <div id="evRepList"></div>
 
-    ${summaries.length ? `
-    <div class="panel">
-      <div class="panel-h"><div>
-        <div class="panel-t">Run summaries</div>
-        <div class="panel-sub">headline numbers from each run's summary.json</div></div></div>
-      <div style="padding:16px 18px;display:grid;gap:12px">
-        ${summaries.map(r => {
-          const s = r.summary || {};
-          const best = (r.reports || [])
-            .flatMap(x => x.overall || [])
-            .filter(o => o.model === 'eka' && o.acc != null)
-            .sort((a, b) => b.acc - a.acc)[0];
-          return `<div class="ev-sum-row">
-            <div>
-              <div class="ev-sum-t">${esc(r.label || r.id)}</div>
-              <div class="ev-sum-s">${esc(r.id)} · ${r.questions != null ? evFmtInt(r.questions) + ' questions' : '—'}
-                ${s.n_questions != null ? ' · summary n=' + evFmtInt(s.n_questions) : ''}</div>
-            </div>
-            <div class="ev-sum-acc">${best ? evFmtPct(best.acc) : '—'}</div>
-          </div>`;}).join('')}
-      </div>
-    </div>` : ''}
+    <div class="pa-note-line">Every number is read from the report files under
+      <code>${esc(files.root || '')}</code>. HTML reports open exactly as
+      written; JSON and CSV download the original data.</div>
   </div></div>`;
 
-  root.querySelectorAll('tr[data-id]').forEach(tr => {
-    tr.onclick = () => {
-      const r = reports.find(x => x.id === tr.dataset.id);
-      if (r) evFilePreview(r);
-    };
-  });
+  /* Card list renderer, re-run on every filter change. */
+  const listEl = $('#evRepList');
+  const draw = () => {
+    const q = EV.reports.q.trim().toLowerCase();
+    const visible = items.filter(c => {
+      if (EV.reports.run !== 'all' && c.run !== EV.reports.run) return false;
+      const isSweep = c.setting === 'sweep' || c.setting === 'overview';
+      if (EV.reports.kind === 'report' && isSweep) return false;
+      if (EV.reports.kind === 'sweep' && !isSweep) return false;
+      if (q) {
+        const hay = `${c.title} ${c.run} ${c.setting} ${c.model || ''} ${c.input || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    if (!visible.length) {
+      listEl.innerHTML = `<div class="panel"><div style="padding:20px">
+        ${evEmpty('No matching reports', 'Adjust the search or filters.')}</div></div>`;
+      return;
+    }
+
+    listEl.innerHTML = `<div class="ev-rep-grid">${visible.map(c => {
+      const isSweep = c.setting === 'sweep' || c.setting === 'overview';
+      const hasHtml = !!c.artifacts.html;
+      const hasJson = !!c.artifacts.json;
+      const hasCsv = !!c.artifacts.csv;
+      const hasSummary = !!c.artifacts.summaryHtml;
+      const dl = (as, label) =>
+        `<a class="ev-rep-btn" href="/api/eval/reports/${encodeURIComponent(c.id)}/file?as=${as}"
+           ${as === 'html' || as === 'summary' ? 'target="_blank" rel="noopener"' : 'download'}>${label}</a>`;
+      return `<div class="ev-rep-card" data-id="${esc(c.id)}">
+        <div class="ev-rep-head">
+          <div style="min-width:0">
+            <div class="ev-rep-title">${esc(c.title)}</div>
+            <div class="ev-rep-sub">${esc(c.run)} · ${esc(c.relPath.split('/').pop())}</div>
+          </div>
+          <div class="ev-rep-acc${c.acc == null ? ' na' : ''}">${c.acc != null ? evFmtPct(c.acc) : '—'}</div>
+        </div>
+        <div class="ev-rep-meta">
+          <span class="ev-chip static">${esc(isSweep ? 'settings sweep' : c.setting)}</span>
+          ${c.model ? `<span class="ev-chip static">${esc(c.model)}</span>` : ''}
+          ${c.input ? `<span class="ev-chip static">${esc(c.input)}</span>` : ''}
+          ${c.samples != null ? `<span class="ev-chip static">${evFmtInt(c.samples)} questions</span>` : ''}
+          ${c.graded != null ? `<span class="ev-chip static">${evFmtInt(c.graded)} graded</span>` : ''}
+          ${c.strict != null ? `<span class="ev-chip static">strict ${evFmtPct(c.strict)}</span>` : ''}
+          ${c.judge ? `<span class="ev-chip static">judge ${esc(c.judge)}</span>` : ''}
+          <span class="ev-chip static">${c.status === 'completed' ? '✓ completed' : 'incomplete'}</span>
+          <span class="ev-chip static">${evAgo(c.modifiedMs)}</span>
+        </div>
+        <div class="ev-rep-acts">
+          ${hasHtml ? dl('html', 'View Report') : ''}
+          ${hasSummary && !hasHtml ? dl('summary', 'View Summary') : ''}
+          ${hasSummary && hasHtml && isSweep ? dl('summary', 'View Summary') : ''}
+          ${hasJson ? dl('json', 'View JSON') : ''}
+          ${hasCsv ? dl('csv', 'Download CSV') : ''}
+          ${!hasHtml && !hasJson && !hasCsv && !hasSummary ? '<span class="faint mono" style="font-size:10.5px">no artifacts</span>' : ''}
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+  };
+
+  draw();
+
+  /* Wire the filters (instant, client-side). */
+  $('#evRepQ').oninput = e => { EV.reports.q = e.target.value; draw(); };
+  $('#evRepRun').onchange = e => { EV.reports.run = e.target.value; draw(); };
+  $('#evRepKind').onchange = e => { EV.reports.kind = e.target.value; draw(); };
+  $('#evRepReset').onclick = () => {
+    EV.reports = { q: '', run: 'all', kind: 'all' };
+    $('#evRepQ').value = ''; $('#evRepRun').value = 'all'; $('#evRepKind').value = 'all';
+    draw();
+  };
 }
 
 /* ============================================================
@@ -924,7 +1138,7 @@ async function renderEvalTools() {
   $('#pageTitle').textContent = 'Evaluation Tools';
   $('#pageSub').textContent = 'pipeline stages · slurm jobs · configs · tests · documentation';
 
-  const root = $('#viewRoot');
+  const root = evRoot();
   root.innerHTML = `<div class="content"><div class="content-inner">
     <div class="sk-line"></div><div class="sk-line short"></div></div></div>`;
 
@@ -1023,6 +1237,12 @@ async function renderEvalTools() {
 /* Sub-route helper for deep links (#evalbank/qbank.jsonl). */
 function evSubRoute(parent) {
   const h = (location.hash || '').replace(/^#/, '');
+  // Unified form first: #eval/bank/<file>.
+  const unified = 'eval/' + parent.replace(/^eval/, '');
+  if (h.startsWith(unified + '/')) {
+    return decodeURIComponent(h.slice(unified.length + 1));
+  }
+  // Legacy top-level form: #evalbank/<file>.
   if (!h.startsWith(parent + '/')) return null;
   return decodeURIComponent(h.slice(parent.length + 1));
 }

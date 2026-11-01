@@ -33,6 +33,7 @@ pub mod banks;
 pub mod catalog;
 pub mod docs;
 pub mod files;
+pub mod reports;
 pub mod runs;
 
 use std::path::PathBuf;

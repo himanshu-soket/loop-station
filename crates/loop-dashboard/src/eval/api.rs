@@ -26,6 +26,7 @@ use crate::eval::banks::{self, BankIndex, BankQuery};
 use crate::eval::catalog::{self, CatalogSummary, Resource, Workspace};
 use crate::eval::docs::{self, DocEntry};
 use crate::eval::files;
+use crate::eval::reports::{self, ReportCard};
 use crate::eval::runs::{self, ComparisonRow, EvalRun};
 use crate::eval::{EvalPaths, IntegrationState};
 
@@ -45,6 +46,8 @@ pub struct EvalState {
     bank_cache: Mutex<HashMap<String, BankCacheEntry>>,
     /// Cached runs list.
     runs_cache: Mutex<Option<(Instant, Arc<Vec<EvalRun>>)>>,
+    /// Cached report cards.
+    reports_cache: Mutex<Option<(Instant, Arc<Vec<ReportCard>>)>>,
 }
 
 /// One cached bank index: when it was built and from which path.
@@ -64,6 +67,7 @@ impl EvalState {
             summary_cache: Mutex::new(None),
             bank_cache: Mutex::new(HashMap::new()),
             runs_cache: Mutex::new(None),
+            reports_cache: Mutex::new(None),
         }
     }
 
@@ -75,6 +79,7 @@ impl EvalState {
             summary_cache: Mutex::new(None),
             bank_cache: Mutex::new(HashMap::new()),
             runs_cache: Mutex::new(None),
+            reports_cache: Mutex::new(None),
         }
     }
 
@@ -153,6 +158,15 @@ impl EvalState {
         let mut slot = self.runs_cache.lock().unwrap();
         let paths = self.paths.clone();
         self.cached(&mut slot, move || runs::load_runs(&paths))
+    }
+
+    /// Discovered report cards (cached). Scanning HTML files is bounded and
+    /// cheap relative to the 60 s cache, so an imported bundle appears on
+    /// the next refresh.
+    fn reports(&self) -> Arc<Vec<ReportCard>> {
+        let mut slot = self.reports_cache.lock().unwrap();
+        let paths = self.paths.clone();
+        self.cached(&mut slot, move || reports::discover(&paths))
     }
 
     /// Overall integration state for badges.
@@ -576,13 +590,72 @@ fn parse_workspace(s: &str) -> Option<Workspace> {
 }
 
 /// `GET /api/eval/file/:id` — a bounded preview of any catalogued resource.
+/// `GET /api/eval/file/{id}?render=html` — serve an HTML resource as a
+/// real webpage (`text/html; charset=utf-8`, inline). This is how report
+/// pages open rendered instead of as source: the bytes are served verbatim
+/// (no escaping) through the same session-guarded, kit-confined route as
+/// every other eval artifact.
+#[derive(Debug, Default, Deserialize)]
+struct FilePreviewParams {
+    /// When `html`, an HTML resource is served as a webpage rather than a
+    /// JSON preview payload.
+    render: Option<String>,
+}
+
 async fn file_preview(
     State(state): State<Arc<EvalState>>,
     AxumPath(id): AxumPath<String>,
+    Query(params): Query<FilePreviewParams>,
 ) -> Response {
+    use axum::http::header;
+
     let Some(res) = files::resolve(&state.paths, &id) else {
         return err(StatusCode::NOT_FOUND, format!("no resource with id {id:?}"));
     };
+
+    // Rendered-webpage mode: only for HTML resources, and only when the
+    // caller explicitly asked for it. The path re-checks against the kit
+    // root exactly like the preview does.
+    if params.render.as_deref() == Some("html") {
+        if res.kind != catalog::ResourceKind::Html {
+            return err(
+                StatusCode::BAD_REQUEST,
+                "only HTML resources can be rendered as a webpage",
+            );
+        }
+        let path = PathBuf::from(&res.abs_path);
+        if !path.starts_with(state.paths.kit()) {
+            return err(
+                StatusCode::FORBIDDEN,
+                "resource is outside the evaluation kit",
+            );
+        }
+        let filename = res.name.clone();
+        return match tokio::fs::read(&path).await {
+            Ok(bytes) => {
+                let mut resp = (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                    bytes,
+                )
+                    .into_response();
+                if let Ok(v) =
+                    header::HeaderValue::from_str(&format!("inline; filename=\"{filename}\""))
+                {
+                    resp.headers_mut().insert(header::CONTENT_DISPOSITION, v);
+                }
+                // Reports are self-contained pages; never let the browser
+                // or intermediaries cache a stale copy across edits.
+                resp.headers_mut().insert(
+                    header::CACHE_CONTROL,
+                    header::HeaderValue::from_static("no-cache"),
+                );
+                resp
+            }
+            Err(e) => err(StatusCode::NOT_FOUND, format!("{}: {e}", res.rel_path)),
+        };
+    }
+
     let paths = state.paths.clone();
     let result = tokio::task::spawn_blocking(move || files::preview(&paths, &res)).await;
     match result {
@@ -797,6 +870,180 @@ fn preset_name(file: &str) -> String {
     stem.replace('_', "-")
 }
 
+/// `GET /api/eval/reports` — every report card, newest first.
+async fn reports_list(State(state): State<Arc<EvalState>>) -> Response {
+    let cards = state.reports();
+    Json(serde_json::json!({
+        "integration": state.integration().wire(),
+        "root": state.paths.root.display().to_string(),
+        "items": cards.as_slice(),
+    }))
+    .into_response()
+}
+
+/// `GET /api/eval/reports/{id}` — one card with its parsed detail.
+async fn report_detail(
+    State(state): State<Arc<EvalState>>,
+    AxumPath(id): AxumPath<String>,
+) -> Response {
+    let cards = state.reports();
+    let paths = state.paths.clone();
+    let id_cl = id.clone();
+    let detail = tokio::task::spawn_blocking(move || reports::detail(&paths, &cards, &id_cl)).await;
+    match detail {
+        Ok(Some(d)) => Json(d).into_response(),
+        Ok(None) => err(
+            StatusCode::NOT_FOUND,
+            format!("no evaluation report with id {id:?}"),
+        ),
+        Err(join) => err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("worker task failed: {join}"),
+        ),
+    }
+}
+
+/// `?as=` values for the artifact route.
+#[derive(Debug, Default, Deserialize)]
+struct ReportFileParams {
+    r#as: Option<String>,
+}
+
+/// `GET /api/eval/reports/{id}/file?as=html|json|csv|summary` — serve one
+/// artifact of a report card. HTML is served verbatim (the original
+/// report), JSON is the embedded/real results object, CSV streams the
+/// graded rows. Downloads carry a friendly filename.
+async fn report_file(
+    State(state): State<Arc<EvalState>>,
+    AxumPath(id): AxumPath<String>,
+    Query(params): Query<ReportFileParams>,
+) -> Response {
+    use axum::http::header;
+
+    let cards = state.reports();
+    let Some(card) = cards.iter().find(|c| c.id == id) else {
+        return err(
+            StatusCode::NOT_FOUND,
+            format!("no evaluation report with id {id:?}"),
+        );
+    };
+    let want = params.r#as.unwrap_or_default();
+    let kit = state.paths.kit();
+
+    // Resolve the requested artifact to (bytes, filename, content type,
+    // inline-vs-download).
+    let serve =
+        |bytes: Vec<u8>, filename: String, ctype: &'static str, download: bool| -> Response {
+            let mut resp = (StatusCode::OK, [(header::CONTENT_TYPE, ctype)], bytes).into_response();
+            if download {
+                let cd = format!("attachment; filename=\"{filename}\"");
+                if let Ok(v) = header::HeaderValue::from_str(&cd) {
+                    resp.headers_mut().insert(header::CONTENT_DISPOSITION, v);
+                }
+            } else {
+                let cd = format!("inline; filename=\"{filename}\"");
+                if let Ok(v) = header::HeaderValue::from_str(&cd) {
+                    resp.headers_mut().insert(header::CONTENT_DISPOSITION, v);
+                }
+            }
+            resp
+        };
+
+    match want.as_str() {
+        "html" => {
+            let Some(res_id) = &card.artifacts.html else {
+                return err(StatusCode::NOT_FOUND, "this report has no HTML artifact");
+            };
+            let path = kit.join(res_id.replace("::", "/"));
+            match tokio::fs::read(&path).await {
+                Ok(bytes) => serve(
+                    bytes,
+                    card.rel_path
+                        .rsplit('/')
+                        .next()
+                        .unwrap_or("report.html")
+                        .to_string(),
+                    "text/html; charset=utf-8",
+                    false,
+                ),
+                Err(e) => err(StatusCode::NOT_FOUND, format!("{}: {e}", card.rel_path)),
+            }
+        }
+        "json" => {
+            // Real report.json when present, else the JSON embedded in the
+            // imported HTML page.
+            if let Some(res_id) = &card.artifacts.json {
+                if !res_id.ends_with("::data") {
+                    let path = kit.join(res_id.replace("::", "/"));
+                    if let Ok(bytes) = tokio::fs::read(&path).await {
+                        return serve(bytes, "report.json".into(), "application/json", true);
+                    }
+                }
+            }
+            // Embedded block.
+            let html_path = kit.join(card.rel_path.replace("::", "/"));
+            let read = tokio::task::spawn_blocking(move || {
+                std::fs::read_to_string(html_path)
+                    .ok()
+                    .and_then(|h| reports::extract_report_data_pub(&h).map(str::to_owned))
+            })
+            .await;
+            match read {
+                Ok(Some(data)) => serve(
+                    data.into_bytes(),
+                    "report-data.json".into(),
+                    "application/json",
+                    true,
+                ),
+                _ => err(StatusCode::NOT_FOUND, "no JSON results for this report"),
+            }
+        }
+        "csv" => {
+            let Some(res_id) = &card.artifacts.csv else {
+                return err(StatusCode::NOT_FOUND, "this report has no CSV artifact");
+            };
+            let path = kit.join(res_id.replace("::", "/"));
+            match tokio::fs::read(&path).await {
+                Ok(bytes) => serve(
+                    bytes,
+                    "graded_flat.csv".into(),
+                    "text/csv; charset=utf-8",
+                    true,
+                ),
+                Err(e) => err(StatusCode::NOT_FOUND, format!("graded_flat.csv: {e}")),
+            }
+        }
+        "summary" => {
+            let Some(res_id) = card
+                .artifacts
+                .summary_html
+                .as_ref()
+                .or(card.artifacts.html.as_ref())
+            else {
+                return err(StatusCode::NOT_FOUND, "this report has no summary page");
+            };
+            let path = kit.join(res_id.replace("::", "/"));
+            match tokio::fs::read(&path).await {
+                Ok(bytes) => serve(
+                    bytes,
+                    card.rel_path
+                        .rsplit('/')
+                        .next()
+                        .unwrap_or("summary.html")
+                        .to_string(),
+                    "text/html; charset=utf-8",
+                    false,
+                ),
+                Err(e) => err(StatusCode::NOT_FOUND, format!("{}: {e}", card.rel_path)),
+            }
+        }
+        other => err(
+            StatusCode::BAD_REQUEST,
+            format!("unknown ?as={other:?} (expected html, json, csv or summary)"),
+        ),
+    }
+}
+
 /// Build the eval router.
 pub fn eval_router(state: Arc<EvalState>) -> Router {
     Router::new()
@@ -813,6 +1060,9 @@ pub fn eval_router(state: Arc<EvalState>) -> Router {
         .route("/api/eval/benchmarks", get(benchmarks))
         .route("/api/eval/docs", get(docs_list))
         .route("/api/eval/docs/{id}", get(doc_read))
+        .route("/api/eval/reports", get(reports_list))
+        .route("/api/eval/reports/{id}", get(report_detail))
+        .route("/api/eval/reports/{id}/file", get(report_file))
         .with_state(state)
 }
 

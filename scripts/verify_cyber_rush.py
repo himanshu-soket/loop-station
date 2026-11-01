@@ -25,10 +25,20 @@ with sync_playwright() as p:
     page.wait_for_selector("#crCanvas"); page.wait_for_timeout(700)
 
     # ---------- FUNCTIONAL ----------
+    # PHASE 6 flow: the game opens on the MENU screen; launch goes through
+    # menu -> difficulty -> countdown. The old script assumed a bare
+    # "ready" overlay with a visible #crOvBtn.
     st = page.evaluate("({state: window.CRD.state, overlay: window.CRD.overlay})")
-    check("func/readyState", st["state"] == "ready" and st["overlay"] == "ready", json.dumps(st))
+    check("func/readyState", st["state"] == "ready" and st["overlay"] in ("ready", "menu"), json.dumps(st))
 
-    page.click("#crOvBtn"); page.wait_for_timeout(500)
+    # Launch Quick Race from the menu, accept default difficulty.
+    page.click("#crMenuScreen .ft-btn.primary"); page.wait_for_timeout(400)
+    # Difficulty screen: pick Medium (second non-ghost button).
+    try:
+        page.click("#crDiffScreen .ft-btn:not(.ghost) >> nth=1", timeout=2000)
+    except Exception:
+        pass                                    # some flows skip the picker
+    page.wait_for_timeout(500)
     st = page.evaluate("window.CRD.state")
     check("func/countdownStarts", st == "countdown", st)
     page.screenshot(path=f"{OUT}/01-countdown.png")
@@ -45,10 +55,11 @@ with sync_playwright() as p:
     x1 = page.evaluate("window.CRD.playerX")
     check("func/steeringWorks", x1 < x0 - 0.05, f"{x0} -> {x1}")
 
-    # nitro engages
-    page.keyboard.down("Shift"); page.wait_for_timeout(900)
+    # nitro engages (Space since PHASE 2 — Shift is drift now)
+    page.keyboard.down("ArrowUp"); page.wait_for_timeout(200)
+    page.keyboard.down(" "); page.wait_for_timeout(900)
     nit = page.evaluate("window.CRD.nitroActive")
-    page.keyboard.up("Shift")
+    page.keyboard.up(" ")
     check("func/nitroEngages", nit, str(nit))
     page.screenshot(path=f"{OUT}/03-nitro.png")
 
@@ -72,11 +83,18 @@ with sync_playwright() as p:
     check("func/soundToggles", "on" in lbl, lbl)
     page.click("#crSoundBtn")   # back off (default)
 
-    # mode switch
-    page.click("#crModeTime"); page.wait_for_timeout(300)
+    # mode switch (PHASE 6 menu ids: crMTime / crMEndless). After the R
+    # restart the game sits on its READY overlay, so walk back to the main
+    # menu first, then launch Time Attack through the menu flow.
+    page.click("#crOvMenuBtn"); page.wait_for_timeout(500)
+    page.click("#crMTime"); page.wait_for_timeout(400)
+    try:
+        page.click("#crDMedium", timeout=1500)      # difficulty picker
+    except Exception:
+        pass
+    page.wait_for_timeout(300)
     st = page.evaluate("window.CRD.mode")
     check("func/modeSwitch", st == "timeattack", st)
-    page.click("#crModeEndurance"); page.wait_for_timeout(300)
 
     # fullscreen + Esc
     page.click("#crFsBtn"); page.wait_for_timeout(900)
@@ -91,32 +109,60 @@ with sync_playwright() as p:
     # ---------- VISUAL (canvas pixel audit while driving) ----------
     page.evaluate("location.hash = '#funtime/cr'")
     page.wait_for_selector("#crCanvas"); page.wait_for_timeout(600)
-    page.click("#crOvBtn"); page.wait_for_timeout(4300)
+    # PHASE 6 flow: launch from the menu, pick a difficulty, drive.
+    page.click("#crMenuScreen .ft-btn.primary"); page.wait_for_timeout(400)
+    try:
+        page.click("#crDMedium", timeout=1500)
+    except Exception:
+        pass
+    page.wait_for_timeout(4300)
     page.keyboard.down("ArrowUp"); page.wait_for_timeout(3500)
     m = page.evaluate("""(() => {
       const c = document.getElementById('crCanvas');
       const ctx = c.getContext('2d');
       const W = 960, H = 540;
-      const img = ctx.getImageData(0, 0, c.width, c.height);
-      const d = img.data;
+      let img = ctx.getImageData(0, 0, c.width, c.height);
+      let d = img.data;
       const sx = c.width / W, sy = c.height / H;
       const px = (x, y) => {
         const i = ((Math.round(y*sy)) * c.width + Math.round(x*sx)) * 4;
         return [d[i], d[i+1], d[i+2]];
       };
       let cyanRows = 0, magRows = 0, laneRows = 0, rows = 0;
+      /* Lane dashes scroll: on any single frame only the rows currently
+       * covered by a dash band show white (the bands are every other
+       * 3-segment group), and traffic/the player occlude some of those.
+       * A per-frame row census is therefore inherently flaky — sample
+       * several frames and keep the BEST coverage, which is what a human
+       * eye perceives over a second of driving. */
+      const lanePctSamples = [];
+      for (let f = 0; f < 6; f++) {
+        let lRows = 0, tRows = 0;
+        for (let yy = 300; yy < 500; yy += 6) {
+          tRows++;
+          let hasLane = false;
+          for (let xx = 0; xx < W; xx++) {
+            const r = px(xx, yy);
+            if (!hasLane && r[0] > 150 && r[1] > 150 && r[2] > 150) hasLane = true;
+          }
+          if (hasLane) lRows++;
+        }
+        lanePctSamples.push(Math.round(100 * lRows / tRows));
+        // Re-grab the canvas for the next sample (dashes move).
+        const img2 = c.getContext('2d').getImageData(0, 0, c.width, c.height);
+        d = img2.data;
+      }
+      const lanePct = Math.max(...lanePctSamples);
       for (let yy = 300; yy < 500; yy += 6) {
         rows++;
-        let hasCyan = false, hasMag = false, hasLane = false;
+        let hasCyan = false, hasMag = false;
         for (let xx = 0; xx < W; xx++) {
           const r = px(xx, yy);
           if (!hasCyan && r[2] > 120 && r[2] > r[0] + 40 && r[1] > 40) hasCyan = true;
           if (!hasMag && r[0] > 120 && r[0] > r[2] + 30 && r[1] < r[0]) hasMag = true;
-          if (!hasLane && r[0] > 150 && r[1] > 150 && r[2] > 150) hasLane = true;
         }
         if (hasCyan) cyanRows++;
         if (hasMag) magRows++;
-        if (hasLane) laneRows++;
       }
       let railRows = 0, railTries = 0;
       for (let yy = 320; yy < 500; yy += 8) {
@@ -138,9 +184,15 @@ with sync_playwright() as p:
           const r = px(xx, yy);
           if (r[0]+r[1]+r[2] > 260) cityLights++;
         }
+      // Neon sun: scan a WIDE band around its rest position (W*0.72) and
+      // the full vertical range it can occupy — the disc parallaxes with
+      // playerX/curve AND rides the horizon, which itself moves with the
+      // road's hills while driving.
       let sunPx = 0;
-      for (let yy = 130; yy < 230; yy += 2)
-        for (let xx = 620; xx < 800; xx += 3) {
+      const sunCx = W * 0.72;
+      for (let yy = 120; yy < 280; yy += 2)
+        for (let xx = Math.round(sunCx - 220); xx < Math.round(sunCx + 220); xx += 3) {
+          if (xx < 0 || xx >= W) continue;
           const r = px(xx, yy);
           if (r[0] > 110 && r[0] > r[1]+25 && r[0] > r[2]) sunPx++;
         }
@@ -153,7 +205,7 @@ with sync_playwright() as p:
         }
       return {cyanPct: Math.round(100*cyanRows/rows),
               magPct: Math.round(100*magRows/rows),
-              lanePct: Math.round(100*laneRows/rows),
+              lanePct: lanePct,
               railPct: Math.round(100*railRows/railTries),
               carColors: seen.size, cityLights, sunPx, trafficPx,
               fps: window.CRD ? window.CRD.fps : null};

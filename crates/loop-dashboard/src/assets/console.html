@@ -444,14 +444,6 @@ body.ws-launcher .ws-grid{
   display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:minmax(184px,1fr);
   gap:clamp(14px,1.8vw,22px);margin-bottom:0;
 }
-/* The internal-evaluation group is a second grid on the same launcher
- * page. It never stretches to fill the viewport (that job belongs to the
- * primary workspaces above it); it just flows at its natural height. */
-body.ws-launcher .ev-grid{
-  flex:0 0 auto;min-height:0;margin-bottom:0;
-  grid-auto-rows:minmax(150px,auto);
-}
-body.ws-launcher .ev-portal-head{flex-shrink:0}
 .ws-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px;margin-bottom:18px}
 
 /* ---------- Fun Time workspace (Phase 10) ----------
@@ -1780,9 +1772,54 @@ h4{margin:14px 0 4px;font-size:12px;letter-spacing:.04em}
 }
 
 /* Internal evaluation workspaces ---------------------------
- * Six read-only surfaces over the internal_eval kit (question banks,
- * datasets, benchmarks, model evaluations, reports, tools). They reuse the
- * console's own tokens so they read as native workspaces. */
+ * ONE unified workspace (#eval) with its own compact left sidebar and a
+ * single main pane. Sections reuse the console's tokens so they read as
+ * native views. No card landing page, no iframes. */
+.evws{
+  display:flex;flex:1;min-height:0;align-items:stretch;
+}
+.evws-side{
+  width:196px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;
+  padding:14px 10px;border-right:1px solid var(--line);
+  background:var(--bg2);
+}
+.evws-item{
+  display:flex;align-items:center;gap:10px;padding:8px 11px;border-radius:9px;
+  border:1px solid transparent;background:none;cursor:pointer;text-align:left;
+  color:var(--ink-dim);font-family:var(--sans);font-weight:500;font-size:12.5px;
+  white-space:nowrap;transition:all .15s;
+}
+.evws-item svg{width:15px;height:15px;flex-shrink:0}
+.evws-item:hover{color:var(--ink);background:var(--panel)}
+.evws-item.on{
+  color:var(--acc);background:var(--acc-glow);border-color:rgba(94,242,192,.22);
+}
+.evws-sep{height:1px;background:var(--line);margin:8px 6px}
+.evws-foot{
+  margin-top:auto;padding:10px 11px;font-family:var(--mono);font-size:9.5px;
+  color:var(--ink-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.evws-main{flex:1;min-width:0;display:flex;flex-direction:column;overflow-y:auto}
+/* Section content keeps the standard .content rhythm inside the pane. */
+.evws-main .content{padding:20px 22px 50px}
+/* Full-bleed section (Model Evaluation): an embedded original webpage
+   must use every pixel of the pane — no card, padding or extra scrollbar.
+   The iframe document is the only thing that scrolls. */
+.evws-main .evws-full{flex:1;min-height:0;display:flex}
+.evws-full-frame{
+  flex:1;width:100%;height:100%;border:0;display:block;
+}
+@media (max-width:900px){
+  /* Phones: sidebar collapses to a horizontal scroll strip above content. */
+  .evws{flex-direction:column}
+  .evws-side{
+    width:100%;flex-direction:row;overflow-x:auto;border-right:none;
+    border-bottom:1px solid var(--line);padding:10px 12px;
+  }
+  .evws-sep{display:none}
+  .evws-item span{font-size:12px}
+  .evws-foot{display:none}
+}
 .ev-portal-head{
   display:flex;align-items:center;justify-content:space-between;gap:16px;
   margin:26px 0 14px;flex-wrap:wrap;
@@ -1792,10 +1829,6 @@ h4{margin:14px 0 4px;font-size:12px;letter-spacing:.04em}
   text-transform:uppercase;
 }
 .ev-portal-s{color:var(--ink-dim);font-size:12.5px;margin-top:4px}
-/* The eval grid uses the same card component but a denser 3-column layout
- * (six cards → two balanced rows on desktop). */
-.ev-grid{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
-@media (min-width:1151px){ body.ws-launcher .ev-grid{grid-template-columns:repeat(3,1fr)} }
 .ev-select{
   background:var(--bg);border:1px solid var(--line2);color:var(--ink);
   border-radius:10px;padding:6px 11px;font-family:var(--mono);font-size:11.5px;
@@ -1872,6 +1905,48 @@ h4{margin:14px 0 4px;font-size:12px;letter-spacing:.04em}
 .ev-md h1{font-size:21px}.ev-md h2{font-size:17px}.ev-md h3{font-size:14.5px}
 .ev-md h1:first-child{margin-top:0}
 .ev-md p{margin:10px 0}
+
+/* Report cards (Internal Evaluation → Reports) ---------------- */
+/* Grid of one card per report artifact, mirroring .ws-card density. */
+.ev-rep-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+  gap:14px;align-items:stretch;
+}
+.ev-rep-card{
+  display:flex;flex-direction:column;gap:0;background:var(--panel);
+  border:1px solid var(--line);border-radius:12px;padding:15px 16px;
+  transition:border-color .14s,transform .14s;
+}
+.ev-rep-card:hover{border-color:var(--acc-dim)}
+.ev-rep-head{display:flex;align-items:flex-start;gap:10px}
+.ev-rep-acc{
+  font-size:24px;font-weight:800;color:var(--acc);letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;flex-shrink:0;line-height:1.1;min-width:64px;
+  text-align:right;
+}
+.ev-rep-acc.na{color:var(--ink-faint);font-size:15px;font-weight:600}
+.ev-rep-title{font-size:13.5px;font-weight:650;color:var(--ink);line-height:1.35}
+.ev-rep-sub{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-top:3px;overflow-wrap:anywhere}
+.ev-rep-meta{
+  display:flex;flex-wrap:wrap;gap:5px;margin-top:11px;
+}
+.ev-rep-meta .ev-chip{cursor:default;padding:2px 9px;font-size:9.5px}
+.ev-rep-acts{
+  display:flex;flex-wrap:wrap;gap:7px;margin-top:auto;padding-top:13px;
+}
+.ev-rep-btn{
+  display:inline-flex;align-items:center;gap:6px;border-radius:8px;
+  border:1px solid var(--line2);background:var(--panel2);color:var(--ink-dim);
+  font-family:var(--sans);font-size:11.5px;font-weight:550;padding:6px 11px;
+  cursor:pointer;transition:all .13s;white-space:nowrap;
+}
+.ev-rep-btn:hover{color:var(--ink);border-color:var(--acc-dim);background:var(--panel)}
+.ev-rep-btn.primary{
+  color:#06251c;background:var(--acc);border-color:var(--acc);font-weight:650;
+}
+.ev-rep-btn.primary:hover{filter:brightness(1.07);color:#06251c}
+.ev-rep-btn:disabled{opacity:.4;cursor:not-allowed}
+@media (max-width:700px){.ev-rep-grid{grid-template-columns:minmax(0,1fr)}}
 .ev-md ul,.ev-md ol{margin:10px 0 10px 22px}
 .ev-md li{margin:4px 0}
 .ev-md code{
@@ -1890,12 +1965,10 @@ h4{margin:14px 0 4px;font-size:12px;letter-spacing:.04em}
   border-left:3px solid var(--acc-dim);margin:12px 0;padding:4px 0 4px 14px;color:var(--ink-faint);
 }
 
-/* Launcher grid with five cards: 3 + 2 on wide desktops (balanced rows),
- * 2 columns on tablet, one column on phones. The internal-evaluation grid
- * below it keeps its own denser 3-column layout at the same breakpoint. */
+/* Launcher grid: 3 columns on wide desktops (balanced rows), 2 on tablet,
+ * one on phones. Internal Evaluation is ONE card like every workspace. */
 @media (min-width:1151px){
   body.ws-launcher .ws-grid{grid-template-columns:repeat(3,1fr)}
-  body.ws-launcher .ev-grid{grid-template-columns:repeat(3,1fr)}
 }
 
 .ws-card{
@@ -1935,7 +2008,6 @@ body.ws-launcher .ws-badge{margin-left:auto}
  * height allows (cards shrink with the grid, never clip). */
 @media (max-width:900px){
   body.ws-launcher .ws-grid{grid-template-columns:1fr;grid-auto-rows:minmax(170px,auto)}
-  body.ws-launcher .ev-grid{grid-template-columns:1fr;grid-auto-rows:minmax(150px,auto)}
   body.ws-launcher .content-inner{padding:20px 20px 16px}
   body.ws-launcher .portal-sub{display:none}
 }

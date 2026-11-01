@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""QA for the six internal-evaluation workspace cards on the Loop Home page.
+"""QA for the unified Internal Evaluation workspace on the Loop Home page.
 
 Boots the real dashboard binary against the real kit at ~/.loop/eval, then
 verifies in real Chromium:
 
-  1.  All six cards render on the Welcome page with real counts.
-  2.  Every card navigates to its own workspace.
+  1.  Exactly ONE Internal Evaluation card renders on the Welcome page.
+  2.  The card opens the unified workspace (#eval) with its compact
+      sidebar (Overview, Question Bank, Datasets, Benchmarks, Model
+      Evaluation, Reports, Tools) and a real-data Overview.
   3.  The question bank loads real questions and search/filters work.
   4.  Dataset previews render real file contents.
   5.  Parquet metadata is exposed (schema + row count) without loading data.
@@ -93,43 +95,76 @@ def main():
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
 
-            # ---- 1. the six cards on Home -------------------------------
+            # ---- 1. ONE card on Home ------------------------------------
             page.goto(BASE + "/console")
             page.wait_for_selector("#wsGrid", timeout=15000)
-            page.wait_for_selector("#evGrid", timeout=15000)
             page.wait_for_timeout(1200)
             page.screenshot(path=f"{OUT}/01-home.png", full_page=True)
 
-            cards = page.locator("#evGrid .ws-card")
-            check("cards/sixRender", cards.count() == 6, f"{cards.count()} cards")
-            names = [cards.nth(i).locator(".ws-name").inner_text() for i in range(cards.count())]
-            expected = ["Question Bank", "Evaluation Datasets", "Benchmark Center",
-                        "Model Evaluation", "Reports & Analytics", "Evaluation Tools"]
-            check("cards/titlesMatch", names == expected, ", ".join(names))
+            cards = page.locator("#wsGrid .ws-card")
+            check("home/oneEvalCard", cards.count() == 6,
+                  f"{cards.count()} workspace cards (5 primary + 1 eval)")
+            ev_card = page.locator("#ws-eval")
+            check("home/evalCardPresent", ev_card.count() == 1, "the single eval card")
+            names = [cards.nth(i).locator(".ws-name").inner_text()
+                     for i in range(cards.count())]
+            check("home/evalCardTitled", "Internal Evaluation" in names, ", ".join(names))
+            # No six-card eval grid anywhere on Home.
+            check("home/noSixCardGrid", page.locator("#evGrid").count() == 0)
 
-            badge_txt = page.locator("#evPortalBadge").inner_text()
-            check("cards/groupBadgeReal", any(ch.isdigit() for ch in badge_txt), badge_txt)
-            qb_badge = page.locator("#ws-evalbank .ws-badge").inner_text().lower()
-            check("cards/questionCountReal",
-                  "questions" in qb_badge and ov["banks"]["questions"] > 200000,
-                  f"{qb_badge!r} (backend: {ov['banks']['questions']:,})")
+            ev_badge = page.locator("#ws-eval .ws-badge").inner_text().lower()
+            check("home/badgeRealCounts",
+                  "questions" in ev_badge and ov["banks"]["questions"] > 200000,
+                  f"{ev_badge!r} (backend: {ov['banks']['questions']:,})")
 
-            # ---- 2. each card opens its workspace ----------------------
-            for route, title in [
-                ("#evalbank", "Question Bank"),
-                ("#evaldata", "Evaluation Datasets"),
-                ("#evalbench", "Benchmark Center"),
-                ("#evalmodel", "Model Evaluation"),
-                ("#evalreport", "Reports & Analytics"),
-                ("#evaltools", "Evaluation Tools"),
+            # ---- 2. the card opens the unified workspace ----------------
+            page.locator("#ws-eval").click()
+            page.wait_for_selector("#evSide", timeout=15000)
+            page.wait_for_timeout(900)
+            check("ws/opensOnOverview",
+                  page.locator("#pageTitle").inner_text() == "Internal Evaluation",
+                  page.locator("#pageTitle").inner_text())
+            side_items = page.locator(".evws-item")
+            check("ws/sidebarSevenItems", side_items.count() == 7,
+                  f"{side_items.count()} items")
+            labels = [side_items.nth(i).inner_text() for i in range(side_items.count())]
+            expected = ["Overview", "Question Bank", "Datasets", "Benchmarks",
+                        "Model Evaluation", "Reports", "Tools"]
+            check("ws/sidebarLabels", labels == expected, " · ".join(labels))
+            body_txt = page.locator("#evMain").inner_text()
+            check("ws/overviewRealData",
+                  f"{ov['datasets']['files']}" in body_txt
+                  and f"{ov['banks']['questions']:,}".split(",")[0] in body_txt,
+                  "datasets + questions counts present")
+            page.screenshot(path=f"{OUT}/02-overview.png", full_page=True)
+
+            # ---- 2b. every sidebar section renders in the main pane -----
+            for sec, title in [
+                ("bank", "Question Bank"),
+                ("data", "Evaluation Datasets"),
+                ("bench", "Benchmark Center"),
+                ("model", "Model Evaluation"),
+                ("report", "Reports & Analytics"),
+                ("tools", "Evaluation Tools"),
             ]:
-                page.evaluate(f"location.hash = '{route}'")
-                page.wait_for_timeout(900)
+                page.evaluate(f"location.hash = '#eval/{sec}'")
+                page.wait_for_timeout(1000)
                 got = page.locator("#pageTitle").inner_text()
-                check(f"nav/{route[1:]}", got == title, f"title={got!r}")
+                check(f"section/{sec}", got == title, f"title={got!r}")
+                check(f"section/{sec}/inPane",
+                      page.locator("#evMain").count() == 1
+                      and page.locator("#evSide").count() == 1,
+                      "sidebar + main pane stay mounted")
+                # The sidebar label is the short name; map section → label.
+                labels = {"bank": "Question Bank", "data": "Datasets",
+                          "bench": "Benchmarks", "model": "Model Evaluation",
+                          "report": "Reports", "tools": "Tools"}
+                on = page.locator(".evws-item.on").inner_text()
+                check(f"section/{sec}/highlight", on == labels[sec], on)
+            page.screenshot(path=f"{OUT}/03-sections.png", full_page=True)
 
             # ---- 3. question bank: rows, search, facets ----------------
-            page.evaluate("location.hash = '#evalbank'")
+            page.evaluate("location.hash = '#eval/bank'")
             page.wait_for_selector("#evBankBody tr", timeout=20000)
             page.wait_for_timeout(600)
             rows = page.locator("#evBankBody tr").count()
@@ -181,7 +216,7 @@ def main():
             page.screenshot(path=f"{OUT}/04-deep-page.png", full_page=True)
 
             # ---- 5. datasets -------------------------------------------
-            page.evaluate("location.hash = '#evaldata'")
+            page.evaluate("location.hash = '#eval/data'")
             page.wait_for_timeout(1000)
             ds_rows = page.locator("tr[data-id]").count()
             body_txt = page.locator("#viewRoot").inner_text()
@@ -194,7 +229,7 @@ def main():
                 check("datasets/rowsListed", ds_rows > 0, f"{ds_rows} datasets")
 
             # ---- 6. benchmarks ----------------------------------------
-            page.evaluate("location.hash = '#evalbench'")
+            page.evaluate("location.hash = '#eval/bench'")
             page.wait_for_timeout(1100)
             bt = page.locator("#viewRoot").inner_text()
             presets = api("/api/eval/benchmarks")["presets"]
@@ -205,24 +240,38 @@ def main():
                   "documentation links render")
 
             # ---- 7. model evaluation ----------------------------------
-            page.evaluate("location.hash = '#evalmodel'")
-            page.wait_for_timeout(1000)
-            mt = page.locator("#viewRoot").inner_text()
-            runs = api("/api/eval/runs")["items"]
-            if runs:
-                check("model/runsListed", runs[0]["id"] in mt, f"{len(runs)} runs")
-            else:
-                check("model/honestEmptyState", "No evaluation runs yet" in mt,
-                      "no runs in the shipped kit")
+            page.evaluate("location.hash = '#eval/model'")
+            page.wait_for_timeout(1500)
+            check("model/title", page.locator("#pageTitle").inner_text()
+                  == "Model Evaluation", "workspace opens")
+            frame = page.frame_locator("#evModelFrame")
+            check("model/originalPageMounted",
+                  frame.locator("h1").first.inner_text()
+                  == "EKA checkpoints, level by level",
+                  "the original EKA Checkpoints webpage renders")
+            check("model/rendersNotSource",
+                  frame.locator("table").count() >= 4,
+                  f"{frame.locator('table').count()} tables render")
+            # Full-bleed: the iframe fills the pane with no extra scrollbar.
+            geom = page.evaluate("""() => {
+                const f = document.getElementById('evModelFrame');
+                const m = document.getElementById('evMain');
+                if (!f || !m) return null;
+                const fb = f.getBoundingClientRect(), mb = m.getBoundingClientRect();
+                return {dw: Math.abs(fb.width - mb.width), dh: Math.abs(fb.height - mb.height),
+                        paneScrolls: m.scrollHeight > m.clientHeight + 2}; }""")
+            check("model/fillsWorkspace", geom and geom["dw"] < 2 and geom["dh"] < 2,
+                  f"delta {geom['dw']:.0f}x{geom['dh']:.0f}px" if geom else "no frame")
+            check("model/noPaneScrollbar", geom and not geom["paneScrolls"])
 
             # ---- 8. reports + tools -----------------------------------
-            page.evaluate("location.hash = '#evalreport'")
+            page.evaluate("location.hash = '#eval/report'")
             page.wait_for_timeout(1000)
             rt = page.locator("#viewRoot").inner_text()
             check("reports/renders", "Reports" in page.locator("#pageTitle").inner_text(),
                   "workspace opens")
 
-            page.evaluate("location.hash = '#evaltools'")
+            page.evaluate("location.hash = '#eval/tools'")
             page.wait_for_timeout(1100)
             tt = page.locator("#viewRoot").inner_text()
             tools = api("/api/eval/files?workspace=tools")["items"]
