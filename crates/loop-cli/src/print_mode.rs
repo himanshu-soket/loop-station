@@ -4,6 +4,7 @@
 #[cfg(feature = "telemetry")]
 use std::collections::BTreeMap;
 use std::future::Future;
+use std::sync::Arc;
 
 use loop_agent::AgentMessage;
 use loop_ai::{AssistantContent, Message};
@@ -161,12 +162,82 @@ pub async fn run_print(
     let backend = runtime.backend.clone();
     let session = runtime.session_ref();
     let input = prompt.clone();
+    // Session tracing: one user turn for the whole print run.
+    let tracker = crate::session_trace::TurnTracker::new();
+    tracker.begin(&runtime.session_trace, Some(&input));
+    // Phase 2: the turn's `llm.generate` span, closed with the turn below.
+    if let Some(turn_span) = tracker.open_span_id() {
+        if let Some(llm) = runtime.session_trace.begin_model_span(
+            &turn_span,
+            1,
+            runtime.selected_model.as_ref().map(|m| m.id.as_str()),
+            runtime.selected_model.as_ref().map(|m| m.provider.as_str()),
+        ) {
+            tracker.set_llm_span(&llm);
+        }
+    }
+    // Phase 2: capture the streamed assistant text of this single turn.
+    let stream_capture = {
+        let mut updates = backend.subscribe();
+        let trace = runtime.session_trace.clone();
+        let session_key = session.key.clone();
+        let capture = Arc::new(parking_lot::Mutex::new(
+            crate::session_trace::StreamCapture::new(1),
+        ));
+        let pump_capture = Arc::clone(&capture);
+        tokio::spawn(async move {
+            while let Ok(envelope) = updates.recv().await {
+                if envelope.session != session_key {
+                    continue;
+                }
+                if let SessionUpdate::MessageChunk {
+                    role: Role::Agent,
+                    content,
+                    ..
+                } = &envelope.update
+                {
+                    if let Some(delta) = content.as_text() {
+                        pump_capture.lock().push(&trace, delta);
+                    }
+                }
+            }
+        });
+        capture
+    };
     let outcome = traced_print(&input, trace, &runtime.session_id, || async move {
         print_turn(backend.as_ref(), &session, prompt).await
     })
     .await;
     if let Some(trace_id) = &outcome.trace_id {
         eprintln!("{TRACE_ID_PREFIX}{trace_id}");
+    }
+    // Phase 2: persist the final assembled response before closing the turn.
+    {
+        let capture = stream_capture.lock();
+        if !capture.is_empty() {
+            match &outcome.result {
+                Ok(_) => runtime.session_trace.record_assistant_response(
+                    1,
+                    capture.text(),
+                    "complete",
+                    Some("EndTurn"),
+                ),
+                Err(err) => runtime.session_trace.record_assistant_response(
+                    1,
+                    capture.text(),
+                    "error",
+                    Some(&format!("{err:#}")),
+                ),
+            }
+        }
+    }
+    match &outcome.result {
+        Ok(_) => tracker.end(
+            &runtime.session_trace,
+            loop_protocol::StopReason::EndTurn,
+            None,
+        ),
+        Err(err) => tracker.end_failed(&runtime.session_trace, &format!("{err:#}")),
     }
     let text = outcome.result?;
     println!("{text}");

@@ -4,8 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Local read-only observability dashboard for Loop session traces"
+description = "Local observability + inference playground dashboard for Loop"
 publish = false
+
+[lib]
+name = "loop_dashboard"
+path = "src/lib.rs"
 
 [[bin]]
 name = "loop-dashboard"
@@ -13,19 +17,35 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+argon2 = { workspace = true }
+async-stream = { workspace = true }
 axum = { workspace = true }
+base64 = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 dirs = { workspace = true }
+futures = { workspace = true }
+getrandom = { workspace = true }
+hmac = { workspace = true }
 libc = { workspace = true }
 parking_lot = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"] }
 rusqlite = { workspace = true, features = ["bundled"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 sysinfo = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tower = { workspace = true }
+uuid = { workspace = true }
+walkdir = { workspace = true }
+
+# The real inference engine. The dashboard wires it to the same on-disk config
+# the CLI uses (~/.loop/agent) and streams through its native event stream.
+loop-ai = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+loop-test-support = { workspace = true }

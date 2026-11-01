@@ -119,6 +119,12 @@ pub struct CpuCollector {
     prev_ticks: Option<Vec<[u64; 4]>>,
 }
 
+impl Default for CpuCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CpuCollector {
     /// New collector. Call [`Self::sample`] at least twice (≥200 ms apart)
     /// before percentages are meaningful.

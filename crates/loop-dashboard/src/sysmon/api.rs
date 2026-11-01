@@ -117,6 +117,7 @@ struct SysSnapshotNoProcesses {
     battery: crate::sysmon::battery::BatterySnapshot,
     sample_count: u64,
     uptime_secs: Option<u64>,
+    host: crate::sysmon::host::HostInfo,
     sample_duration_us: u64,
 }
 
@@ -138,6 +139,7 @@ async fn snapshot(State(state): State<Arc<SysState>>) -> Response {
             battery: s.battery,
             sample_count: s.sample_count,
             uptime_secs: s.uptime_secs,
+            host: s.host.clone(),
             sample_duration_us: s.sample_duration_us,
         },
     })
@@ -255,7 +257,19 @@ pub fn sys_router(state: Arc<SysState>) -> Router {
         .route("/api/sys/history", get(history))
         .route("/api/sys/processes", get(processes))
         .route("/api/sys/interval", post(set_interval))
+        .route("/api/sys/health", get(health))
         .with_state(state)
+}
+
+/// `GET /api/sys/health` — consolidated health document for programmatic
+/// consumers (portal summary, future AI analysis). Derived entirely from
+/// the live snapshot + history; see [`crate::sysmon::health`] for the
+/// status semantics. Read-only and cheap: no collection happens here.
+async fn health(State(state): State<Arc<SysState>>) -> Response {
+    let s = state.monitor.snapshot();
+    let h = state.monitor.history();
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    Json(crate::sysmon::health::compute(&s, &h, now_ms, state.demo)).into_response()
 }
 
 #[cfg(test)]
@@ -308,6 +322,18 @@ mod tests {
         let (_, body) = get_json(&router, "/api/sys/snapshot").await;
         for key in ["cpu", "memory", "volumes", "interfaces", "gpu", "battery"] {
             assert!(body.get(key).is_some(), "missing {key}");
+        }
+        // Machine identity is present with honest Option fields.
+        assert!(body.get("host").is_some(), "missing host info");
+        // On a real machine at least one identity field resolves; each may
+        // legitimately be null on exotic platforms, so no value is asserted —
+        // only that the keys exist and are string-or-null.
+        for k in ["hostName", "osName", "osVersion", "kernelVersion"] {
+            let v = &body["host"][k];
+            assert!(
+                v.is_null() || v.is_string(),
+                "host.{k} must be string-or-null, got {v}"
+            );
         }
         // Process rows are excluded by default (payload size); the count is
         // present so the UI can show "N processes" without the table.
@@ -394,5 +420,141 @@ mod tests {
         let router = sys_router(test_state());
         let (_, body) = get_json(&router, "/api/sys/history").await;
         assert_eq!(body["history"]["cpuPercent"].as_array().unwrap().len(), 1);
+    }
+
+    /// `/api/sys/health` is the programmatic integration boundary: it must
+    /// serve a fresh, structured document with honest per-domain states.
+    #[tokio::test]
+    async fn health_endpoint_serves_structured_doc() {
+        let router = sys_router(test_state());
+        let (status, body) = get_json(&router, "/api/sys/health").await;
+        assert_eq!(status, axum::http::StatusCode::OK);
+        // Fresh sample on a live machine → healthy or degraded (never
+        // stale/unknown), and never a fabricated status.
+        let st = body["status"].as_str().unwrap();
+        assert!(
+            st == "healthy" || st == "degraded",
+            "live fresh sample must be healthy/degraded, got {st}"
+        );
+        assert_eq!(body["demo"], false);
+        assert!(body["fresh"] == true);
+        assert!(body["sampleCount"].as_u64().unwrap() >= 1);
+        assert!(body["ageMs"].as_i64().unwrap() < 5_000);
+        // Domains present with availability flags.
+        for dom in [
+            "cpu",
+            "memory",
+            "disk",
+            "network",
+            "gpu",
+            "battery",
+            "processes",
+        ] {
+            assert!(body["metrics"][dom].is_object(), "missing metrics.{dom}");
+        }
+        assert!(body["metrics"]["cpu"]["available"] == true);
+        assert!(body["metrics"]["memory"]["available"] == true);
+        // Warnings array + history metadata always present.
+        assert!(body["warnings"].is_array());
+        assert!(body["history"]["series"].is_array());
+        assert!(!body["history"]["series"].as_array().unwrap().is_empty());
+        assert!(body["history"]["capacityPerSeries"].as_u64().unwrap() > 0);
+        // Machine identity rides along for consumers.
+        assert!(body["host"].is_object());
+    }
+
+    /// An empty monitor must report `unknown`, never a green lie.
+    #[tokio::test]
+    async fn health_endpoint_reports_unknown_before_first_sample() {
+        let state = Arc::new(SysState {
+            monitor: SysMonitor::with_empty_snapshot(Duration::from_secs(2)),
+            demo: false,
+        });
+        let router = sys_router(state);
+        let (_, body) = get_json(&router, "/api/sys/health").await;
+        assert_eq!(body["status"], "unknown");
+        assert_eq!(body["fresh"], false);
+        assert_eq!(body["sampleCount"], 0);
+    }
+
+    /// Every series the frontend can chart must be present in the payload,
+    /// including the GPU/battery additions, so no view silently loses data.
+    #[tokio::test]
+    async fn history_exposes_all_charted_series() {
+        let router = sys_router(test_state());
+        let (_, body) = get_json(&router, "/api/sys/history").await;
+        let h = &body["history"];
+        for key in [
+            "cpuPercent",
+            "cpuUserPercent",
+            "cpuSystemPercent",
+            "memoryUsedBytes",
+            "swapUsedBytes",
+            "diskReadPerSec",
+            "diskWritePerSec",
+            "netRecvPerSec",
+            "netSentPerSec",
+            "gpuUtilPercent",
+            "batteryChargePercent",
+        ] {
+            assert!(
+                h[key].as_array().is_some(),
+                "history series {key} missing from payload"
+            );
+        }
+    }
+
+    /// Points must arrive oldest-first with strictly increasing timestamps —
+    /// the ring buffer's contract, which charts rely on for x positioning.
+    #[tokio::test]
+    async fn history_points_are_time_ordered() {
+        let state = test_state();
+        // Take a few real samples so the buffers have depth.
+        for _ in 0..3 {
+            state.monitor.sample_once();
+        }
+        let router = sys_router(state);
+        let (_, body) = get_json(&router, "/api/sys/history").await;
+        let pts = body["history"]["cpuPercent"].as_array().unwrap();
+        assert!(pts.len() >= 2, "need at least 2 points");
+        for w in pts.windows(2) {
+            let a = w[0]["t"].as_i64().unwrap();
+            let b = w[1]["t"].as_i64().unwrap();
+            assert!(b > a, "timestamps must strictly increase: {a} then {b}");
+        }
+    }
+
+    /// The gap contract: a history point's value is either a real number or
+    /// null (from NaN). It must never be a fabricated 0 standing in for an
+    /// unavailable reading — charts draw nulls as visible gaps.
+    ///
+    /// Battery charge is the honest probe because it is genuinely
+    /// unavailable on desktops and genuinely present on laptops: whichever
+    /// way this machine reports it, a *zero* would be a lie on both.
+    #[tokio::test]
+    async fn history_gaps_are_null_never_fabricated_zero() {
+        let state = test_state();
+        let snap = state.monitor.history();
+        let battery_available = state.monitor.snapshot().battery.charge_percent.available;
+
+        let pts = &snap.battery_charge_percent;
+        assert!(!pts.is_empty(), "battery series should have points");
+        for p in pts {
+            if battery_available {
+                // Real hardware: a genuine reading between 0 and 100.
+                assert!(
+                    p.v.is_finite(),
+                    "available battery metric produced non-finite {p:?}"
+                );
+            } else {
+                // No battery: the point must be NaN, which serializes to
+                // null — not a made-up 0.0.
+                assert!(
+                    p.v.is_nan(),
+                    "unavailable battery metric must be NaN, got {}",
+                    p.v
+                );
+            }
+        }
     }
 }

@@ -111,6 +111,10 @@ enum Commands {
     Rollback,
     /// Remove the installed program; keep settings, credentials and sessions.
     Uninstall,
+    /// Install Zsh terminal observability hooks (traces for shell commands).
+    InstallTerminal,
+    /// Remove the Loop-managed Zsh hook configuration.
+    UninstallTerminal,
 }
 
 #[tokio::main]
@@ -189,6 +193,14 @@ async fn real_main() -> anyhow::Result<()> {
                 println!("Loop program files removed. User settings, credentials, skills and sessions kept.");
                 return Ok(());
             }
+            Commands::InstallTerminal => {
+                install_terminal().await?;
+                return Ok(());
+            }
+            Commands::UninstallTerminal => {
+                uninstall_terminal().await?;
+                return Ok(());
+            }
             _ => (),
         }
     }
@@ -263,7 +275,7 @@ async fn real_main() -> anyhow::Result<()> {
         anyhow::bail!("--serve-mcp serves Loop's own tools; it cannot run with an external agent");
     }
     let mut runtime = bootstrap_cli(BootstrapOpts {
-        cwd,
+        cwd: cwd.clone(),
         provider,
         model,
         theme: cli.theme,
@@ -305,6 +317,44 @@ async fn real_main() -> anyhow::Result<()> {
         tracing::warn!(error = %err, "Langfuse tracing disabled");
     }
 
+    // Session lifecycle tracing into the dashboard's durable store, so
+    // concurrently running CLI sessions are visible in Dashboard → Traces.
+    // Failures here never block the agent: a missing store just disables it.
+    {
+        let cwd_label = cwd.display().to_string();
+        let model_spec = runtime
+            .selected_model
+            .as_ref()
+            .map(|m| (m.id.clone(), m.provider.clone()));
+        match loop_cli::session_trace::session_store_path() {
+            Ok(db) => {
+                let capture = loop_dashboard::persist::DashboardStore::open(&db)
+                    .ok()
+                    .map(|store| loop_cli::session_trace::capture_content_enabled(&store))
+                    .unwrap_or(false);
+                runtime.session_trace = loop_cli::session_trace::SessionTrace::begin(
+                    &db,
+                    &runtime.session_id,
+                    Some(&cwd_label),
+                    model_spec.as_ref().map(|(m, _)| m.as_str()),
+                    model_spec.as_ref().map(|(_, p)| p.as_str()),
+                    interactive,
+                    capture,
+                );
+                if runtime.resumed {
+                    runtime.session_trace.record_event(
+                        "session.resume",
+                        serde_json::json!({ "sessionId": runtime.session_id }),
+                    );
+                }
+            }
+            Err(err) => {
+                tracing::warn!(target: "loop_cli", error = %err, "session tracing unavailable");
+            }
+        }
+    }
+
+    let session_trace = runtime.session_trace.clone();
     let result = if cli.serve_mcp {
         loop_cli::mcp_serve::run_mcp_server(
             runtime.inner,
@@ -322,5 +372,89 @@ async fn real_main() -> anyhow::Result<()> {
     };
     #[cfg(feature = "telemetry")]
     print_mode::shutdown_telemetry(&telemetry).await;
+
+    // Finalize the session trace from its terminal outcome. A graceful run
+    // ends success; an error propagates the message into the trace row.
+    match &result {
+        Ok(_) => {
+            session_trace.record_event("session.complete", serde_json::json!({}));
+            session_trace.finish_success().await;
+        }
+        Err(err) => {
+            let message = format!("{err:#}");
+            session_trace.record_event(
+                "session.failed",
+                serde_json::json!({ "error": truncate_for_event(&message) }),
+            );
+            session_trace.finish_error(&message).await;
+        }
+    }
     result
+}
+
+/// Bound an error string before it is stored as event data.
+fn truncate_for_event(text: &str) -> String {
+    const MAX: usize = 2_000;
+    if text.chars().count() <= MAX {
+        text.to_string()
+    } else {
+        let mut cut: String = text.chars().take(MAX).collect();
+        cut.push('…');
+        cut
+    }
+}
+
+// ---------------------------------------------------------------------
+// Terminal observability (Zsh hooks → dashboard traces)
+// ---------------------------------------------------------------------
+
+/// `loop install-terminal`: write the Zsh hook library, add the managed
+/// `.zshrc` block and make sure a local ingestion token exists.
+async fn install_terminal() -> anyhow::Result<()> {
+    // The token file (~/.loop/dashboard/loop.json) is created with 0600 so
+    // the hook can authenticate against the dashboard's ingestion API.
+    let cfg = loop_dashboard::termhook::EndpointConfig::ensure()
+        .map_err(|e| anyhow::anyhow!("cannot create terminal endpoint config: {e}"))?;
+    println!("Terminal ingestion token ready ({})", &cfg.token[..8]);
+    if cfg.port.is_none() {
+        println!("Note: the dashboard has not run yet; the port is picked up automatically at its next start.");
+    }
+
+    let result = loop_dashboard::termhook::hook::install()
+        .map_err(|e| anyhow::anyhow!("terminal hook installation failed: {e}"))?;
+    for line in &result.messages {
+        println!("{line}");
+    }
+
+    if !std::env::var_os("LOOP_TERM_DISABLE").is_none() {
+        println!("Warning: LOOP_TERM_DISABLE is set; the hook will stay inactive while it is exported.");
+    }
+    let shell = std::env::var("SHELL").unwrap_or_default();
+    if !shell.contains("zsh") {
+        println!(
+            "Warning: your login shell appears to be '{shell}'. \
+             The hook targets Zsh; other shells are not instrumented."
+        );
+    }
+    println!();
+    println!("Done. To activate:");
+    println!("  1. Open a new terminal, or run: source ~/.zshrc");
+    println!("  2. Start the dashboard: loop dashboard (or loop-dashboard)");
+    println!("Every interactive Zsh command will then appear in Traces and Requests.");
+    println!("Optional output capture: prefix a command with `loopterm`, e.g. loopterm cargo test");
+    println!("Disable anytime with `loop-terminal-off` (re-enable: `loop-terminal-on`).");
+    Ok(())
+}
+
+/// `loop uninstall-terminal`: remove exactly what Loop added.
+async fn uninstall_terminal() -> anyhow::Result<()> {
+    let result = loop_dashboard::termhook::hook::uninstall()
+        .map_err(|e| anyhow::anyhow!("terminal hook removal failed: {e}"))?;
+    for line in &result.messages {
+        println!("{line}");
+    }
+    println!();
+    println!("Done. Open a new terminal (or run: source ~/.zshrc) to finish.");
+    println!("Recorded traces and the ingestion token were kept; delete ~/.loop/dashboard/loop.json to revoke it.");
+    Ok(())
 }

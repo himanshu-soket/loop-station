@@ -93,6 +93,12 @@ pub struct ProcessCollector {
     system: System,
 }
 
+impl Default for ProcessCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcessCollector {
     /// New collector; CPU% meaningful from the second [`Self::sample`] on.
     pub fn new() -> Self {
@@ -102,21 +108,24 @@ impl ProcessCollector {
     }
 
     /// Take a sample of all processes.
-    /// Take a sample of all processes.
     ///
     /// Memory is `None` for processes owned by other users: macOS denies
     /// `PROC_PIDTASKINFO`/`proc_pid_rusage` for them without root, and a
-    /// zero would read as a fabricated value.
+    /// zero would read as a fabricated value. Ownership is checked against
+    /// both the real and the effective uid — setuid-root helpers such as
+    /// `loginwindow` run with ruid 0 but euid of the logged-in user, and
+    /// their memory *is* readable.
     pub fn sample(&mut self) -> Vec<ProcessRow> {
         self.system.refresh_processes(ProcessesToUpdate::All, true);
         // Discover our own uid from any process whose memory is actually
         // readable (the kernel zeroes the field for foreign processes).
+        // Prefer the effective uid: it matches the account we can read.
         let my_uid = self
             .system
             .processes()
             .values()
             .find(|p| p.memory() > 0)
-            .and_then(|p| p.user_id());
+            .and_then(|p| p.effective_user_id().or_else(|| p.user_id()));
         self.system
             .processes()
             .values()
@@ -124,7 +133,11 @@ impl ProcessCollector {
                 // The kernel reports 0 resident size for other users'
                 // processes; distinguish "genuinely tiny" (own process) from
                 // "unreadable" (foreign user) so we never fabricate a zero.
-                let readable = my_uid.is_none_or(|uid| p.user_id() == Some(uid));
+                // A process is ours when either its real or effective uid
+                // matches (setuid binaries flip one of the two).
+                let readable = my_uid.is_none_or(|uid| {
+                    p.user_id() == Some(uid) || p.effective_user_id() == Some(uid)
+                });
                 ProcessRow {
                     pid: p.pid().as_u32(),
                     name: p.name().to_string_lossy().to_string(),

@@ -39,6 +39,7 @@ rust-version = "1.88"
 
 [workspace.dependencies]
 loop-ai = { path = "crates/loop-ai" }
+loop-dashboard = { path = "crates/loop-dashboard" }
 loop-agent = { path = "crates/loop-agent" }
 loop-app-core = { path = "crates/loop-app-core" }
 loop-orchestration = { path = "crates/loop-orchestration" }
@@ -50,6 +51,13 @@ loop-protocol = { path = "crates/core/loop-protocol" }
 loop-acp = { path = "crates/extend/loop-acp" }
 agent-client-protocol-schema = { version = "1.11", default-features = false }
 sha2 = "0.10"
+# Keyed MAC for OTP verification material (already in the dependency graph
+# transitively; promoted to a direct dependency for loop-dashboard).
+hmac = "0.12"
+# Password hashing for dashboard authentication (Argon2id).
+argon2 = "0.5"
+# OS entropy for session tokens.
+getrandom = "0.3"
 semver = "1"
 self-replace = "1.5"
 flate2 = "1"
@@ -74,7 +82,7 @@ uuid = { version = "1", features = ["v7", "serde"] }
 tracing = "0.1"
 parking_lot = "0.12"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "functions"] }
 similar = "2"
 ignore = "0.4"
 tempfile = "3"

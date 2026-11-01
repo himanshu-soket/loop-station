@@ -194,6 +194,12 @@ pub struct BatteryCollector {
     health_cache: Option<(Instant, BatterySnapshot)>,
 }
 
+impl Default for BatteryCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BatteryCollector {
     /// New collector.
     pub fn new() -> Self {

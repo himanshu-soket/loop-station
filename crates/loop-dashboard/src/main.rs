@@ -3,19 +3,15 @@
 //! Serves a single-page dashboard over the session database at
 //! `~/.loop/agent/sessions.db`. Binds to 127.0.0.1 only; trace content never
 //! leaves localhost.
-
-mod analytics;
-mod api;
-mod demo;
-mod payload;
-mod store;
-mod sysmon;
-mod web;
+//!
+//! The same router (including the inference console) is embedded in the `loop`
+//! CLI itself; this binary remains for standalone use.
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
 use clap::Parser;
+use loop_dashboard::{api, auth, auth_http, console, engine, persist, playground, sysmon};
 
 /// Dashboard server options.
 #[derive(Debug, Parser)]
@@ -52,6 +48,16 @@ struct Cli {
     /// Allow binding a non-loopback address (not recommended).
     #[arg(long)]
     allow_lan: bool,
+
+    /// Path to the dashboard's own durable store (traces, requests,
+    /// conversations). Default: ~/.loop/dashboard/store.db.
+    #[arg(long)]
+    console_db: Option<PathBuf>,
+
+    /// Disable authentication entirely (historical open-access mode).
+    /// Intended for scripted local use; not recommended otherwise.
+    #[arg(long)]
+    no_auth: bool,
 }
 
 #[tokio::main]
@@ -67,17 +73,63 @@ async fn main() -> anyhow::Result<()> {
 
     let addr = SocketAddr::new(cli.host, cli.port);
     let interval = std::time::Duration::from_millis(cli.sys_interval_ms.clamp(500, 60_000));
+
+    // Durable console store (traces / requests / conversations).
+    let console_db = match cli.console_db.clone() {
+        Some(p) => p,
+        None => dirs::home_dir()
+            .ok_or_else(|| anyhow::anyhow!("$HOME not set; pass --console-db explicitly"))?
+            .join(".loop")
+            .join("dashboard")
+            .join("store.db"),
+    };
+    let console_store = std::sync::Arc::new(persist::DashboardStore::open(&console_db)?);
+
+    // Real inference engine, wired to Loop's on-disk configuration.
+    let engine = std::sync::Arc::new(engine::Engine::load(engine::EnginePaths::resolve()));
+    let playground = std::sync::Arc::new(playground::Playground::new(
+        std::sync::Arc::clone(&engine),
+        std::sync::Arc::clone(&console_store),
+    ));
+    let console_store_path = console_store.path().display().to_string();
+
+    // Authentication store: its own database beside the console store, so
+    // the trace/conversation schema stays untouched. `--no-auth` keeps the
+    // historical open-access behavior for scripted/local use.
+    let auth_store = if cli.no_auth {
+        None
+    } else {
+        let auth_db = console_db.with_file_name("auth.db");
+        Some(std::sync::Arc::new(auth::AuthStore::open(&auth_db)?))
+    };
+
     let (app, monitor) = api::build_app(api::AppOptions {
         demo: cli.demo,
         db: cli.db.as_deref().map(|p| p.to_path_buf()),
         sys_demo: cli.sys_demo,
         sys_interval: interval,
+        console_state: Some(std::sync::Arc::new(console::ConsoleState {
+            engine,
+            store: console_store,
+            playground,
+            auth: auth_store
+                .as_ref()
+                .map(|a| std::sync::Arc::new(auth_http::AuthState { store: a.clone() })),
+        })),
+        auth_store,
     })?;
 
     // System-monitor sampling loop: real or clearly-labeled synthetic data.
     tokio::spawn(sysmon::run_sampler(monitor, cli.sys_demo, interval));
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    // Publish the bound port for the Zsh terminal hook (which reads it from
+    // ~/.loop/dashboard/loop.json on every report).
+    if let Err(e) =
+        loop_dashboard::termhook::EndpointConfig::set_port(listener.local_addr()?.port())
+    {
+        eprintln!("warning: could not publish dashboard port for terminal hooks: {e}");
+    }
     println!(
         "loop-dashboard {} → http://{addr}",
         if cli.demo || cli.sys_demo {
@@ -103,6 +155,8 @@ async fn main() -> anyhow::Result<()> {
         }
     );
     println!("  sampling every {}ms", interval.as_millis());
+    println!("  console: http://{addr}/console  (chat playground + traces + requests)");
+    println!("  store  : {console_store_path}");
     axum::serve(listener, app).await?;
     Ok(())
 }

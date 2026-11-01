@@ -88,6 +88,11 @@ pub fn builtin_commands() -> Vec<SlashCommand> {
             args_hint: None,
         },
         SlashCommand {
+            name: "dashboard",
+            description: "Open the local dashboard (traces, system monitor, inference console)",
+            args_hint: Some("[on|off|status]"),
+        },
+        SlashCommand {
             name: "changelog",
             description: "Show changelog",
             args_hint: None,
@@ -361,6 +366,8 @@ pub enum CommandEffect {
     Help,
     /// Show session info.
     SessionInfo,
+    /// Start/stop/status for the embedded dashboard + console.
+    Dashboard(Option<String>),
     /// Show settings summary.
     Settings,
     /// Trust decision.
@@ -592,6 +599,11 @@ pub fn dispatch(
         "hotkeys" => CommandEffect::Hotkeys,
         "help" => CommandEffect::Help,
         "session" => CommandEffect::SessionInfo,
+        "dashboard" => CommandEffect::Dashboard(if cmd.args.is_empty() {
+            None
+        } else {
+            Some(cmd.args.trim().to_owned())
+        }),
         "settings" => CommandEffect::Settings,
         "trust" => CommandEffect::Trust(if cmd.args.is_empty() {
             None

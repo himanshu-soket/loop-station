@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sftqc — SFT Data Quality Pipeline</title>
+<link rel="stylesheet" href="/shell.css">
+<style>
+/* Self-contained page, visually native to the Loop console shell
+   (same palette tokens as console.html). No external requests. */
+:root{
+  --bg:#07090d; --bg2:#0b0e14; --panel:#10141d; --panel2:#151a25;
+  --line:#1d2433; --line2:#2a3347;
+  --ink:#e8ecf4; --ink-dim:#9aa5b8; --ink-faint:#5d687e;
+  --acc:#5ef2c0; --acc-dim:#2ea886;
+  --amber:#ffc857; --red:#ff6b81; --blue:#6fb7ff; --violet:#b48cff;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:'Sora',system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55}
+button{font-family:inherit;color:inherit}
+::selection{background:rgba(94,242,192,.25)}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:9px;border:2px solid var(--bg)}
+::-webkit-scrollbar-track{background:transparent}
+
+.wrap{padding:20px 24px 30px;max-width:none;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+header.top h1{margin:0;font-size:19px;font-weight:600}
+header.top p{margin:3px 0 0;color:var(--ink-dim);font-size:12.5px}
+.src-tag{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);white-space:nowrap}
+
+/* stage rail */
+.rail{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:9px;margin-bottom:12px}
+.ph{text-align:left;border-radius:11px;padding:9px 12px;cursor:pointer;border:1px solid;background:transparent;transition:opacity .2s}
+.ph .n{font-family:var(--mono);font-size:10px;opacity:.75;display:flex;justify-content:space-between}
+.ph .t{font-size:13.5px;font-weight:600;display:block;margin-top:2px}
+.ph .f{font-family:var(--mono);font-size:10px;display:block;margin-top:2px;opacity:.7}
+
+/* controls */
+.ctl{display:flex;align-items:center;gap:10px;margin:0 0 10px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--line2);
+  border-radius:9px;padding:7px 13px;font-size:12.5px;font-weight:500;cursor:pointer;color:var(--ink-dim);transition:all .15s}
+.btn:hover{color:var(--ink);border-color:var(--acc-dim);background:var(--panel)}
+.btn.primary{background:var(--acc);color:#06251b;border-color:var(--acc);font-weight:600}
+.btn.primary:hover{filter:brightness(1.08)}
+.pbar{flex:1;min-width:140px;height:5px;border-radius:3px;background:var(--panel);border:1px solid var(--line);overflow:hidden}
+.pbar div{height:100%;width:0;background:var(--acc);transition:width .3s}
+#stat{font-family:var(--mono);font-size:11px;color:var(--ink-dim);min-width:230px}
+
+/* board */
+.vp{flex:1;min-height:0;overflow-x:auto;padding-bottom:8px}
+#cv{position:relative;display:grid;grid-template-columns:repeat(6,258px);column-gap:64px;row-gap:22px;
+  padding:14px 40px 26px 8px;width:max-content}
+.stg{align-self:start}
+.card{position:relative;background:var(--panel);border:1px solid var(--line2);border-radius:13px}
+.hd{display:flex;align-items:center;gap:10px;width:100%;border:0;padding:11px 13px;cursor:pointer;
+  border-radius:13px 13px 0 0;text-align:left;background:var(--pb);color:var(--pf);border-bottom:1px solid var(--pd)}
+.hd .num{font-family:var(--mono);font-size:10.5px;font-weight:600;border:1px solid currentColor;border-radius:999px;padding:1px 7px}
+.hd .tt{font-size:13px;font-weight:600;line-height:1.25}.hd .mm{display:block;font-family:var(--mono);font-size:10px;opacity:.78;font-weight:400}
+.live{width:8px;height:8px;border-radius:50%;background:var(--pf);margin-left:auto;flex:none;opacity:.35;transition:opacity .3s}
+.card.on .live{opacity:1;animation:pu 1.5s ease-in-out infinite}
+@keyframes pu{0%,100%{opacity:1}50%{opacity:.25}}
+.bd{padding:12px;display:grid;gap:8px}
+.row{display:grid;gap:6px}
+.cn{height:14px;display:flex;justify-content:center}
+.cn i{width:2px;height:100%;background:repeating-linear-gradient(to bottom,var(--pd) 0 4px,transparent 4px 8px)}
+.nd{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border-radius:10px;text-align:left;cursor:pointer;
+  background:var(--panel2);border:1px solid var(--line2);transition:background .3s,border-color .3s,box-shadow .3s}
+.nd:hover{border-color:var(--pd)}
+.nd .ic{width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex:none;
+  background:var(--pb);color:var(--pf);font-family:var(--mono);font-size:11px;font-weight:700}
+.nd .l{font-size:12px;font-weight:600;display:block;line-height:1.3}
+.nd .s{font-family:var(--mono);font-size:10px;color:var(--ink-dim);display:block;line-height:1.4;overflow-wrap:anywhere}
+.nd .mt{display:block;font-family:var(--mono);font-size:10px;line-height:1.35;margin-top:2px;color:var(--acc);min-height:13px}
+.k-input .ic{background:rgba(255,200,87,.16);color:var(--amber)}
+.k-out{border-color:rgba(94,242,192,.4)}
+.k-out .ic{background:rgba(94,242,192,.12);color:var(--acc)}
+.k-side{border-style:dashed}
+.badge{margin-left:auto;font-family:var(--mono);font-size:9.5px;padding:1px 7px;border-radius:999px;background:var(--pb);color:var(--pf);flex:none}
+.nd.lit{background:var(--pb);border-color:var(--pd);box-shadow:0 0 0 3px color-mix(in srgb,var(--pf) 18%,transparent)}
+.nd.lit .l,.nd.lit .s{color:var(--pf)}
+.nd.done .ic{background:rgba(94,242,192,.18);color:var(--acc)}
+.ft{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--bg2);color:var(--ink-dim);
+  padding:8px 10px;margin-top:4px;font-size:11px;cursor:pointer;border-radius:10px}
+.ft ol{margin:3px 0 0;padding-left:16px}.ft b{font-weight:600;color:var(--ink)}
+.ot{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-align:center;padding:6px;margin-top:6px;
+  border:1px dashed var(--line2);border-radius:8px;overflow-wrap:anywhere}
+#ln{position:absolute;top:0;left:0;pointer-events:none;z-index:5;overflow:visible}
+#ln path.w{fill:none;stroke:var(--acc-dim);stroke-width:1.5;stroke-dasharray:6 5;opacity:.7}
+#ln path.hot{stroke:var(--acc);stroke-width:2.6;opacity:1;filter:drop-shadow(0 0 5px rgba(94,242,192,.4))}
+#ln.fx path.w:not(.hot){opacity:.14}
+@media (prefers-reduced-motion:no-preference){
+  .cn i{animation:fl .7s linear infinite}@keyframes fl{to{background-position:0 8px}}
+  #ln path.w{animation:da 1s linear infinite}@keyframes da{to{stroke-dashoffset:-22}}
+}
+
+/* popover */
+#pop{position:absolute;z-index:10;width:min(360px,90vw);background:var(--panel);border:1px solid var(--line2);
+  border-radius:13px;padding:15px 17px;font-size:12.5px;line-height:1.6;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+#pop h4{margin:0 0 2px;font-size:15px;font-weight:600}
+#pop .ey{font-family:var(--mono);font-size:10px;color:var(--ink-faint);padding-right:30px;letter-spacing:.05em;text-transform:uppercase}
+#pop .lb{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--acc-dim);margin:11px 0 3px;letter-spacing:.08em;text-transform:uppercase}
+#pop p{margin:0;color:var(--ink-dim)}
+#pop .tip{background:rgba(255,200,87,.07);border:1px solid rgba(255,200,87,.22);color:var(--amber);padding:8px 10px;margin-top:11px;border-radius:8px;font-size:11.5px}
+#pop .x{position:absolute;top:9px;right:9px;width:27px;height:27px;padding:0;border-radius:50%;border:1px solid var(--line2);
+  background:var(--panel2);cursor:pointer;display:grid;place-items:center;color:var(--ink-dim)}
+#pop .nv{display:flex;justify-content:space-between;gap:6px;margin-top:13px}
+#pop .nv button{font-size:11.5px;padding:5px 10px}
+#pop .kv{display:grid;grid-template-columns:1fr auto;gap:3px 12px;font-size:11.5px;color:var(--ink-dim)}
+#pop .kv b{font-weight:500;font-family:var(--mono);color:var(--ink)}
+#pop a.code-link{color:var(--blue);text-decoration:none;border-bottom:1px dotted var(--blue);font-family:var(--mono);font-size:11px}
+.lg{display:flex;flex-wrap:wrap;gap:14px;font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin:8px 2px 0;align-items:center}
+.lg span{display:inline-flex;align-items:center;gap:6px}
+.lg i.s{width:12px;height:12px;border-radius:4px;display:inline-block;border:1px solid var(--line2)}
+
+@media (max-width:760px){.wrap{padding:14px 12px 24px}.rail{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>SFT data quality pipeline — sftqc</h1>
+      <p>OpenAI chat JSONL → rules → LM audit → embeddings → judge → high/ or low/. Every box is a real function in ~/soket/sftqc.</p>
+    </div>
+    <span class="src-tag" id="srcTag">source: ~/soket/sftqc/pipeline.py</span>
+  </header>
+
+  <div class="rail" id="rail"></div>
+
+  <div class="ctl">
+    <button class="btn primary" id="runBtn">Run pipeline</button>
+    <button class="btn" id="rstBtn">Reset</button>
+    <div class="pbar"><div id="pb"></div></div>
+    <span id="stat">Ready · layers in execution order</span>
+  </div>
+
+  <div class="vp" id="vp"><div id="cv"><svg id="ln"></svg><div id="pop" style="display:none"></div></div></div>
+
+  <div class="lg">
+    <span><i class="s" style="background:rgba(255,200,87,.16);border-color:rgba(255,200,87,.4)"></i>Input data</span>
+    <span><i class="s"></i>Processing step</span>
+    <span><i class="s" style="background:rgba(94,242,192,.12);border-color:rgba(94,242,192,.4)"></i>Output</span>
+    <span><i class="s" style="border-style:dashed"></i>Beside the pipeline</span>
+    <span><i class="s" style="height:0;width:18px;border-top:2px dashed var(--acc-dim);border-radius:0"></i>Data flow</span>
+    <span id="liveNote" style="margin-left:auto"></span>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   PIPELINE DEFINITION — transcribed from the actual sftqc source.
+
+   Execution order comes from pipeline.run():
+     1 rules + language + exact dup     (rules.py, lang.py)
+     2 lm                               (lm_score.py)   [skippable]
+     3a embed                           (dedup.py)      [skippable]
+     3b judge                           (judge.py)      [optional]
+     then write_outputs(): score, route, write files
+   Sidecars: selftest.py measures the checks; gym_check.py validates
+   benchmark rows. Nothing here is invented — `fn` names are real.
+   ===================================================================== */
+const PH={
+ inp:{n:"00",t:"Input",f:"OpenAI chat JSONL",bg:"rgba(255,200,87,.14)",fg:"#ffc857",bd:"rgba(255,200,87,.42)",
+   ov:"What enters the gate. Rows are OpenAI chat-format JSONL — messages[] with role/content pairs plus optional tools[]. The trainer consumes this exact format, so the gate never converts anything."},
+ rul:{n:"01",t:"Layer 1 · Rules",f:"deterministic, no model",bg:"rgba(111,183,255,.13)",fg:"#6fb7ff",bd:"rgba(111,183,255,.4)",
+   ov:"Checks with a definite yes/no answer and no model involved. Cheapest layer, so it runs first and drops everything provably broken before any GPU work."},
+ lm:{n:"02",t:"Layer 2 · LM audit",f:"per-token loss",bg:"rgba(180,140,255,.13)",fg:"#b48cff",bd:"rgba(180,140,255,.4)",
+   ov:"A causal LM scores every token the trainer would train on. Junk tokens stand out as high-loss surprises; odd rows stand out against their language peers."},
+ emb:{n:"03",t:"Layer 3a · Embeddings",f:"near-dup & conflicts",bg:"rgba(94,242,192,.12)",fg:"#5ef2c0",bd:"rgba(94,242,192,.38)",
+   ov:"Multilingual sentence embeddings catch what hashing misses: paraphrased copies across languages, and the same question answered differently."},
+ jud:{n:"04",t:"Layer 3b · LLM judge",f:"optional rubric",bg:"rgba(255,107,129,.12)",fg:"#ff8fa0",bd:"rgba(255,107,129,.38)",
+   ov:"An optional LLM grades each row on a six-criterion rubric over any OpenAI-compatible endpoint. Results cache by row hash, so reruns only judge new rows."},
+ out:{n:"05",t:"Score & route",f:"high/ or low/",bg:"rgba(94,242,192,.1)",fg:"#9defd1",bd:"rgba(94,242,192,.34)",
+   ov:"Flags become a 0-100 composite; severity plus score decide where each row lands. Nothing is deleted — low/ keeps rejected rows with reasons attached."}};
+
+const N=(id,label,sub,type,i={})=>({id,label,sub,type,...i});
+const REJ={what:"A rule with a definite yes/no answer. Regex is used only for byte-level facts like U+FFFD or a leaked <|im_end|>, which a model detects less reliably.",why:"Cheap and certain: broken rows never reach expensive layers.",tip:"Quality judgements (fluency, correctness) deliberately live in the model layers, not here."};
+
+const S=[
+{id:"inp",ph:"inp",header:"Input",module:"data.jsonl",col:"1",row:"1",overview:PH.inp.ov,rows:[
+ [N("chat","Chat rows","messages[] · tools[] · one JSON per line","input",
+   {fn:"Row (pipeline.py)",what:"Each line is parsed into a Row object carrying its raw text, parsed JSON, flags and later its scores.",why:"One carrier per row keeps every layer's evidence attached for the final report.",tip:"Blank lines and invalid JSON are flagged immediately (blank_line, invalid_json)."})],
+ [N("langs","Language mix","en · hi · hinglish · mixed","input",
+   {fn:"detect (lang.py)",what:"Script share decides Devanagari; a fixed list of function words decides English vs Hinglish.",why:"Generic n-gram detectors confused short English questions with Hinglish on this data.",tip:"Labels: en, hi, hinglish, mixed, other."})]],
+ features:["Same format as the trainer","No conversion step","Row objects carry all evidence"],output:"<out>/ … the input file itself"},
+
+{id:"rul",ph:"rul",header:"Layer 1 · Rules",module:"rules.py · lang.py",col:"2",row:"1",overview:PH.rul.ov,rows:[
+ [N("parse","Parse + fix","json.loads · fix_row","process",
+   {fn:"fix_row / fix_text (rules.py)",what:"With --fix, NFC-normalise, strip zero-width chars and repair mojibake (ftfy) before checking.",why:"Mechanical Unicode damage is repairable; fixing beats dropping.",tip:"FIXABLE = {zero_width, not_nfc, mojibake?}; fixed codes are then excluded from flags."})],
+ [N("struct","Structure check","roles · turns · tool-call pairing","process",
+   {fn:"check_structure (rules.py)",what:"Validates OpenAI chat shape: valid roles, system first, non-empty content, first turn user, last turn a final assistant answer without dangling tool_calls.",why:"Rows that fail cannot be trained on at all.",tip:"Flags include bad_role, system_not_first, first_turn_not_user, last_turn_not_final_assistant."})],
+ [N("tools","Tool consistency","call ↔ result · schema args","process",
+   {fn:"check_structure (rules.py)",what:"Every tool_call needs a matching tool result, ids unique, names declared in tools[], arguments parse as JSON and satisfy required/additionalProperties.",why:"Calls paired with nothing teach the model to hallucinate tool output.",tip:"Flags: orphan_tool_result, missing_tool_result, unknown_tool, bad_tool_arguments, missing_required_arg."})],
+ [N("chars","Encoding damage","U+FFFD · mojibake · control chars","process",
+   {fn:"check_chars (rules.py)",what:"Byte-level facts: replacement chars, UTF-8-decoded-as-Latin1 sequences (â€™), control characters, zero-width chars, non-NFC, leaked special tokens.",why:"These are exactly what surfaces as stray � or ? in generations.",tip:"Tool results are only warned about — messy web text is expected there."})],
+ [N("finish","Incompleteness","final answer cut off","process",
+   {fn:"FINISHED regex (rules.py)",what:"The final assistant turn must end with sentence punctuation, a closing quote/bracket or a code fence.",why:"Truncated answers teach the model to stop mid-sentence.",tip:"Flag: maybe_truncated (warn). Measured catch rate on planted problems: 95%."})],
+ [N("exactdup","Exact duplicates","sha256 of messages · keep first","process",
+   {fn:"layer 1 loop (pipeline.py)",what:"sha256 over the sorted message payload; the first copy is kept, later copies flagged exact_duplicate.",why:"Cheapest dedup; removes identical rows before embeddings see them.",tip:"Paraphrases need layer 3a."})],
+ [N("langchk","Language match","user vs answer script","process",
+   {fn:"detect (lang.py)",what:"Detects the user-turn language and the final-answer language; a mismatch (both concrete, neither 'other'/'mixed') flags language_mismatch.",why:"A Hinglish question deserves a Hinglish answer; wrong-language rows are one of the plan's 18 dimensions.",tip:"With --lang en, rows in other languages are dropped before expensive layers (filtered_by_lang)."})]],
+ features:["Deterministic, no model","Fixable subset repaired in place","Reason per flag"],output:"active rows continue to layer 2"},
+
+{id:"lm",ph:"lm",header:"Layer 2 · LM audit",module:"lm_score.py",col:"3",row:"1",overview:PH.lm.ov,rows:[
+ [N("loadlm","Load scorer","chat template + tokenizer","process",
+   {fn:"LMScorer.__init__ (lm_score.py)",what:"Loads the causal LM (default Qwen/Qwen2.5-1.5B-Instruct — ideally the model being fine-tuned) with its chat template and tokenizer.",why:"Scoring with the training target model measures exactly what the trainer will reinforce.",tip:"--model picks another checkpoint; --device/--dtype control placement."})],
+ [N("tmpl","Template audit","loss lands on assistant turns","process",
+   {fn:"template_audit (lm_score.py)",what:"Renders one representative row (preferring a row with tool_calls) and marks [[TRAIN>> … <<TRAIN]] spans. Warns when the template injects a default system prompt, or renders tool args double-encoded.",why:"A wrong template silently trains on escaped JSON or user turns — damage no downstream metric catches.",tip:"Warnings recorded in report.json under template_audit."})],
+ [N("tokaud","Tokenizer audit","roundtrip · partial-byte share","process",
+   {fn:"tokenizer_audit (lm_score.py)",what:"Encodes and decodes every assistant turn; flags divergence (tokenizer_roundtrip), unk tokens, and records chars-per-token and partial-byte token share per language.",why:"49% of Hindi tokens being partial characters is the suspected cause of �/? in generations.",tip:"Stats land in report.json lm_calibration.languages."})],
+ [N("score","Per-token loss","target_spans → nll","process",
+   {fn:"score_row (lm_score.py)",what:"Computes negative log-likelihood for every token inside the trained spans, plus the probability the model gave to any symbol at symbolic positions.",why:"This is the raw evidence both junk detection and unnatural-text checks read.",tip:"Context around each reported token is kept (30 chars)."})],
+ [N("junk","Junk-token rule","symbol token the model didn't expect","process",
+   {fn:"is_junk + calibrate_lm (pipeline.py)",what:"A symbolic token counts as junk when nll ≥ threshold, the model put almost no probability on any symbol there, and it is clearly more surprising than the row's median token.",why:"Catches the stray '?' and random symbols regex cannot define.",tip:"Thresholds are chosen from the selftest sweep, not guessed."})],
+ [N("unnat","Unnatural text","robust z vs same language","process",
+   {fn:"calibrate_lm (pipeline.py)",what:"Each row's mean content loss becomes a robust z-score (median/MAD) against other rows in the same language.",why:"High z reads unnaturally (garbled, machine-translated); low z is suspiciously predictable (boilerplate, memorised).",tip:"Needs ≥ min_group (8) rows per language; smaller groups are noted instead."})]],
+ features:["Scores only trained tokens","Calibrated per language","Thresholds measured by selftest"],output:"flags + lm stats on each row"},
+
+{id:"emb",ph:"emb",header:"Layer 3a · Embeddings",module:"dedup.py",col:"4",row:"1",overview:PH.emb.ov,rows:[
+ [N("enc","Encode prompts + answers","multilingual MiniLM","process",
+   {fn:"find_duplicates (dedup.py)",what:"Embeds every user prompt and every final answer with paraphrase-multilingual-MiniLM-L12-v2, normalised.",why:"Multilingual embeddings catch cross-language copies a hash can never see.",tip:"Similarity is computed in chunks of 2048 — fine to ~100k rows; swap in faiss beyond."})],
+ [N("neardup","Near-duplicates","pair similarity ≥ 0.95","process",
+   {fn:"find_duplicates (dedup.py)",what:"Whole-conversation similarity ≥ dup_sim (0.95) against an earlier row → near_duplicate; the first copy is kept.",why:"Catches paraphrases: 'Who won Wimbledon 2026?' vs 'Wimbledon 2026 winner?'.",tip:"Only earlier rows are compared, so ordering decides which copy survives."})],
+ [N("conflict","Conflicting answers","same prompt, different answer","process",
+   {fn:"find_duplicates (dedup.py)",what:"Prompt similarity ≥ 0.92 while answer similarity < 0.80 → conflicting_answer (warn).",why:"Contradictions are review, not drop: the evidence is uncertain.",tip:"Default sends warns to low/; --warn-to high keeps them."})]],
+ features:["Cross-language copies caught","Chunked similarity","First copy always kept"],output:"embed-layer flags per row"},
+
+{id:"jud",ph:"jud",header:"Layer 3b · LLM judge",module:"judge.py",col:"5",row:"1",overview:PH.jud.ov,rows:[
+ [N("pol","Policy","knowledge cutoff · when to search","process",
+   {fn:"DEFAULT_POLICY (judge.py)",what:"States the assistant's January 2026 knowledge cutoff and when web_search is required, so the judge can decide tool_use and correct consistently.",why:"Without an explicit policy those criteria are noise.",tip:"Override with --policy-file."})],
+ [N("rubric","Six-criterion rubric","grounded · correct · helpful · …","process",
+   {fn:"RUBRIC + Judge.call (judge.py)",what:"Each criterion scored 1-5: grounded, correct, helpful, language_match, clean_text, tool_use. Any OpenAI-compatible /chat/completions endpoint; temperature 0; retries with backoff.",why:"Sees what neither rules nor perplexity can: factual correctness and helpfulness.",tip:"Judge replies must be valid JSON with all six scores."})],
+ [N("cache","Cache by row hash","reruns judge only new rows","process",
+   {fn:"Judge.judge_all (judge.py)",what:"Results cache keyed by (model, policy, messages) hash into judge_cache.jsonl in the output folder.",why:"Re-running a big file costs only the changed rows.",tip:"Parallelised across --judge-workers threads."})],
+ [N("jflags","Judge → flags","below 3 fails, 3 warns","process",
+   {fn:"judge_flags (judge.py)",what:"A criterion below fail_below (3) becomes an error flag judge_<criterion>; exactly 3 becomes a warn.",why:"Turns rubric scores into the same flag vocabulary the router already understands.",tip:"judge_failed (warn) covers network/unparseable replies."})]],
+ features:["Any OpenAI-compatible endpoint","Cached, resumable judging","Optional layer (--judge-url)"],output:"judge scores + flags per row"},
+
+{id:"out",ph:"out",header:"Score & route",module:"write_outputs (pipeline.py)",col:"6",row:"1",overview:PH.out.ov,rows:[
+ [N("comp","Composite score","lm 0.35 · judge 0.65","process",
+   {fn:"WEIGHTS + write_outputs (pipeline.py)",what:"Components normalised to 0-1 and weighted (lm 0.35, judge 0.65). A usable row with no model components scores 100; an unusable one 0.",why:"One number summarises model evidence for ranking and thresholding.",tip:"--min-score (default 60) drops rows below it even with no single failure."})],
+ [N("route","Decision","error→low · warn→low · score","process",
+   {fn:"write_outputs (pipeline.py)",what:"Any error → low. Warn → low by default (--warn-to high keeps). Score < min_score → low. Rows outside the --lang filter are excluded entirely (filtered_by_lang).",why:"Severity-first routing keeps semantics simple and auditable.",tip:"Nothing is deleted: every decision is replayable from scores.jsonl."})],
+ [N("oh","high/<name>.jsonl","training-ready","out",
+   {fn:"write_outputs (pipeline.py)",what:"Rows that passed, in the same format as the input — the trainer consumes them unchanged.",why:"The deliverable of the gate.",tip:"This is what the SFT run trains on."})],
+ [N("ol","low/<name>.jsonl","rejected, kept with reasons","out",
+   {fn:"write_outputs (pipeline.py)",what:"Rejected rows, same format, so a person can inspect them.",why:"Spot-check 100 random low/ rows to measure how many good rows are being lost.",tip:"The plan says re-check thresholds if >30% of the dataset lands here."})],
+ [N("os","scores.jsonl","per-row flags · score · reasons","out",
+   {fn:"write_outputs (pipeline.py)",what:"One record per input row: bucket, score, components, every flag with severity and detail, lm/tokenizer stats, judge result.",why:"Full audit trail — the dashboard's run tables derive from the aggregate report.json.",tip:"The row-level source of truth for any disagreement."})],
+ [N("or","report.json · report.md","run summary + calibration","out",
+   {fn:"render_markdown (pipeline.py)",what:"Settings, high/low counts, language mix, flag counts by severity and layer, template audit, LM calibration, worst low rows.",why:"report.json is the only file the dashboard reads — dataset contents are never opened.",tip:"report.md is the human-readable twin."})]],
+ features:["Nothing deleted","Full per-row audit trail","Report is the dashboard's source"],output:"<out>/{high,low}/ · scores.jsonl · report.{json,md}"},
+
+/* sidecars: beside the pipeline, not inside it */
+{id:"side",ph:"inp",header:"Selftest harness",module:"selftest.py",col:"1",row:"2",overview:"Measures the checks themselves rather than the data.",rows:[
+ [N("inj","Plant known problems","7 corruption kinds × clean rows","side",
+   {fn:"corrupt + build (selftest.py)",what:"Injects stray '?', random symbols, U+FFFD, leaked <|im_end|>, mojibake, truncation and wrong-language answers into copies of clean rows.",why:"Recall needs ground truth; planting it gives exact numbers.",tip:"EXPECTED maps each injection to the flag codes that count as catching it."})],
+ [N("meas","Catch rate + false positives","caught/total · clean rows hit","side",
+   {fn:"main (selftest.py)",what:"Runs the full pipeline over the planted set and reports, per kind, how many were caught by the expected check and how many clean rows were wrongly flagged.",why:"A check that drops good rows is worse than one that misses some bad ones.",tip:"Latest measured: corruption/language 100%, cut-offs 95%."})],
+ [N("sweep","Threshold sweep","junk rule nll/psym/margin grid","side",
+   {fn:"main (selftest.py)",what:"Sweeps the junk-token thresholds (nll × p_sym × margin) and reports recall on injected symbols versus clean rows falsely hit, best-first.",why:"Thresholds come from measurements, not guesses.",tip:"Results land in selftest_results.json; the dashboard charts them."})]],
+ features:["Ground-truth recall","False-positive count","Threshold selection from data"],output:"selftest_out/selftest_results.json"},
+{id:"gym",ph:"inp",header:"Benchmark row checker",module:"gym_check.py",col:"2",row:"2",overview:"Validates benchmark JSONL against the official NeMo Gym repo, read statically.",rows:[
+ [N("bench","Per-benchmark checks","prompt · fields · answer · dups","side",
+   {fn:"check_row (gym_check.py)",what:"For every row, by its benchmark field: the rendered official prompt matches, verifier-needed fields exist and are well-formed, the reference answer matches the format the prompt asks for, and ids/questions are unique within a benchmark.",why:"A malformed eval row silently breaks scoring.",tip:"Maps our benchmark names to NeMo Gym benchmark dirs via BENCHMARK_DIRS."})]],
+ features:["Static read, never executes the gym","Answer-format verification","Duplicate detection"],output:"gym_check_report.md"}];
+
+const L=[["chat","parse"],["parse","struct"],["struct","tools"],["struct","chars"],["chars","finish"],
+ ["finish","exactdup"],["exactdup","langchk"],["langs","langchk"],
+ ["langchk","loadlm"],["loadlm","tmpl"],["tmpl","tokaud"],["tokaud","score"],["score","junk"],["score","unnat"],
+ ["junk","enc"],["unnat","enc"],["enc","neardup"],["enc","conflict"],
+ ["neardup","pol"],["conflict","pol"],["pol","rubric"],["rubric","cache"],["cache","jflags"],
+ ["junk","comp"],["unnat","comp"],["jflags","comp"],["comp","route"],
+ ["route","oh"],["route","ol"],["comp","os"],["route","or"]];
+const TN={input:"Input data",process:"Processing step",out:"Output",side:"Beside the pipeline"};
+
+/* =====================================================================
+   LIVE RUN DATA — from the dashboard's own read-only API. Counts attach
+   to the boxes they describe; absent data stays absent.
+   ===================================================================== */
+let RUN=null;
+async function loadRun(){
+  try{
+    const r=await fetch('/api/pipelines/sft',{cache:'no-store'});
+    if(!r.ok) return null;
+    const j=await r.json();
+    return j.integration==='connected'?j:null;
+  }catch(_){return null;}
+}
+/* Map report facts onto node ids. Every entry is a real report.json field. */
+function metricsFor(run){
+  if(!run) return {};
+  const latest=run.latest||{}, t=run.totals||{}, st=latest.settings||{};
+  const m={};
+  if(latest.rows!=null) m.chat=latest.rows+' rows';
+  if(latest.low!=null&&latest.high!=null) m.route=latest.high+' high / '+latest.low+' low';
+  if(latest.filtered_by_lang) m.langchk=latest.filtered_by_lang+' filtered';
+  if(st.min_score!=null) m.comp='min score '+st.min_score;
+  if(latest.seconds!=null) m.or=latest.seconds.toFixed(0)+'s';
+  if(t.runs!=null) m.oh=t.high+' rows total';
+  if(latest.low!=null) m.ol=latest.low+' this run';
+  // Layer presence from settings: model null ⇒ --no-lm skipped layer 2.
+  if(latest.model) m.loadlm=latest.model.split('/').pop();
+  else m.loadlm='skipped (--no-lm)';
+  // Flag counts attach to the layer that produces them.
+  const errs=latest.errors||[];
+  const byCode=Object.fromEntries(errs.map(e=>[e.code,e.rows]));
+  const embErrs=(byCode.near_duplicate||0)+(byCode.conflicting_answer||0);
+  if(embErrs) m.neardup=embErrs+' flagged';
+  const lmErrs=errs.filter(e=>['junk_token','unk_token','template_render_error'].includes(e.code)).reduce((a,b)=>a+b.rows,0);
+  if(lmErrs) m.junk=lmErrs+' junk rows';
+  const judgeErrs=errs.filter(e=>e.code.startsWith('judge_')).reduce((a,b)=>a+b.rows,0);
+  if(judgeErrs) m.jflags=judgeErrs+' below bar';
+  return m;
+}
+
+/* =====================================================================
+   RENDER
+   ===================================================================== */
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const RM=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const cv=document.getElementById('cv'),pop=document.getElementById('pop'),ln=document.getElementById('ln'),vp=document.getElementById('vp');
+const NO={},OR=[];let cur=null;
+
+document.getElementById('rail').innerHTML=Object.entries(PH).map(([k,p])=>
+  `<button class="ph" data-phase="${k}" style="background:${p.bg};color:${p.fg};border-color:${p.bd}">
+    <span class="n"><span>${p.n}</span><span data-pst></span></span><span class="t">${esc(p.t)}</span><span class="f">${esc(p.f)}</span></button>`).join('');
+
+const nh=n=>`<button class="nd k-${n.type}" data-id="${n.id}"><span class="ic">${n.fn?'¶':''}</span>
+  <span><span class="l">${esc(n.label)}</span><span class="s">${esc(n.sub)}</span><span class="mt"></span></span></button>`;
+
+S.forEach(s=>{const p=PH[s.ph];let f="";
+  s.rows.forEach((r,i)=>{if(i)f+=`<div class="cn"><i></i></div>`;
+    f+=`<div class="row">${r.map(nh).join('')}</div>`;});
+  cv.insertAdjacentHTML('beforeend',`<section class="stg" style="grid-column:${s.col};grid-row:${s.row}">
+    <div class="card" id="card_${s.id}" style="--pb:${p.bg};--pf:${p.fg};--pd:${p.bd}">
+      <button class="hd" data-stage="${s.id}"><span class="num">${p.n}</span>
+        <span class="tt">${esc(s.header)}<span class="mm">${esc(s.module)}</span></span><span class="live"></span></button>
+      <div class="bd">${f}<button class="ft" data-stage="${s.id}"><b>Features</b><ol>${s.features.map(x=>`<li>${esc(x)}</li>`).join('')}</ol></button>
+      <div class="ot">${esc(s.output)}</div></div></div></section>`);
+  s.rows.flat().forEach(n=>{NO[n.id]={...n,st:s};OR.push(n.id);});});
+
+function draw(){const c=cv.getBoundingClientRect();
+  ln.setAttribute('width',cv.scrollWidth);ln.setAttribute('height',cv.scrollHeight);
+  let d=`<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#2ea886"/></marker></defs>`;
+  L.forEach(([a,b])=>{const A=cv.querySelector(`[data-id="${a}"]`),B=cv.querySelector(`[data-id="${b}"]`);if(!A||!B)return;
+    const ra=A.getBoundingClientRect(),ca=A.closest('.card').getBoundingClientRect(),rb=B.getBoundingClientRect(),cb=B.closest('.card').getBoundingClientRect();
+    const bx=cb.left-c.left-32;
+    const pd=`M${ca.right-c.left},${ra.top+ra.height/2-c.top} H${bx} V${rb.top+rb.height/2-c.top} H${rb.left-c.left-3}`;
+    d+=`<path class="w" data-a="${a}" data-b="${b}" marker-end="url(#ar)" d="${pd}"/>`;});
+  ln.innerHTML=d;if(cur)hl(cur);}
+function hl(id){ln.querySelectorAll('path.w').forEach(p=>p.classList.toggle('hot',p.dataset.a===id||p.dataset.b===id));
+  ln.classList.toggle('fx',!!ln.querySelector('path.hot'));}
+function clr(){cur=null;cv.querySelectorAll('.nd.lit').forEach(x=>x.classList.remove('lit'));ln.classList.remove('fx');
+  ln.querySelectorAll('.hot').forEach(p=>p.classList.remove('hot'));}
+function seen(el){const v=vp.getBoundingClientRect(),r=el.getBoundingClientRect();
+  if(r.right>v.right-20)vp.scrollTo({left:vp.scrollLeft+r.right-v.right+80,behavior:'smooth'});
+  else if(r.left<v.left+10)vp.scrollTo({left:vp.scrollLeft-(v.left-r.left)-80,behavior:'smooth'});}
+
+/* ---- popover: explanation + live metric + source link ---- */
+function show(html,anchor){pop.innerHTML=`<button class="x" aria-label="Close" data-close="1">✕</button>`+html;pop.style.display='block';
+  const c=cv.getBoundingClientRect(),r=anchor.getBoundingClientRect(),cd=anchor.closest('.card').getBoundingClientRect();
+  let x=cd.right-c.left+14;if(x+370>cv.scrollWidth)x=Math.max(0,cd.left-c.left-374);
+  pop.style.left=x+'px';pop.style.top=Math.max(0,r.top-c.top-40)+'px';seen(pop);}
+function node(id){const n=NO[id];clr();cur=id;const el=cv.querySelector(`[data-id="${id}"]`);el.classList.add('lit');hl(id);
+  const i=OR.indexOf(id),p=PH[n.st.ph],m=METRICS[id];
+  const rel=[...L.filter(l=>l[1]===id).map(l=>'From '+NO[l[0]].label),...L.filter(l=>l[0]===id).map(l=>'Feeds '+NO[l[1]].label)];
+  const mh=m?`<div class="lb">Latest run (${esc(RUN.latest.id)})</div><div class="kv"><span>${esc(m)}</span></div>`:'';
+  const fn=n.fn?`<div class="lb">Implementation</div><p><a class="code-link" href="#" data-code="${esc(n.fn)}">${esc(n.fn)}</a></p>`:'';
+  show(`<div class="ey">Layer ${p.n} · ${esc(n.st.header)} · ${TN[n.type]}</div><h4>${esc(n.label)}</h4>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--ink-dim)">${esc(n.sub)}</div>
+    <div class="lb">What it does</div><p>${esc(n.what)}</p>
+    <div class="lb">Why it's helpful</div><p>${esc(n.why)}</p>
+    ${n.tip?`<div class="tip"><b style="font-weight:600">Note:</b> ${esc(n.tip)}</div>`:''}${fn}${mh}
+    ${rel.length?`<div class="lb">Flows</div><p>${rel.map(esc).join('<br>')}</p>`:''}
+    <div class="nv"><button class="btn" data-go="${OR[i-1]||''}">Previous</button>
+    <button class="btn" data-stage="${n.st.id}">Stage</button>
+    <button class="btn" data-go="${OR[i+1]||''}">Next</button></div>`,el);}
+function stage(sid){const s=S.find(x=>x.id===sid);clr();const el=cv.querySelector(`.hd[data-stage="${sid}"]`);
+  show(`<div class="ey">Layer ${PH[s.ph].n} · ${esc(s.module)}</div><h4>${esc(s.header)}</h4>
+    <div class="lb">Why this layer exists</div><p>${esc(s.overview)}</p>
+    <div class="lb">Steps</div><p>${s.rows.flat().map(n=>`<a class="code-link" href="#" data-go="${n.id}">${esc(n.label)}</a>`).join(' · ')}</p>
+    <div class="lb">Output</div><p style="font-family:var(--mono);font-size:11px">${esc(s.output)}</p>`,el);}
+function phase(k){const p=PH[k];clr();const ss=S.filter(s=>s.ph===k);const el=cv.querySelector(`.hd[data-stage="${ss[0].id}"]`);
+  show(`<div class="ey">Layer ${p.n} · ${esc(p.f)}</div><h4>${esc(p.t)}</h4><p style="margin-top:6px">${esc(p.ov)}</p>
+    <div class="lb">Stages in this layer</div><p>${ss.map(s=>`<a class="code-link" href="#" data-stage="${s.id}">${esc(s.header)}</a>`).join(' · ')}</p>`,el);}
+
+/* ---- run animation over the real execution order ---- */
+let tm=null,step=0;
+const st=document.getElementById('stat'),pb=document.getElementById('pb'),runBtn=document.getElementById('runBtn');
+function setRun(on){runBtn.textContent=on?'Pause':(step>0&&step<OR.length?'Resume':'Run pipeline');}
+function tick(){
+  cv.querySelectorAll('.nd.cur').forEach(x=>x.classList.remove('cur'));
+  if(step>=OR.length){clearInterval(tm);tm=null;setRun(false);runBtn.textContent='Run again';
+    st.textContent=RUN?`Complete · ${RUN.totals.runs} run(s) discovered · latest ${RUN.latest.high}/${RUN.latest.rows} high`
+                      :'Complete · design view (no runs discovered)';
+    document.querySelectorAll('.card.on').forEach(c=>c.classList.remove('on'));return;}
+  const id=OR[step],n=NO[id],el=cv.querySelector(`[data-id="${id}"]`);
+  el.classList.add('lit','cur','done');el.closest('.card').classList.add('on');
+  if(METRICS[id])el.querySelector('.mt').textContent=METRICS[id];
+  seen(el);step++;pb.style.width=Math.round(step/OR.length*100)+'%';
+  st.textContent=`Layer ${PH[n.st.ph].n} · ${n.st.header} · ${n.label}`;}
+function reset(){clearInterval(tm);tm=null;step=0;
+  cv.querySelectorAll('.nd.lit,.nd.cur,.nd.done').forEach(x=>x.classList.remove('lit','cur','done'));
+  cv.querySelectorAll('.mt').forEach(x=>x.textContent='');
+  document.querySelectorAll('.card.on').forEach(c=>c.classList.remove('on'));
+  pb.style.width='0';st.textContent='Ready · layers in execution order';setRun(false);vp.scrollTo({left:0,behavior:'smooth'});}
+runBtn.addEventListener('click',()=>{if(tm){clearInterval(tm);tm=null;setRun(false);return;}
+  if(step>=OR.length)reset();tm=setInterval(tick,RM?150:430);setRun(true);});
+document.getElementById('rstBtn').addEventListener('click',reset);
+
+/* ---- events ---- */
+document.addEventListener('click',ev=>{
+  const cl=ev.target.closest('[data-code]');
+  if(cl){ev.preventDefault();
+    // Hand off to the parent console's code explorer with the symbol hint.
+    try{parent.postMessage({type:'sft-open-code',symbol:cl.dataset.code},'*');}catch(_){}
+    return;}
+  const t=ev.target.closest('#cv [data-id],#cv [data-stage],[data-go],[data-close],[data-phase]');if(!t)return;
+  if(t.dataset.close){pop.style.display='none';clr();return;}
+  if(t.dataset.phase)return phase(t.dataset.phase);
+  if(t.dataset.go!==undefined){if(t.dataset.go)node(t.dataset.go);return;}
+  if(t.dataset.id)return node(t.dataset.id);
+  if(t.dataset.stage)stage(t.dataset.stage);});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){pop.style.display='none';clr();}});
+new ResizeObserver(draw).observe(cv);window.addEventListener('resize',draw);
+(document.fonts?.ready||Promise.resolve()).then(draw);
+
+/* ---- init: attach real run metrics, then draw ---- */
+let METRICS={};
+(async()=>{
+  RUN=await loadRun();
+  METRICS=metricsFor(RUN);
+  const note=document.getElementById('liveNote');
+  if(RUN){note.textContent=`live: ${RUN.totals.runs} run(s) · latest ${RUN.latest.id} · ${RUN.latest.rows} rows`;
+    document.getElementById('srcTag').textContent=`source: ${RUN.projectPath}/pipeline.py`;}
+  else{note.textContent='design view · no completed runs discovered yet';}
+  draw();
+})();
+draw();
+</script>
+</body>
+</html>

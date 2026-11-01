@@ -199,6 +199,12 @@ pub struct GpuCollector {
     thermal_cache: Option<(Instant, Option<String>)>,
 }
 
+impl Default for GpuCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GpuCollector {
     /// New collector.
     pub fn new() -> Self {

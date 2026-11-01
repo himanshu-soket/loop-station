@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>loop · trace observatory</title>
+<title>Loop · Observability</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -50,7 +50,7 @@ a{color:var(--acc);text-decoration:none}
 }
 .brand-txt{opacity:1;transition:opacity .18s}
 .sidebar.collapsed .brand-txt{opacity:0}
-.brand-name{font-weight:800;font-size:15px;letter-spacing:-.02em}
+.brand-name{font-weight:800;font-size:13.5px;letter-spacing:-.02em}
 .brand-sub{font-family:var(--mono);font-size:10px;color:var(--ink-faint);letter-spacing:.12em;text-transform:uppercase}
 .nav{padding:14px 10px;display:flex;flex-direction:column;gap:3px;flex:1}
 .nav-item{
@@ -60,9 +60,22 @@ a{color:var(--acc);text-decoration:none}
 }
 .nav-item:hover{color:var(--ink);background:var(--panel)}
 .nav-item.active{color:var(--acc);background:var(--acc-glow);border-color:rgba(94,242,192,.22)}
+/* Portal anchor: same shape as .nav-item but a real link. */
+a.nav-item{text-decoration:none;display:flex;align-items:center;gap:11px;padding:9px 12px;
+  border-radius:10px;cursor:pointer;color:var(--ink-dim);font-weight:500;font-size:13.5px;
+  white-space:nowrap;border:1px solid transparent;transition:all .16s}
+a.nav-item:hover{color:var(--ink);background:var(--panel)}
+a.nav-item:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .nav-item svg{width:17px;height:17px;flex-shrink:0}
 .nav-label{transition:opacity .18s}
 .sidebar.collapsed .nav-label{opacity:0}
+/* Group label segmenting the sidebar into the shared destinations and
+ * this workspace's own views (same pattern as the other shells). */
+.nav-group{
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;color:var(--ink-faint);
+  text-transform:uppercase;padding:12px 12px 4px;user-select:none;white-space:nowrap;
+}
+@media (max-width:900px){.nav-group{display:none}}
 .side-foot{padding:14px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);white-space:nowrap;overflow:hidden}
 .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--acc);margin-right:7px;animation:pulse 2.2s infinite}
 @keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(94,242,192,.5)}50%{opacity:.55;box-shadow:0 0 0 5px rgba(94,242,192,0)}}
@@ -84,6 +97,17 @@ a{color:var(--acc);text-decoration:none}
 .refresh-note{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint)}
 
 .content{padding:24px 26px 60px;max-width:1460px;width:100%;margin:0 auto}
+
+/* Host for the embedded /console SPA (chat, traces & requests, …).
+ * Mirrors the System Dashboard shell's .loop-host pattern so both
+ * workspaces present the console identically. A definite height makes
+ * the guest SPA fill the viewport below the topbar. */
+.loop-host{
+  display:flex;flex-direction:column;
+  height:calc(100vh - 190px);min-height:480px;
+  border:1px solid var(--line);border-radius:var(--rad);overflow:hidden;background:var(--bg2);
+}
+.embed-frame{flex:1;width:100%;border:0;background:transparent}
 
 /* ---------- filters bar ---------- */
 .filters{
@@ -305,15 +329,16 @@ details.think summary:hover{color:var(--ink-dim)}
 }
 .hidden{display:none !important}
 </style>
+<link rel="stylesheet" href="/shell.css">
 </head>
 <body>
 <div class="app">
   <aside class="sidebar" id="sidebar">
     <div class="brand">
-      <div class="brand-mark">λ</div>
+      <div class="brand-mark">S</div>
       <div class="brand-txt">
-        <div class="brand-name">loop</div>
-        <div class="brand-sub">observatory</div>
+        <div class="brand-name">Loop</div>
+        <div class="brand-sub">observability</div>
       </div>
     </div>
     <nav class="nav" id="nav"></nav>
@@ -333,6 +358,11 @@ details.think summary:hover{color:var(--ink-dim)}
       </div>
       <div class="topbar-spacer"></div>
       <div class="refresh-note" id="refreshNote"></div>
+      <div class="sw-user" id="userChip" hidden>
+        <div class="sw-avatar" id="userAvatar">·</div>
+        <span class="sw-user-name" id="userName"></span>
+        <button class="sw-signout" id="signOutBtn" type="button" title="Sign out">Sign out</button>
+      </div>
     </header>
 
     <main class="content" id="content"></main>
@@ -365,6 +395,16 @@ const $ = s => document.querySelector(s);
 const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html != null) n.innerHTML = html; return n; };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+/* ---------- token usage helpers (mirror loop-dashboard payload.rs Usage) ----------
+   promptTokens = input + cacheRead + cacheWrite (saturating)
+   totalOrSum   = max(totalTokens, promptTokens + output) when totalTokens>0,
+                  else promptTokens + output                                   */
+const uPromptTokens = u => (((u && u.input) || 0) + ((u && u.cacheRead) || 0) + ((u && u.cacheWrite) || 0));
+const uTotalOrSum = u => {
+  const summed = uPromptTokens(u) + ((u && u.output) || 0);
+  return (u && u.totalTokens > 0) ? Math.max(u.totalTokens, summed) : summed;
+};
+
 /* ---------- formatting ---------- */
 const fmtInt = n => (n ?? 0).toLocaleString('en-US');
 const fmtTokens = n => {
@@ -395,17 +435,53 @@ const fmtTimeFull = ts => ts ? new Date(ts).toLocaleString('en-US',{month:'short
 /* ---------- api ---------- */
 async function api(path) {
   const res = await fetch(path);
+  // Session expired: re-authenticate, preserving this deep link.
+  if (res.status === 401) {
+    const next = encodeURIComponent(location.pathname + location.hash);
+    location.replace('/signin?next=' + next);
+    throw new Error('authentication required');
+  }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
   return body;
 }
 
+/* ---------- session chip (shared shell) ----------
+ * Shows the signed-in owner and offers sign-out; hidden when auth is not
+ * configured for this instance. */
+async function initSessionChip() {
+  const chip = document.getElementById('userChip');
+  if (!chip) return;
+  try {
+    const st = await fetch('/api/auth/status').then(r => r.json());
+    if (!st.signedIn) { chip.hidden = true; return; }
+    chip.hidden = false;
+    const name = String(st.identifier || 'owner');
+    document.getElementById('userName').textContent = name;
+    document.getElementById('userAvatar').textContent =
+      name.trim().charAt(0).toUpperCase() || '·';
+    const btn = document.getElementById('signOutBtn');
+    if (btn) btn.onclick = async () => {
+      btn.disabled = true;
+      try { await fetch('/api/auth/signout', { method: 'POST' }); } catch {}
+      location.replace('/signin');
+    };
+  } catch { chip.hidden = true; }
+}
+
 /* ---------- icons ---------- */
 const ICONS = {
+  sft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5"/></svg>',
+  pretrain: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>',
   overview: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13a9 9 0 1 0 9-9"/><path d="M3 13V4"/><path d="M13 3v10h8"/><path d="M13 13l7-7"/></svg>',
   sessions: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3"/><path d="M3 8v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8"/><path d="M3 12h18"/><path d="M8 7.5h.01M12 7.5h.01"/></svg>',
   models: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="4.5" cy="6" r="2"/><circle cx="19.5" cy="6" r="2"/><circle cx="4.5" cy="18" r="2"/><circle cx="19.5" cy="18" r="2"/><path d="M6.2 7.2 9.6 10M17.8 7.2 14.4 10M6.2 16.8 9.6 14M17.8 16.8 14.4 14"/></svg>',
   back: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+  traces: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l3-8 4 16 3-8h6"/></svg>',
+  consoleModels: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="4.5" cy="6" r="2"/><circle cx="19.5" cy="6" r="2"/><circle cx="4.5" cy="18" r="2"/><circle cx="19.5" cy="18" r="2"/><path d="M6.2 7.2 9.6 10M17.8 7.2 14.4 10M6.2 16.8 9.6 14M17.8 16.8 14.4 14"/></svg>',
+  analytics: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14v4M12 9v9M17 5v13"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
   alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>',
   empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8.5 11h5"/></svg>',
@@ -418,9 +494,71 @@ const NAV_ITEMS = [
   { id: 'models',   label: 'Models',   icon: ICONS.models },
 ];
 
+/* Loop console routes (chat/playground, traces, analytics, …) live in the
+ * /console SPA. They are exposed here as a second nav group; each entry
+ * embeds that SPA — the real implementation, not a copy — via an iframe,
+ * exactly like the System Dashboard shell does. Maps shell route → the
+ * console's own hash route. */
+const LOOP_ROUTES = {
+  chat:      'chat',
+  requests:  'requests',
+  consoleModels: 'models',
+  analytics: 'analytics',
+  settings:  'settings',
+};
+
+/* Portal link: real anchor to the Loop welcome page at /console.
+ * Labeled "Welcome" to stay distinct from this workspace's own Overview. */
+const PORTAL_LINK = {
+  href: '/console#overview',
+  label: 'Welcome',
+  icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13a9 9 0 1 0 9-9"/><path d="M3 13V4"/><path d="M13 3v10h8"/></svg>',
+};
+
+/* System Dashboard link: real anchor to the system monitor at /system. */
+const SYSTEM_LINK = {
+  href: '/system#overview',
+  label: 'System Dashboard',
+  icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>',
+};
+
+/* Primary workspaces — the same five destinations every shell offers.
+ * Real anchors for the other shells; this workspace's own observability
+ * views render as items below. The Loop AI Console points at the console
+ * SPA's chat view, which is that workspace's front door. */
+const WORKSPACE_LINKS = [
+  { href: '/console#overview', label: 'Welcome',
+    icon: PORTAL_LINK.icon },
+  { href: '/system#overview', label: 'System Dashboard',
+    icon: SYSTEM_LINK.icon },
+  { href: '/console#chat', label: 'Loop AI Console',
+    icon: ICONS.chat },
+  { href: '/console#sft', label: 'SFT DataTrove',
+    icon: ICONS.sft || ICONS.overview },
+  { href: '/console#pretrain', label: 'Pretraining DataTrove',
+    icon: ICONS.pretrain || ICONS.overview },
+];
+
 function renderNav() {
   const nav = $('#nav');
   nav.innerHTML = '';
+  const g0 = document.createElement('div');
+  g0.className = 'nav-group';
+  g0.textContent = 'Workspaces';
+  nav.appendChild(g0);
+  for (const ws of WORKSPACE_LINKS) {
+    const a = document.createElement('a');
+    a.className = 'nav-item';
+    a.href = ws.href;
+    a.title = ws.label;
+    a.innerHTML = ws.icon + '<span class="nav-label">' + ws.label + '</span>';
+    nav.appendChild(a);
+  }
+  // This workspace's own views (trace observatory).
+  const g1 = document.createElement('div');
+  g1.className = 'nav-group';
+  g1.textContent = 'Loop Observability';
+  nav.appendChild(g1);
   for (const item of NAV_ITEMS) {
     const active = state.route === item.id ||
       (item.id === 'sessions' && state.route.startsWith('session:'));
@@ -719,7 +857,7 @@ async function renderOverview() {
       kpiCard('success rate', k.turns ? (100*k.successful/k.turns).toFixed(1) + '%' : '—',
         fmtInt(k.successful) + ' ok · <span style="color:var(--red)">' + fmtInt(k.failed) + ' failed</span> · ' + fmtInt(k.incomplete) + ' inc',
         k.failed > 0 ? 'var(--amber)' : 'var(--acc)') +
-      kpiCard('tokens', fmtTokens(u.total_or_sum()),
+      kpiCard('tokens', fmtTokens(uTotalOrSum(u)),
         fmtTokens(u.input) + ' in · ' + fmtTokens(u.output) + ' out', 'var(--violet)', sparkline(tokSeries, '#b48cff')) +
       kpiCard('cache read', fmtTokens(u.cache_read),
         u.reasoning ? fmtTokens(u.reasoning) + ' reasoning' : 'no cache hits', 'var(--acc)') +
@@ -804,12 +942,12 @@ async function renderOverview() {
   });
 
   const mix = $('#modelMix');
-  const maxTok = Math.max.apply(null, ov.models.map(m => m.usage.total_or_sum()).concat([1]));
+  const maxTok = Math.max.apply(null, ov.models.map(m => uTotalOrSum(m.usage)).concat([1]));
   if (!ov.models.length) {
     mix.innerHTML = '<div class="empty" style="padding:30px"><div class="empty-s">No model usage recorded</div></div>';
   } else {
     ov.models.forEach(m => {
-      const toks = m.usage.total_or_sum();
+      const toks = uTotalOrSum(m.usage);
       const failPct = m.turns ? (100 * m.failed / m.turns).toFixed(0) : '0';
       const row = el('div', 'model-row');
       row.innerHTML =
@@ -909,7 +1047,7 @@ async function renderSessions() {
       '<td>' + statusPill(s.status) + '</td>' +
       '<td class="mono dim">' + fmtInt(s.turns) +
         (s.failed ? ' <span style="color:var(--red)">(' + s.failed + '✗)</span>' : '') + '</td>' +
-      '<td class="mono dim">' + fmtTokens(s.usage.total_or_sum()) + '</td>' +
+      '<td class="mono dim">' + fmtTokens(uTotalOrSum(s.usage)) + '</td>' +
       '<td class="mono dim">' + fmtMs(s.avg_latency_ms) + '</td>' +
       '<td class="mono dim">' + fmtInt(s.tool_calls) +
         (s.tool_errors ? ' <span style="color:var(--red)">' + s.tool_errors + '✗</span>' : '') + '</td>' +
@@ -919,7 +1057,7 @@ async function renderSessions() {
     tr.onclick = () => go('session:' + s.id);
     tr.onmouseenter = e => showTip(e,
       '<b>' + esc(s.title) + '</b><br>' + s.turns + ' turns · ' +
-      fmtTokens(s.usage.total_or_sum()) + ' tokens<br>' +
+      fmtTokens(uTotalOrSum(s.usage)) + ' tokens<br>' +
       fmtTokens(s.usage.input) + ' in / ' + fmtTokens(s.usage.output) + ' out<br>cost ' +
       fmtCost(s.usage.cost.total));
     tr.onmouseleave = hideTip;
@@ -963,9 +1101,9 @@ async function renderSessionDetail(id) {
 
   const s = d.summary, u = s.usage;
   $('#pageTitle').textContent = d.title;
-  $('#pageSub').textContent = fmtInt(s.turns) + ' turns · ' + fmtTokens(u.total_or_sum()) + ' tokens';
+  $('#pageSub').textContent = fmtInt(s.turns) + ' turns · ' + fmtTokens(uTotalOrSum(u)) + ' tokens';
 
-  const inT = u.prompt_tokens(), outT = u.output;
+  const inT = uPromptTokens(u), outT = u.output;
   const totT = Math.max(inT + outT, 1);
 
   const c = $('#content');
@@ -987,7 +1125,7 @@ async function renderSessionDetail(id) {
           : '· none failed') + '</span></span>') +
       dm('avg latency', '<span class="mono">' + fmtMs(s.avg_latency_ms) +
         '</span> <span class="faint mono" style="font-size:9.5px">(derived)</span>') +
-      dm('tokens', '<span class="mono">' + fmtTokens(u.total_or_sum()) + ' total</span>' +
+      dm('tokens', '<span class="mono">' + fmtTokens(uTotalOrSum(u)) + ' total</span>' +
         '<div class="tokenbar">' +
         '<i style="width:' + (100*inT/totT).toFixed(1) + '%;background:var(--blue)" title="input ' + fmtTokens(inT) + '"></i>' +
         '<i style="width:' + (100*outT/totT).toFixed(1) + '%;background:var(--acc)" title="output ' + fmtTokens(outT) + '"></i>' +
@@ -1025,7 +1163,8 @@ async function renderSessionDetail(id) {
         '<div class="tl-body">' + esc(ev.preview || '(empty prompt)') + '</div></div>';
 
     } else if (ev.kind === 'assistantTurn') {
-      item.classList.add('assistant', ev.status === 'failed' ? 'fail' : '');
+      item.classList.add('assistant');
+      if (ev.status === 'failed') item.classList.add('fail');
       const chips = [];
       if (ev.model) chips.push('<span class="chip mdl">' + esc(ev.model) + '</span>');
       if (ev.provider) chips.push('<span class="chip">' + esc(ev.provider) + '</span>');
@@ -1033,7 +1172,7 @@ async function renderSessionDetail(id) {
         chips.push('<span class="chip lat" title="derived: user msg → assistant msg timestamps">' +
           fmtMs(ev.latency_ms) + ' ⌁derived</span>');
       const uu = ev.usage;
-      if (uu.total_or_sum() > 0)
+      if (uTotalOrSum(uu) > 0)
         chips.push('<span class="chip tok">' + fmtTokens(uu.input) + '→' + fmtTokens(uu.output) + ' tok</span>');
       chips.push('<span class="chip">' + esc(ev.stop) + '</span>');
 
@@ -1055,7 +1194,8 @@ async function renderSessionDetail(id) {
         '<div class="tl-chips">' + chips.join('') + '</div></div>';
 
     } else if (ev.kind === 'toolResult') {
-      item.classList.add('tool', ev.isError ? 'err' : '');
+      item.classList.add('tool');
+      if (ev.isError) item.classList.add('err');
       item.innerHTML =
         '<div class="tl-card"><div class="tl-head">' +
         '<span class="tl-kind">tool ' + (ev.isError ? '· error' : 'result') + '</span>' +
@@ -1116,9 +1256,9 @@ async function renderModels() {
     return;
   }
 
-  const maxTok = Math.max.apply(null, ov.models.map(m => m.usage.total_or_sum()).concat([1]));
+  const maxTok = Math.max.apply(null, ov.models.map(m => uTotalOrSum(m.usage)).concat([1]));
   const rowsHtml = ov.models.map((m, i) => {
-    const toks = m.usage.total_or_sum();
+    const toks = uTotalOrSum(m.usage);
     const failPct = m.turns ? (100 * m.failed / m.turns) : 0;
     return '<div class="model-row" style="animation:rise .45s ' + (i*0.06) + 's backwards;padding:13px 2px">' +
       '<div style="min-width:0;flex-shrink:0;width:160px">' +
@@ -1156,6 +1296,8 @@ async function renderModels() {
 async function render() {
   hideTip();
   const route = state.route;
+  // Loop console routes embed the /console SPA (real chat, traces, …).
+  if (LOOP_ROUTES[route]) { renderLoopHost(route); return; }
   if (route.startsWith('session:')) {
     await renderSessionDetail(route.slice('session:'.length));
   } else if (route === 'sessions') {
@@ -1167,7 +1309,53 @@ async function render() {
   }
 }
 
+/* Host for the embedded /console SPA. The frame is created once and kept
+ * alive across loop routes — only its hash changes — so streaming chat,
+ * composer focus and scroll position survive navigation. */
+const LOOP_TITLES = {
+  chat:          ['Playground', 'chat playground · conversations persist locally'],
+  requests:      ['Traces & Requests', 'durable record of every inference execution'],
+  consoleModels: ['Models & Providers', 'models the runtime genuinely supports'],
+  analytics:     ['Analytics', 'computed from persisted traces'],
+  settings:      ['Settings', 'dashboard-owned configuration'],
+};
+
+function renderLoopHost(route) {
+  const target = LOOP_ROUTES[route] || 'chat';
+  const t = LOOP_TITLES[route] || LOOP_TITLES.chat;
+  $('#pageTitle').textContent = t[0];
+  $('#pageSub').textContent = t[1];
+  $('#refreshNote').textContent = '';
+  const c = $('#content');
+  const existing = document.getElementById('loopFrame');
+  if (existing && c.contains(existing)) {
+    // Same frame, new route: navigate the guest's hash, keep its state.
+    try {
+      const want = '#' + encodeURIComponent(target);
+      if (existing.contentWindow && existing.contentWindow.location.hash !== want) {
+        existing.contentWindow.location.hash = want;
+      }
+    } catch (e) { /* same-origin; ignore */ }
+    return;
+  }
+  c.innerHTML = '<div class="loop-host" id="loopHost">' +
+    '<iframe class="embed-frame" id="loopFrame" title="Loop console" ' +
+      'src="/console#' + encodeURIComponent(target) + '"></iframe></div>';
+}
+
 function boot() {
+  // Front door: "/" with no view requested opens the Welcome page
+  // (/console#overview) — the app's landing screen — not this workspace's
+  // own Overview. Any hash ("#overview", "#sessions", "#models",
+  // "#session:<id>") is an explicit request for a view here and is
+  // honored unchanged, so bookmarks and shared links keep working.
+  // Unauthenticated visitors never reach this line: the server guard has
+  // already sent them to sign-in with next=/console#overview.
+  if (!location.hash.replace(/^#/, '')) {
+    location.replace('/console#overview');
+    return;
+  }
+
   // sidebar collapse (persisted)
   const collapsed = localStorage.getItem('loop-dash-collapsed') === '1';
   const sidebar = $('#sidebar');
@@ -1209,6 +1397,7 @@ function boot() {
 }
 
 boot();
+initSessionChip();
 </script>
 </body>
 </html>

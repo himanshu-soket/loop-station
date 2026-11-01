@@ -17,3 +17,34 @@
 
 # Local toolchain and cache files
 .tmp/
+
+# Python virtual environments and caches
+.venv/
+.venv-*/
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local databases and runtime data
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary screenshots and test artifacts
+.luifix_screens/
+.phase5_screenshots/
+.phase6_screenshots/
+.task70_screenshots/
+.task71_screenshots/
+.task72_screenshots/
+
+# Temporary files
+.tmp/

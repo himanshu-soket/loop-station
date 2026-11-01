@@ -1,0 +1,401 @@
+/* Loop — shared shell styles.
+ * One design system for every surface: auth pages, welcome portal and the
+ * workspace shells. Tokens mirror the console's palette so existing pages
+ * feel continuous without inheriting page-specific rules. */
+
+:root{
+  --bg:#07090d; --bg2:#0b0e14; --panel:#10141d; --panel2:#151a25;
+  --line:#1d2433; --line2:#2a3347;
+  --ink:#e8ecf4; --ink-dim:#9aa5b8; --ink-faint:#5d687e;
+  --acc:#5ef2c0; --acc-dim:#2ea886; --acc-glow:rgba(94,242,192,.16);
+  --amber:#ffc857; --red:#ff6b81; --blue:#6fb7ff; --violet:#b48cff;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --sans:'Sora',system-ui,sans-serif;
+  --rad:14px; --rad-sm:10px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body.sw-auth{
+  background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:14px;line-height:1.55;display:flex;align-items:center;justify-content:center;
+  padding:24px;
+}
+
+/* ---------- brand ---------- */
+.sw-brand{display:flex;align-items:center;gap:12px}
+.sw-mark{
+  width:38px;height:38px;border-radius:11px;flex:none;
+  background:linear-gradient(135deg,#0f2d24,#0b1a2e);
+  border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;
+  color:var(--acc);font-weight:800;font-size:17px;letter-spacing:-.5px;
+}
+.sw-name{font-weight:800;font-size:15px;letter-spacing:-.01em}
+.sw-sub{font-size:11.5px;color:var(--ink-faint);margin-top:-2px}
+
+/* ---------- auth card ---------- */
+.auth-shell{width:100%;max-width:420px}
+.auth-card{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+  padding:30px 28px 26px;
+  box-shadow:0 18px 60px rgba(0,0,0,.45);
+}
+.auth-head{margin-bottom:22px}
+.auth-title{font-size:19px;font-weight:700;letter-spacing:-.01em;margin-top:18px}
+.auth-sub{color:var(--ink-dim);font-size:13px;margin-top:5px}
+
+/* ---------- forms ---------- */
+.field{margin-bottom:14px}
+.field label{
+  display:block;font-size:11.5px;font-weight:600;color:var(--ink-dim);
+  text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;
+}
+.field input{
+  width:100%;background:var(--bg2);border:1px solid var(--line2);
+  color:var(--ink);border-radius:var(--rad-sm);padding:10px 12px;
+  font:inherit;font-size:13.5px;transition:border-color .15s, box-shadow .15s;
+}
+.field input:focus{
+  outline:none;border-color:var(--acc-dim);
+  box-shadow:0 0 0 3px var(--acc-glow);
+}
+.field input::placeholder{color:var(--ink-faint)}
+.field-hint{font-size:11.5px;color:var(--ink-faint);margin-top:5px}
+
+/* ---------- password field with visibility toggle ---------- */
+.pw-wrap{position:relative}
+.pw-wrap input{padding-right:44px}
+.pw-toggle{
+  position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  background:none;border:0;padding:6px;cursor:pointer;font-size:14px;
+  color:var(--ink-faint);border-radius:7px;line-height:1;
+}
+.pw-toggle:hover{color:var(--ink-dim);background:var(--panel2)}
+.pw-toggle:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  width:100%;padding:11px 16px;border-radius:var(--rad-sm);
+  font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
+  border:1px solid transparent;transition:filter .15s, transform .05s;
+}
+.btn-primary{background:var(--acc);color:#04231a}
+.btn-primary:hover:not(:disabled){filter:brightness(1.08)}
+.btn-primary:active:not(:disabled){transform:translateY(1px)}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+
+.auth-alt{margin-top:16px;text-align:center;font-size:12.5px;color:var(--ink-dim)}
+.auth-alt a{color:var(--acc);text-decoration:none;font-weight:600}
+.auth-alt a:hover{text-decoration:underline}
+.auth-alt a:focus-visible,a:focus-visible,button:focus-visible,input:focus-visible{
+  outline:2px solid var(--acc);outline-offset:2px;
+}
+
+/* ---------- alerts / status ---------- */
+.alert{
+  border-radius:var(--rad-sm);padding:10px 12px;font-size:12.5px;
+  margin-bottom:14px;border:1px solid;display:flex;gap:8px;align-items:flex-start;
+}
+.alert-error{background:rgba(255,107,129,.08);border-color:rgba(255,107,129,.35);color:#ffb3bf}
+.alert-ok{background:rgba(94,242,192,.07);border-color:rgba(94,242,192,.3);color:#a9f5da}
+.alert-icon{
+  flex:none;width:16px;height:16px;border-radius:50%;margin-top:1px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:10.5px;font-weight:800;line-height:1;
+  background:currentColor;opacity:.9;
+}
+.alert-error .alert-icon{color:#ff6b81}
+.alert-slot{margin-bottom:0}
+
+/* ---------- registration: password requirement list ---------- */
+.pw-rules{
+  list-style:none;margin-top:8px;display:grid;gap:4px;
+}
+.pw-rules li{
+  position:relative;padding-left:20px;font-size:11.5px;color:var(--ink-faint);
+  transition:color .15s;
+}
+.pw-rules li::before{
+  content:'';position:absolute;left:0;top:4px;width:11px;height:11px;
+  border-radius:50%;border:1.5px solid var(--line2);transition:all .15s;
+}
+.pw-rules li.ok{color:var(--acc)}
+.pw-rules li.ok::before{
+  background:var(--acc);border-color:var(--acc);
+  box-shadow:inset 0 0 0 2px var(--panel);
+}
+
+/* ---------- pending-approval success card ---------- */
+.auth-success{text-align:left}
+.success-mark{
+  width:52px;height:52px;border-radius:50%;flex:none;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--acc-glow);border:1px solid var(--acc-dim);color:var(--acc);
+  margin-bottom:16px;
+}
+.pending-body{margin:6px 0 18px;display:grid;gap:10px}
+.pending-body p{font-size:13px;color:var(--ink-dim);line-height:1.6}
+.pending-note{
+  padding:10px 12px;border-radius:var(--rad-sm);
+  background:var(--bg2);border:1px solid var(--line);
+  font-size:12.5px !important;color:var(--ink-dim) !important;
+}
+
+/* ---------- auth footer ---------- */
+.auth-foot{
+  text-align:center;color:var(--ink-faint);font-size:11.5px;margin-top:18px;
+}
+
+/* ---------- responsive ---------- */
+@media (max-width:480px){
+  body.sw-auth{padding:16px;align-items:flex-start}
+  .auth-card{padding:24px 20px 22px;border-radius:var(--rad)}
+  .auth-title{font-size:18px}
+  .field input{font-size:16px}        /* prevents iOS zoom-on-focus */
+  .btn{padding:12px 16px}
+}
+@media (max-width:360px){
+  .sw-sub{display:none}
+}
+
+/* ---------- topbar user chip (shared shell) ---------- */
+.sw-user{
+  display:flex;align-items:center;gap:10px;padding:6px 10px;
+  border:1px solid var(--line);border-radius:999px;background:var(--panel);
+}
+.sw-user-name{font-size:12.5px;font-weight:600;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sw-avatar{
+  width:24px;height:24px;border-radius:50%;flex:none;
+  background:var(--acc-glow);border:1px solid var(--acc-dim);
+  color:var(--acc);display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;text-transform:uppercase;
+}
+.sw-signout{
+  font:inherit;font-size:12px;color:var(--ink-dim);background:none;
+  border:1px solid var(--line2);border-radius:8px;padding:4px 10px;cursor:pointer;
+}
+.sw-signout:hover{color:var(--ink);border-color:var(--ink-faint)}
+
+/* ---------- narrow viewports ----------
+ * The topbar user chip (avatar + name + sign-out) is intrinsically ~350px
+ * wide. Without a shrink allowance it forced horizontal overflow on every
+ * route below ~400px — the page scrolled sideways instead of wrapping.
+ * Letting the chip flex-shrink, capping its width to the viewport, and
+ * truncating the name earlier keeps every route inside the window. */
+@media (max-width:520px){
+  .sw-user{
+    min-width:0;max-width:calc(100vw - 32px);
+    overflow:hidden;
+  }
+  .sw-user-name{max-width:72px}
+  .topbar{gap:10px;padding:11px 16px}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}
+}
+
+/* ---------- admin link (session chip) ----------
+ * display:inline-flex would override the `hidden` attribute's UA
+ * display:none (both are specificity 0,1,0 vs element-level), so the
+ * :not([hidden]) guard is what actually keeps the link invisible until the
+ * server confirms this caller may administer accounts. */
+.sw-admin-link:not([hidden]){
+  display:inline-flex;align-items:center;text-decoration:none;
+}
+.sw-admin-link:hover{color:var(--acc);border-color:var(--acc-dim)}
+
+/* Visually hidden but available to screen readers. */
+.sr-only{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;
+}
+
+/* ---------- Dino Runner (Phase 8) ----------------------------------------
+ * A full-viewport interlude offered after three consecutive credential
+ * failures. Purely presentational: no session, no storage, no secrets.
+ * While active it replaces the auth column entirely, so it reads as a
+ * deliberate mini-game screen rather than a card appended to the form.
+ */
+.auth-views[hidden]{display:none}
+
+/* While the game is active the auth column is hidden and the body stops
+ * centreing, letting the screen fill the viewport.
+ *
+ * The :not([hidden]) guard mirrors .sw-admin-link above: a plain
+ * `.auth-views[hidden]{display:none}` would lose the specificity fight
+ * with this rule and the hidden column would keep occupying space. */
+body.sw-dino-active{
+  display:block;padding:0;align-items:stretch;justify-content:flex-start;
+}
+body.sw-auth .auth-views:not([hidden]){
+  width:100%;display:flex;align-items:center;justify-content:center;
+  min-height:100vh;min-height:100dvh;
+}
+.dino-screen{
+  position:relative;display:flex;flex-direction:column;
+  /* Exactly one viewport tall: the board flexes to absorb whatever the
+     header, hero and controls leave behind, so nothing ever scrolls. */
+  height:100vh;height:100dvh;
+  width:100%;max-width:1080px;margin:0 auto;
+  padding:20px clamp(16px,4vw,40px) 24px;
+  animation:dino-fade .28s ease-out;
+}
+.dino-screen[hidden]{display:none}
+@keyframes dino-fade{from{opacity:0}to{opacity:1}}
+
+/* ---------- header ---------- */
+.dino-topbar{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  flex-wrap:wrap;
+}
+.dino-brand .sw-sub{white-space:nowrap}
+.dino-exit{
+  width:auto;flex:none;padding:10px 18px;font-size:13px;
+  background:var(--panel);border-color:var(--line2);color:var(--ink-dim);
+}
+.dino-exit:hover:not(:disabled){color:var(--ink);border-color:var(--ink-faint);filter:none}
+
+/* ---------- hero ---------- */
+.dino-hero{margin:clamp(18px,4vh,34px) 0 clamp(12px,2.5vh,22px)}
+.dino-title{
+  font-size:clamp(26px,5.4vw,42px);font-weight:800;letter-spacing:-.02em;
+  line-height:1.1;
+}
+.dino-tagline{color:var(--ink-dim);font-size:clamp(12.5px,2.2vw,15px);margin-top:8px}
+
+/* ---------- board ---------- */
+.dino-board{
+  display:flex;flex-direction:column;flex:1 1 auto;min-height:0;
+  width:100%;
+}
+.dino-stage{
+  position:relative;flex:1 1 auto;min-height:220px;
+  border:1px solid var(--line);border-radius:var(--rad);
+  background:
+    radial-gradient(120% 90% at 50% 0%,rgba(94,242,192,.05),transparent 60%),
+    var(--bg2);
+  overflow:hidden;touch-action:manipulation;
+  box-shadow:0 18px 60px rgba(0,0,0,.45);
+}
+.dino-stage canvas{
+  display:block;width:100%;height:100%;
+}
+.dino-hud{
+  position:absolute;top:10px;right:12px;display:flex;gap:8px;
+  pointer-events:none;
+}
+.dino-hud-score,.dino-hud-best,.dino-hud-speed{
+  display:flex;align-items:baseline;gap:6px;
+  font-family:var(--mono);font-size:11px;
+  background:rgba(7,9,13,.62);border:1px solid var(--line);
+  padding:3px 9px;border-radius:7px;
+}
+.dino-hud-k{
+  font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-faint);
+}
+.dino-hud-score span:last-child{color:var(--acc);font-weight:600}
+.dino-hud-best span:last-child{color:var(--amber)}
+.dino-hud-speed span:last-child{color:var(--blue)}
+
+/* ---------- overlays ---------- */
+.dino-overlay{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:8px;text-align:center;
+  background:rgba(7,9,13,.78);backdrop-filter:blur(3px);
+  padding:20px;
+}
+.dino-overlay[hidden]{display:none}
+.dino-overlay-eyebrow{
+  font-family:var(--mono);font-size:10.5px;text-transform:uppercase;
+  letter-spacing:.16em;color:var(--acc);
+}
+.dino-overlay-title{
+  font-size:clamp(19px,3.6vw,27px);font-weight:700;letter-spacing:-.01em;
+  color:var(--ink);
+}
+.dino-overlay-sub{font-family:var(--mono);font-size:11.5px;color:var(--ink-dim)}
+.dino-overlay-btns{
+  display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;justify-content:center;
+}
+/* Overlay buttons size to content; the shared .btn is width:100%. */
+.dino-overlay-btns .btn{width:auto;min-width:132px;padding:11px 20px}
+
+/* Game-over is visually distinct from a live run. */
+.dino-stage.is-over{border-color:rgba(255,107,129,.5)}
+.dino-stage.is-over .dino-overlay{
+  background:rgba(31,10,16,.88);
+}
+.dino-stage.is-over .dino-overlay-eyebrow{color:var(--red)}
+
+/* ---------- controls ---------- */
+.dino-controls{
+  display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;
+}
+.dino-ctl{
+  width:auto;flex:1 1 150px;min-width:0;padding:11px 16px;
+}
+/* "Back to sign in" reads as secondary next to the primary actions. */
+#dinoCloseBtn{background:var(--panel);border-color:var(--line2);color:var(--ink-dim)}
+#dinoCloseBtn:hover:not(:disabled){color:var(--ink);border-color:var(--ink-faint);filter:none}
+
+.dino-help{
+  font-size:11.5px;color:var(--ink-faint);margin-top:12px;line-height:1.75;
+  text-align:center;
+}
+.dino-help b{color:var(--ink-dim);font-weight:600}
+
+/* Pause state dims the stage and shows a clear affordance. */
+.dino-stage.is-paused canvas{opacity:.42}
+.dino-stage.is-paused::after{
+  content:'Paused';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  font-family:var(--mono);font-size:14px;color:var(--ink);letter-spacing:.08em;
+  background:rgba(7,9,13,.85);border:1px solid var(--line2);border-radius:9px;
+  padding:8px 18px;pointer-events:none;
+}
+
+/* ---------- responsive ---------- */
+@media (max-width:600px){
+  .dino-screen{padding:14px 14px 18px}
+  .dino-topbar{gap:10px}
+  .dino-exit{padding:9px 14px;font-size:12.5px}
+  .dino-hero{margin:14px 0 12px}
+  .dino-stage{min-height:200px}
+  .dino-hud{top:8px;right:8px;gap:5px}
+  .dino-hud-score,.dino-hud-best,.dino-hud-speed{padding:2px 7px;font-size:10px}
+  .dino-hud-k{display:none}              /* keep the HUD compact */
+  .dino-overlay{padding:14px}
+  .dino-overlay-btns .btn{min-width:118px;padding:10px 16px}
+  .dino-controls{gap:8px}
+  .dino-ctl{flex:1 1 calc(50% - 8px)}    /* two-up on phones */
+  .dino-help{font-size:11px}
+}
+@media (max-width:360px){
+  .dino-brand .sw-sub{display:none}
+  .dino-overlay-btns{flex-direction:column;align-items:stretch;width:100%}
+  .dino-overlay-btns .btn{min-width:0;width:100%}
+}
+
+/* Allow scrolling only when the viewport is genuinely too short to hold
+   the controls; otherwise an exact-height flex column could clip them. */
+@media (max-height:520px){
+  .dino-screen{height:auto;min-height:100vh;min-height:100dvh}
+}
+
+/* Short viewports (landscape phones): compress the hero so the stage and
+   every control still fit without scrolling. */
+@media (max-height:560px) and (orientation:landscape){
+  .dino-screen{padding:10px 16px 14px}
+  .dino-hero{margin:8px 0 10px}
+  .dino-title{font-size:22px}
+  .dino-tagline{display:none}
+  .dino-stage{min-height:170px}
+  .dino-help{display:none}
+}
+
+/* Reduced motion: the game stays fully playable, but decorative effects
+   (clouds, the entrance fade) are dropped for users who ask for stillness. */
+@media (prefers-reduced-motion:reduce){
+  .dino-screen{animation:none}
+  .dino-overlay{backdrop-filter:none;background:rgba(7,9,13,.9)}
+  .dino-stage.is-over .dino-overlay{background:rgba(31,10,16,.93)}
+}

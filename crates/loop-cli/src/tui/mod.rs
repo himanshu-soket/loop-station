@@ -197,6 +197,22 @@ pub fn item_is_committed(
     }
 }
 
+/// The official Loop assistant greeting, shown to the user at the top of the
+/// welcome screen and at the start of a new conversation.
+///
+/// This is the *assistant's identity* (Loop, powered by Soket.ai). It is never
+/// the selected model: model ids live in the model selector and the status
+/// line, which stay independent of this text.
+pub const ASSISTANT_GREETING: &str = "Hello! I'm Loop, your intelligent assistant powered by Soket.ai. I'm here to help you with coding, research, data analysis, debugging, and problem-solving. How can I help you today?";
+
+/// A [`ChatItem`] carrying the official assistant greeting, for use in the
+/// transcript (welcome screen and new conversations).
+pub fn assistant_greeting() -> ChatItem {
+    ChatItem::System {
+        text: ASSISTANT_GREETING.to_string(),
+    }
+}
+
 /// Block-letter banner rows (ANSI-shadow style).
 const BANNER_ROWS: [&str; 6] = [
     "██╗      ██████╗  ██████╗ ██████╗ ",
@@ -1925,6 +1941,24 @@ mod tests {
         })
         .collect::<Vec<_>>()
         .join("\n")
+    }
+
+    #[test]
+    fn assistant_greeting_preserves_loop_identity() {
+        // The official greeting names the assistant "Loop" (powered by Soket.ai)
+        // and must never identify the assistant as an underlying model.
+        assert!(ASSISTANT_GREETING.contains("I'm Loop"));
+        assert!(ASSISTANT_GREETING.contains("powered by Soket.ai"));
+        assert!(ASSISTANT_GREETING.contains("How can I help you today?"));
+        for model in ["GLM", "Qwen", "Llama", "Claude", "Gemini", "GPT"] {
+            assert!(!ASSISTANT_GREETING.contains(model), "greeting must not name {model}");
+        }
+
+        let item = assistant_greeting();
+        let ChatItem::System { text } = item else {
+            panic!("assistant_greeting should be a System item");
+        };
+        assert_eq!(text, ASSISTANT_GREETING);
     }
 
     #[test]

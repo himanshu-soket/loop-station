@@ -6,11 +6,13 @@ pub mod agent_question;
 pub mod app;
 pub mod clipboard;
 pub mod commands;
+pub mod dashboard;
 pub mod debug_log;
 pub mod keybindings;
 pub mod mcp_serve;
 pub mod print_mode;
 pub mod provider_setup;
+pub mod session_trace;
 pub mod setup_prompt;
 #[cfg(feature = "telemetry")]
 pub mod tracing_setup;
@@ -46,6 +48,9 @@ pub struct CliRuntime {
     /// `/permissions full-access` was asked for once and needs repeating to
     /// confirm.
     pub confirm_full_access: bool,
+    /// Durable lifecycle trace of this CLI agent session, written to the
+    /// dashboard store (`None` only before bootstrap finishes).
+    pub session_trace: crate::session_trace::SessionTrace,
 }
 
 /// An external agent to start when the surface is ready.
@@ -92,5 +97,6 @@ pub async fn bootstrap_cli(opts: BootstrapOpts) -> anyhow::Result<CliRuntime> {
         forwarded: Default::default(),
         reasoning_notices: Default::default(),
         confirm_full_access: false,
+        session_trace: crate::session_trace::SessionTrace::disabled(),
     })
 }

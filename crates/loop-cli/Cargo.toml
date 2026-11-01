@@ -20,6 +20,7 @@ telemetry = ["loop-agent/telemetry", "loop-app-core/telemetry", "dep:loop-teleme
 [dependencies]
 loop-app-core = { workspace = true }
 loop-ai = { workspace = true }
+loop-dashboard = { workspace = true }
 loop-agent = { workspace = true, features = ["mcp"] }
 loop-protocol = { workspace = true }
 loop-orchestration = { workspace = true, optional = true }
@@ -77,5 +78,7 @@ required-features = ["telemetry"]
 [dev-dependencies]
 tempfile = { workspace = true }
 loop-test-support = { workspace = true }
+reqwest = { workspace = true }
 opentelemetry_sdk = { workspace = true, features = ["testing"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+rusqlite = { workspace = true }

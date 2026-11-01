@@ -1,0 +1,2456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop · AI Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#07090d; --bg2:#0b0e14; --panel:#10141d; --panel2:#151a25;
+  --line:#1d2433; --line2:#2a3347;
+  --ink:#e8ecf4; --ink-dim:#9aa5b8; --ink-faint:#5d687e;
+  --acc:#5ef2c0; --acc-dim:#2ea886; --acc-glow:rgba(94,242,192,.16);
+  --amber:#ffc857; --red:#ff6b81; --blue:#6fb7ff; --violet:#b48cff;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --sans:'Sora',system-ui,sans-serif;
+  --rad:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:14px;line-height:1.55;overflow:hidden;
+  background-image:
+    radial-gradient(1100px 500px at 85% -10%, rgba(94,242,192,.05), transparent 60%),
+    radial-gradient(900px 480px at -10% 110%, rgba(180,140,255,.04), transparent 60%);
+}
+::selection{background:rgba(94,242,192,.25)}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:9px;border:2px solid var(--bg)}
+::-webkit-scrollbar-track{background:transparent}
+button{font-family:inherit}
+
+.app{display:flex;height:100vh}
+.sidebar{
+  width:216px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;z-index:40;overflow:hidden;
+}
+.brand{display:flex;align-items:center;gap:11px;padding:18px 16px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
+.brand-mark{
+  width:34px;height:34px;flex-shrink:0;border-radius:10px;display:grid;place-items:center;
+  background:linear-gradient(135deg,#0f2b23,#123a2e);border:1px solid #1e5945;
+  color:var(--acc);font-family:var(--mono);font-weight:700;font-size:15px;
+  box-shadow:0 0 22px rgba(94,242,192,.14) inset;
+}
+.brand-name{font-weight:800;font-size:14px;letter-spacing:-.02em}
+.brand-sub{font-family:var(--mono);font-size:9px;color:var(--ink-faint);letter-spacing:.1em;text-transform:uppercase}
+.nav{padding:12px 10px;display:flex;flex-direction:column;gap:3px;flex:1}
+.nav-item{
+  display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:10px;cursor:pointer;
+  color:var(--ink-dim);font-weight:500;font-size:13.5px;white-space:nowrap;border:1px solid transparent;
+  transition:all .16s;
+}
+.nav-item:hover{color:var(--ink);background:var(--panel)}
+.nav-item.active{color:var(--acc);background:var(--acc-glow);border-color:rgba(94,242,192,.22)}
+.nav-item svg{width:17px;height:17px;flex-shrink:0}
+.side-foot{padding:12px 14px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);white-space:nowrap;overflow:hidden}
+.live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--acc);margin-right:7px;animation:pulse 2.2s infinite}
+.live-dot.off{background:var(--red);animation:none}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(94,242,192,.5)}50%{opacity:.55;box-shadow:0 0 0 5px rgba(94,242,192,0)}}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{
+  display:flex;align-items:center;gap:14px;padding:13px 24px;
+  border-bottom:1px solid var(--line);background:rgba(11,14,20,.82);backdrop-filter:blur(9px);
+  flex-shrink:0;
+}
+.page-title{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.page-sub{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-top:1px}
+.topbar-spacer{flex:1}
+.refresh-note{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint)}
+
+.content{flex:1;min-height:0;overflow-y:auto;padding:22px 24px 60px}
+.content-inner{max-width:1380px;margin:0 auto}
+
+/* chat */
+.chat-layout{display:flex;gap:0;height:calc(100vh - 61px)}
+.conv-list{
+  width:230px;flex-shrink:0;border-right:1px solid var(--line);background:var(--bg2);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.conv-head{padding:14px 14px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.conv-head h3{font-size:12px;font-weight:600;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.08em}
+.new-chat-btn{
+  background:var(--panel);border:1px solid var(--line2);color:var(--acc);border-radius:8px;
+  padding:5px 10px;cursor:pointer;font-family:var(--mono);font-size:11px;transition:all .15s;
+}
+.new-chat-btn:hover{border-color:var(--acc-dim);background:var(--panel2)}
+.conv-scroll{flex:1;overflow-y:auto;padding:4px 8px 14px}
+.conv-item{
+  padding:9px 11px;border-radius:9px;cursor:pointer;margin-bottom:2px;
+  border:1px solid transparent;transition:all .14s;
+}
+.conv-item:hover{background:var(--panel)}
+.conv-item.active{background:var(--acc-glow);border-color:rgba(94,242,192,.22)}
+.conv-title{font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv-meta{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-top:2px}
+.conv-item .conv-del{
+  float:right;color:var(--ink-faint);opacity:0;font-family:var(--mono);font-size:13px;
+  padding:0 3px;border-radius:5px;transition:all .13s;
+}
+.conv-item:hover .conv-del{opacity:.75}
+.conv-item .conv-del:hover{color:var(--red);opacity:1}
+
+.chat-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.chat-scroll{flex:1;overflow-y:auto;padding:26px 30px}
+.chat-inner{max-width:820px;margin:0 auto}
+.msg{margin-bottom:22px;animation:rise .3s backwards}
+.msg-head{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.msg-role{
+  font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  padding:2.5px 8px;border-radius:6px;
+}
+.msg.user .msg-role{color:var(--blue);background:rgba(111,183,255,.1)}
+.msg.assistant .msg-role{color:var(--acc);background:rgba(94,242,192,.1)}
+.msg-time{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+.msg-actions{margin-left:auto;display:flex;gap:5px;opacity:0;transition:opacity .15s}
+.msg:hover .msg-actions{opacity:1}
+.icon-btn{
+  background:var(--panel);border:1px solid var(--line2);color:var(--ink-faint);border-radius:7px;
+  width:26px;height:26px;display:grid;place-items:center;cursor:pointer;transition:all .14s;font-size:12px;
+}
+.icon-btn:hover{color:var(--ink);border-color:var(--acc-dim)}
+.msg-body{font-size:14px;line-height:1.65;color:var(--ink);word-wrap:break-word}
+.msg.user .msg-body{
+  background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:12px 16px;white-space:pre-wrap;
+}
+.msg-body p{margin:0 0 10px}
+.msg-body p:last-child{margin-bottom:0}
+.msg-body h1,.msg-body h2,.msg-body h3{margin:16px 0 8px;font-weight:600;letter-spacing:-.01em}
+.msg-body h1{font-size:19px}.msg-body h2{font-size:16.5px}.msg-body h3{font-size:14.5px}
+.msg-body ul,.msg-body ol{margin:0 0 10px 22px}
+.msg-body li{margin-bottom:4px}
+.msg-body code{
+  font-family:var(--mono);font-size:12px;background:var(--bg);border:1px solid var(--line);
+  border-radius:5px;padding:1.5px 6px;color:var(--acc);
+}
+.msg-body pre{
+  background:var(--bg);border:1px solid var(--line);border-radius:10px;
+  padding:13px 15px;overflow-x:auto;margin:0 0 10px;position:relative;
+}
+.msg-body pre code{background:none;border:none;padding:0;color:var(--ink-dim);font-size:12px;line-height:1.6}
+.copy-code{
+  position:absolute;top:7px;right:7px;background:var(--panel);border:1px solid var(--line2);
+  color:var(--ink-faint);border-radius:6px;font-family:var(--mono);font-size:10px;
+  padding:3px 8px;cursor:pointer;opacity:0;transition:all .14s;
+}
+.msg-body pre:hover .copy-code{opacity:1}
+.copy-code:hover{color:var(--acc);border-color:var(--acc-dim)}
+.msg-body blockquote{border-left:3px solid var(--line2);padding:4px 14px;margin:0 0 10px;color:var(--ink-dim)}
+.msg-body a{color:var(--acc)}
+.msg-body table{border-collapse:collapse;margin:0 0 10px;font-size:12.5px}
+.msg-body th,.msg-body td{border:1px solid var(--line2);padding:6px 11px;text-align:left}
+.msg-body th{background:var(--panel);font-family:var(--mono);font-size:11px;color:var(--ink-dim)}
+.msg-error{
+  margin-top:8px;padding:9px 13px;background:rgba(255,107,129,.07);border:1px solid rgba(255,107,129,.3);
+  border-radius:9px;font-family:var(--mono);font-size:11.5px;color:var(--red);white-space:pre-wrap;
+}
+.msg-cancelled{margin-top:8px;font-family:var(--mono);font-size:10.5px;color:var(--amber)}
+.streaming-cursor{
+  display:inline-block;width:8px;height:15px;background:var(--acc);border-radius:2px;
+  vertical-align:text-bottom;animation:blink 1s steps(2) infinite;margin-left:2px;
+}
+@keyframes blink{50%{opacity:0}}
+.thinking-block{
+  border-left:2px solid var(--line2);padding:7px 12px;margin:0 0 10px;background:var(--bg);
+  border-radius:0 8px 8px 0;font-family:var(--mono);font-size:11px;color:var(--ink-faint);white-space:pre-wrap;
+}
+
+.composer-wrap{flex-shrink:0;border-top:1px solid var(--line);background:var(--bg2);padding:14px 30px 16px}
+.composer{max-width:820px;margin:0 auto}
+.composer-bar{display:flex;gap:9px;align-items:flex-end}
+.composer textarea{
+  flex:1;background:var(--panel);border:1px solid var(--line2);border-radius:12px;
+  color:var(--ink);font-family:var(--sans);font-size:13.5px;line-height:1.5;
+  padding:11px 15px;resize:none;min-height:46px;max-height:200px;outline:none;transition:border-color .15s;
+}
+.composer textarea:focus{border-color:var(--acc-dim)}
+.send-btn,.stop-btn{
+  border-radius:11px;padding:11px 18px;cursor:pointer;font-weight:600;font-size:13px;
+  transition:all .15s;flex-shrink:0;
+}
+.send-btn{background:var(--acc);color:#06251b;border:none}
+.send-btn:hover:not(:disabled){box-shadow:0 0 18px rgba(94,242,192,.3)}
+.send-btn:disabled{background:var(--panel2);color:var(--ink-faint);cursor:not-allowed}
+.stop-btn{background:rgba(255,107,129,.12);color:var(--red);border:1px solid rgba(255,107,129,.35)}
+.stop-btn:hover{background:rgba(255,107,129,.2)}
+.composer-meta{
+  display:flex;align-items:center;gap:12px;margin-top:9px;flex-wrap:wrap;
+  font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);
+}
+.model-sel{
+  background:var(--panel);border:1px solid var(--line2);color:var(--ink-dim);border-radius:8px;
+  font-family:var(--mono);font-size:11px;padding:5px 9px;outline:none;cursor:pointer;max-width:240px;
+}
+.model-sel:focus{border-color:var(--acc-dim)}
+.adv-toggle{
+  background:none;border:none;color:var(--ink-faint);cursor:pointer;font-family:var(--mono);
+  font-size:10.5px;padding:3px 6px;border-radius:6px;
+}
+.adv-toggle:hover{color:var(--ink-dim)}
+.adv-panel{
+  display:none;gap:14px;margin-top:10px;padding:12px 14px;background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;flex-wrap:wrap;
+}
+.adv-panel.open{display:flex}
+.adv-field{display:flex;flex-direction:column;gap:4px}
+.adv-field label{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.07em}
+.adv-field input,.adv-field select{
+  background:var(--bg);border:1px solid var(--line2);color:var(--ink);border-radius:7px;
+  font-family:var(--mono);font-size:11.5px;padding:5px 9px;outline:none;width:130px;
+}
+.adv-field input:focus,.adv-field select:focus{border-color:var(--acc-dim)}
+.adv-field input.invalid{border-color:var(--red)}
+.param-hint{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint)}
+
+/* shared panels/tables */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);margin-bottom:18px;overflow:hidden}
+.panel-h{display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);gap:12px}
+.panel-t{font-size:13.5px;font-weight:600}
+.panel-sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-top:2px}
+.filters{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);padding:11px 14px;
+}
+.filter-label{font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.09em}
+.seg{display:flex;background:var(--bg);border:1px solid var(--line2);border-radius:10px;padding:3px;gap:2px}
+.seg button{
+  background:none;border:none;color:var(--ink-dim);font-family:var(--mono);font-size:11px;
+  padding:4px 11px;border-radius:7px;cursor:pointer;transition:all .15s;font-weight:500;
+}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--panel2);color:var(--acc);box-shadow:0 1px 6px rgba(0,0,0,.35)}
+.search-box{
+  display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--line2);
+  border-radius:10px;padding:6px 11px;flex:1;min-width:170px;max-width:330px;
+}
+.search-box input{
+  background:none;border:none;outline:none;color:var(--ink);font-family:var(--mono);
+  font-size:11.5px;width:100%;
+}
+
+.table-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{
+  text-align:left;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--ink-faint);
+  text-transform:uppercase;letter-spacing:.09em;padding:11px 14px;border-bottom:1px solid var(--line);
+  white-space:nowrap;user-select:none;
+}
+th.sortable{cursor:pointer}
+th.sortable:hover{color:var(--ink-dim)}
+td{padding:11px 14px;border-bottom:1px solid var(--line);font-size:12.5px;vertical-align:top}
+tbody tr{transition:background .12s;cursor:pointer}
+tbody tr:hover{background:var(--panel2)}
+.mono{font-family:var(--mono)}
+.dim{color:var(--ink-dim)}
+.faint{color:var(--ink-faint)}
+.pill{font-family:var(--mono);font-size:10px;padding:2.5px 9px;border-radius:20px;white-space:nowrap;font-weight:600}
+.pill.ok{color:var(--acc);background:rgba(94,242,192,.1);border:1px solid rgba(94,242,192,.25)}
+.pill.bad{color:var(--red);background:rgba(255,107,129,.1);border:1px solid rgba(255,107,129,.28)}
+.pill.warn{color:var(--amber);background:rgba(255,200,87,.1);border:1px solid rgba(255,200,87,.28)}
+.pill.inc{color:var(--ink-faint);background:var(--bg);border:1px solid var(--line2)}
+.tbl-foot{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;gap:14px;flex-wrap:wrap}
+.tbl-count{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint)}
+.pager{display:flex;gap:4px}
+.pager button{
+  background:var(--panel);border:1px solid var(--line2);color:var(--ink-dim);border-radius:7px;
+  min-width:28px;height:28px;font-family:var(--mono);font-size:11px;cursor:pointer;transition:all .13s;
+  display:grid;place-items:center;padding:0 7px;
+}
+.pager button:hover:not(:disabled){color:var(--ink);border-color:var(--acc-dim)}
+.pager button.cur{color:var(--acc);border-color:rgba(94,242,192,.3);background:var(--acc-glow)}
+.pager button:disabled{opacity:.35;cursor:not-allowed}
+
+/* kpis */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:13px;margin-bottom:18px}
+.kpi{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);padding:15px 17px;
+  position:relative;overflow:hidden;--kcol:var(--acc);
+}
+.kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kcol);opacity:.7}
+.kpi-k{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.11em}
+.kpi-v{font-size:23px;font-weight:700;letter-spacing:-.02em;margin:5px 0 3px}
+.kpi-s{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+
+/* trace detail / waterfall */
+.detail-grid{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:18px;align-items:start}
+@media (max-width:1100px){.detail-grid{grid-template-columns:1fr}}
+.dm{min-width:0;margin-bottom:11px}
+.dm-k{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.11em;margin-bottom:3px}
+.dm-v{font-family:var(--mono);font-size:12.5px;font-weight:500;word-break:break-all}
+.waterfall{padding:16px 18px}
+.wf-row{position:relative;height:30px;margin-bottom:3px;cursor:pointer;border-radius:6px}
+.wf-row:hover{background:var(--panel2)}
+.wf-label{
+  position:absolute;left:0;top:50%;transform:translateY(-50%);font-family:var(--mono);
+  font-size:10.5px;color:var(--ink-dim);white-space:nowrap;width:200px;overflow:hidden;text-overflow:ellipsis;
+}
+.wf-track{position:absolute;left:210px;right:0;top:0;bottom:0}
+.wf-bar{
+  position:absolute;top:7px;height:16px;border-radius:4px;min-width:3px;
+  background:linear-gradient(90deg,var(--acc-dim),var(--acc));opacity:.85;
+}
+.wf-bar.err{background:linear-gradient(90deg,#a63d50,var(--red))}
+.wf-bar.cancel{background:linear-gradient(90deg,#a6843d,var(--amber))}
+.wf-bar.child{background:linear-gradient(90deg,#5b6fb5,var(--blue))}
+.wf-time{
+  position:absolute;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:9.5px;
+  color:var(--ink-faint);white-space:nowrap;
+}
+.wf-axis{position:relative;height:22px;margin-left:210px;border-bottom:1px solid var(--line2);margin-bottom:8px}
+.wf-tick{position:absolute;top:0;font-family:var(--mono);font-size:9px;color:var(--ink-faint);transform:translateX(-50%)}
+.span-tree{padding:8px 6px}
+.span-node{padding:3px 0}
+.span-row{
+  display:flex;align-items:center;gap:9px;padding:7px 12px;border-radius:8px;cursor:pointer;
+  border:1px solid transparent;transition:all .13s;
+}
+.span-row:hover{background:var(--panel2);border-color:var(--line2)}
+.span-row.selected{background:var(--acc-glow);border-color:rgba(94,242,192,.22)}
+.span-caret{width:14px;text-align:center;color:var(--ink-faint);font-size:10px;flex-shrink:0;font-family:var(--mono)}
+.span-name{font-family:var(--mono);font-size:11.5px;font-weight:600}
+.span-kind{font-family:var(--mono);font-size:9px;padding:1.5px 7px;border-radius:5px;background:var(--bg);border:1px solid var(--line2);color:var(--ink-faint)}
+.span-dur{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim)}
+.span-children{margin-left:22px;border-left:1px solid var(--line2);padding-left:8px}
+/* Phase 2: trace conversation / tools / raw events */
+.tc-list{padding:6px 0;max-height:520px;overflow-y:auto}
+.tc{border:1px solid var(--line);border-radius:10px;margin:8px 12px;padding:10px 13px;background:var(--bg)}
+.tc-user{border-left:3px solid var(--violet)}
+.tc-assistant{border-left:3px solid var(--acc)}
+.tool-card{border-left:3px solid var(--blue)}
+.tc-head{display:flex;align-items:center;gap:10px;margin-bottom:7px;font-family:var(--mono);font-size:10.5px}
+.tc-kind{font-weight:700;color:var(--ink-dim);text-transform:uppercase;letter-spacing:.08em}
+.tc-meta{color:var(--ink-faint);font-size:9.5px}
+.tc-body{font-size:12.5px;line-height:1.65;color:var(--ink);max-height:340px;overflow-y:auto;padding-right:4px}
+.tc-body p{margin:0 0 .55em}
+.tc-body pre{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 11px;overflow-x:auto;font-size:11px;position:relative}
+.tc-body code{font-family:var(--mono);font-size:11px}
+.tc-body h1,.tc-body h2,.tc-body h3,.tc-body h4{margin:.7em 0 .35em;font-size:1.02em}
+.tc-body ul,.tc-body ol{margin:.3em 0 .6em 1.3em}
+.tc-args{margin-top:8px}
+.tc-pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);max-height:260px;overflow-y:auto}
+.raw-ev{border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px}
+.raw-ev:last-child{border-bottom:none}
+.raw-ev summary{display:flex;gap:12px;padding:7px 10px;border-radius:7px;cursor:pointer;list-style:none;align-items:center}
+.raw-ev summary::-webkit-details-marker{display:none}
+.raw-ev summary::before{content:'▸';color:var(--ink-faint);width:12px;flex-shrink:0}
+.raw-ev[open] summary::before{content:'▾'}
+.raw-ev summary:hover{background:var(--panel2)}
+.raw-ev pre{margin:0 10px 10px 34px}
+.copy-inline{flex-shrink:0}
+.msg-actions{margin-left:auto}
+.events-list{padding:10px 14px}
+.event-row{
+  display:flex;gap:12px;padding:7px 10px;border-radius:7px;font-family:var(--mono);font-size:11px;
+  border-bottom:1px solid var(--line);
+}
+.event-row:last-child{border-bottom:none}
+.event-ts{color:var(--ink-faint);flex-shrink:0}
+.event-name{color:var(--violet);font-weight:600}
+.event-data{color:var(--ink-dim);word-break:break-all}
+
+/* states */
+.empty{text-align:center;padding:56px 24px;color:var(--ink-faint)}
+.empty-t{font-size:14.5px;font-weight:600;color:var(--ink-dim);margin-bottom:6px}
+.empty-s{font-family:var(--mono);font-size:11.5px;max-width:440px;margin:0 auto;line-height:1.8}
+.error-banner{
+  display:flex;gap:13px;align-items:flex-start;background:rgba(255,107,129,.06);
+  border:1px solid rgba(255,107,129,.3);border-radius:var(--rad);padding:15px 18px;margin-bottom:18px;
+}
+.error-t{font-weight:600;color:var(--red);font-size:13px;margin-bottom:3px}
+.error-s{font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);word-break:break-word}
+.retry-btn{
+  background:var(--panel);border:1px solid var(--line2);color:var(--ink-dim);border-radius:8px;
+  padding:6px 14px;cursor:pointer;font-family:var(--mono);font-size:11px;margin-top:11px;transition:all .15s;
+}
+.retry-btn:hover{color:var(--acc);border-color:var(--acc-dim)}
+.skeleton{border-radius:var(--rad);background:linear-gradient(100deg,var(--panel) 40%,var(--panel2) 50%,var(--panel) 60%);background-size:200% 100%;animation:shimmer 1.35s infinite}
+@keyframes shimmer{to{background-position:-200% 0}}
+@keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+
+.toast{
+  position:fixed;bottom:22px;right:22px;background:var(--panel2);border:1px solid var(--line2);
+  border-radius:10px;padding:11px 17px;font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);
+  z-index:100;animation:rise .25s;box-shadow:0 8px 30px rgba(0,0,0,.45);
+}
+
+.hidden{display:none !important}
+
+/* ---------- Loop portal ----------
+ * The /console landing view: a compact welcome strip, four workspace cards
+ * and clearly-separated activity columns. Cards are NOT clickable shells —
+ * only the "Open … →" action is interactive (keyboard focusable <a>).
+ */
+.portal-hero{
+  display:flex;align-items:flex-end;justify-content:space-between;gap:18px;
+  margin-bottom:18px;flex-wrap:wrap;
+}
+.portal-h1{font-size:24px;font-weight:800;letter-spacing:-.02em}
+.portal-tag{
+  font-family:var(--mono);font-size:11px;color:var(--acc);letter-spacing:.08em;
+  text-transform:uppercase;margin-top:6px;
+}
+.portal-sub{color:var(--ink-dim);font-size:13.5px;margin-top:8px;max-width:640px;line-height:1.55}
+.portal-refresh{
+  background:var(--panel);border:1px solid var(--line2);color:var(--ink-dim);
+  border-radius:10px;padding:8px 14px;cursor:pointer;font-family:var(--mono);
+  font-size:11.5px;transition:all .15s;flex-shrink:0;
+}
+.portal-refresh:hover{color:var(--acc);border-color:var(--acc-dim)}
+.portal-refresh:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* ---------- Welcome: full-screen workspace launcher ----------
+ * On the Welcome route the sidebar is hidden and the four workspace cards
+ * become the whole page — a 2×2 grid of large cards that fills the
+ * viewport without scrolling on typical desktop screens. The accent stays
+ * the single green theme colour for all cards.
+ * body.ws-launcher is toggled by render() when the route is Welcome. */
+body.ws-launcher .sidebar{display:none}
+body.ws-launcher .content{
+  padding:0;display:flex;flex-direction:column;
+  /* Scroll instead of clip when the viewport is too short for usable
+   * cards (small phones / landscape); desktop keeps the no-scroll fit. */
+  overflow-y:auto;
+}
+body.ws-launcher .content-inner{
+  max-width:none;margin:0;width:100%;flex:1;display:flex;flex-direction:column;
+  padding:clamp(20px,4vh,44px) clamp(20px,4vw,56px) clamp(16px,3vh,32px);
+  /* min-height:auto lets the column grow past the viewport on short
+   * screens so .content can scroll cards into view instead of clipping. */
+  min-height:auto;
+}
+body.ws-launcher .portal-hero{flex-shrink:0;margin-bottom:clamp(14px,2.6vh,26px)}
+body.ws-launcher .portal-h1{font-size:clamp(24px,3vw,32px)}
+body.ws-launcher .portal-sub{font-size:clamp(13px,1.2vw,14.5px);max-width:760px}
+body.ws-launcher .ws-grid{
+  flex:1;min-height:0;
+  /* Rows never compress below a usable card height; on windows too short
+   * for that, the launcher column scrolls (see .content) instead of
+   * clipping card content. */
+  display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:minmax(184px,1fr);
+  gap:clamp(14px,1.8vw,22px);margin-bottom:0;
+}
+/* The internal-evaluation group is a second grid on the same launcher
+ * page. It never stretches to fill the viewport (that job belongs to the
+ * primary workspaces above it); it just flows at its natural height. */
+body.ws-launcher .ev-grid{
+  flex:0 0 auto;min-height:0;margin-bottom:0;
+  grid-auto-rows:minmax(150px,auto);
+}
+body.ws-launcher .ev-portal-head{flex-shrink:0}
+.ws-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px;margin-bottom:18px}
+
+/* ---------- Fun Time workspace (Phase 10) ----------
+ * The games destination rendered at #funtime inside the console shell.
+ * Reuses the workspace tokens (--panel/--line/--acc) so it reads as part
+ * of the dashboard, not a separate site. */
+.ft-hero{display:flex;align-items:flex-end;justify-content:space-between;
+  gap:18px;flex-wrap:wrap;margin-bottom:20px}
+.ft-h1{font-size:clamp(22px,2.6vw,30px);font-weight:800;letter-spacing:-.02em;margin:0}
+.ft-tag{color:var(--ink-dim);font-size:13.5px;margin-top:6px}
+.ft-back{
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);
+  text-decoration:none;padding:8px 13px;border-radius:9px;
+  border:1px solid var(--line2);white-space:nowrap;
+  transition:color .15s,border-color .15s,background .15s;
+}
+.ft-back:hover{color:var(--acc);border-color:rgba(94,242,192,.35);background:rgba(94,242,192,.05)}
+.ft-back:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* Two panels side by side on desktop, stacked on narrow screens.
+ * (Phase 11+: the selector replaces this layout; kept for the dedicated
+ * game views' shared panel styling below.) */
+.ft-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);
+  gap:clamp(14px,1.8vw,22px);align-items:start}
+@media (max-width:1000px){.ft-grid{grid-template-columns:1fr}}
+
+/* ---------- Game-selection screen ---------- */
+.ft-select{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:clamp(16px,2.4vw,28px);align-items:stretch;
+}
+@media (max-width:900px){.ft-select{grid-template-columns:1fr}}
+/* Six games: 2×3 on desktop, 1 per row on phones. With an even count the
+ * grid fills naturally; the earlier "last card spans" rule stays retired. */
+@media (min-width:901px){
+  .ft-select .ft-card:last-child{grid-column:auto;max-width:none;
+    margin-left:0;margin-right:0}
+}
+
+.ft-card{
+  position:relative;display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  overflow:hidden;text-decoration:none;color:inherit;
+  transition:border-color .18s,transform .18s,box-shadow .18s;
+}
+.ft-card:hover{
+  border-color:rgba(94,242,192,.45);transform:translateY(-3px);
+  box-shadow:0 12px 34px -14px rgba(94,242,192,.28);
+}
+.ft-card:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
+.ft-card:active{transform:translateY(-1px)}
+
+/* Card art: a tall banner with the game's iconography. */
+.ft-card-art{
+  position:relative;height:clamp(150px,22vw,220px);
+  display:grid;place-items:center;overflow:hidden;
+  border-bottom:1px solid var(--line);
+}
+.ft-card-art.t3{background:
+  radial-gradient(circle at 30% 20%,rgba(94,242,192,.10),transparent 55%),
+  linear-gradient(180deg,rgba(111,183,255,.05),rgba(7,9,13,.5));}
+.ft-card-art.si{background:
+  radial-gradient(circle at 70% 25%,rgba(255,143,171,.10),transparent 55%),
+  linear-gradient(180deg,rgba(111,183,255,.06),rgba(7,9,13,.55));}
+
+/* T3 art: a mini board rendered in CSS. */
+.ft-card-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:6px;
+  width:min(150px,52%);aspect-ratio:1;
+}
+.ft-card-grid span{
+  border-radius:8px;background:var(--panel2);
+  border:1px solid var(--line);
+  display:grid;place-items:center;
+  font-size:clamp(17px,3vw,26px);font-weight:800;line-height:1;
+}
+.ft-card-grid .x{color:var(--acc)}
+.ft-card-grid .o{color:var(--blue)}
+
+/* SI art: the pixel invader, gently glowing. */
+.ft-card-invader{color:#ff8fab;display:block;width:min(120px,44%);}
+.ft-card-invader svg{width:100%;height:auto;display:block;
+  filter:drop-shadow(0 0 14px rgba(255,143,171,.35))}
+
+.ft-card-body{
+  display:flex;flex-direction:column;gap:10px;flex:1;
+  padding:clamp(16px,2vw,24px);
+}
+.ft-card-title{font-size:clamp(18px,2vw,23px);font-weight:800;letter-spacing:-.015em}
+.ft-card-desc{
+  color:var(--ink-dim);font-size:13px;line-height:1.6;margin:0;flex:1;
+}
+.ft-play{
+  align-self:flex-start;display:inline-flex;align-items:center;gap:8px;
+  font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:.04em;
+  color:var(--acc);padding:9px 15px;border-radius:10px;
+  border:1px solid rgba(94,242,192,.35);background:rgba(94,242,192,.07);
+  transition:background .16s,border-color .16s,color .16s;
+}
+.ft-card:hover .ft-play{
+  background:var(--acc);color:#06251a;border-color:var(--acc);
+}
+
+
+/* ---- Solitaire selector-card art (namespaced so-*) ---- */
+.ft-card-art.so{
+  background:
+    radial-gradient(circle at 30% 20%,rgba(94,242,192,.10),transparent 55%),
+    linear-gradient(180deg,rgba(16,81,56,.35),rgba(7,9,13,.6));
+}
+.so-card-art{position:relative;width:min(240px,74%);height:clamp(104px,15vw,140px);display:block}
+.so-card-art .so-art-front,.so-card-art .so-art-back{
+  position:absolute;border-radius:9px;box-shadow:0 8px 22px -8px rgba(0,0,0,.75);
+}
+.so-card-art .so-art-back{
+  left:14%;top:10%;width:44%;aspect-ratio:.72;
+  background:
+    repeating-linear-gradient(45deg,rgba(94,242,192,.14) 0 3px,transparent 3px 7px),
+    repeating-linear-gradient(-45deg,rgba(94,242,192,.10) 0 3px,transparent 3px 7px),
+    linear-gradient(150deg,#132a3f,#0d1c2c);
+  border:1px solid rgba(94,242,192,.25);
+  box-shadow:inset 0 0 0 3px rgba(6,12,20,.85);
+}
+.so-card-art .so-art-front{
+  width:46%;aspect-ratio:.72;background:linear-gradient(155deg,#fffdf7,#f4eddc);
+  border:1px solid rgba(0,0,0,.15);display:flex;align-items:center;justify-content:center;
+}
+.so-card-art .so-art-front.red{right:12%;top:22%;color:#c8102e;transform:rotate(7deg)}
+.so-card-art .so-art-front.black{left:26%;bottom:8%;color:#151a22;transform:rotate(-5deg)}
+.so-card-art .so-art-pip{font-size:34px;line-height:1}
+.so-card-art .so-art-idx{position:absolute;top:5px;left:7px;font:800 13px Sora}
+
+/* ---------- Dedicated game views ---------- */
+.ft-game-top{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:14px;flex-wrap:wrap;margin-bottom:18px;
+}
+.ft-game-title{
+  font-size:clamp(19px,2.2vw,26px);font-weight:800;letter-spacing:-.02em;
+}
+.ft-game{max-width:720px;margin:0 auto;width:100%}
+/* Space Invaders gets the full content width for a large playfield. */
+.ft-game.si-wide{max-width:980px}
+
+/* ---- Tic-Tac-Toe fullscreen layout ---------------------------------
+ * Same real-Fullscreen-API treatment as Space Invaders: the panel becomes
+ * the screen and the board scales up to fill it comfortably. */
+/* ---- Shared game-session chrome hiding (FTSESS, all five games) -------
+   While ANY game view is active the dashboard shell disappears: no left
+   sidebar, no topbar/account controls, no workspace nav, no page padding.
+   Only the active game's interface remains. Applies in native fullscreen,
+   the CSS immersive fallback, AND inline play. Restored on exit by removing
+   ft-playing/ft-immersive (see ftSessionRestore). */
+body.ft-playing .sidebar,
+body.ft-playing .topbar{display:none !important}
+body.ft-playing .main{padding:0 !important;margin:0 !important}
+body.ft-playing .content{padding:0 !important}
+body.ft-playing .content-inner{max-width:none !important;padding:0 !important;margin:0 !important}
+body.ft-playing{overflow:hidden}          /* the game owns the viewport */
+/* The view's own '← back to games' header duplicates the in-game Back
+   button; hidden while playing so the panel starts at the viewport top. */
+body.ft-playing .ft-game-top{display:none}
+/* While playing, the view column hands all its space to the game panel.
+   Hack the Terminal needs the column to pass its height through so the
+   terminal can fill the viewport (see the ht- block below). */
+body.ft-playing .content-inner{display:flex;flex-direction:column;min-height:100%}
+body.ft-playing [id$="Panel"]{flex:none;width:100%;margin:0 auto}
+
+/* Fullscreen/immersive layout triggers BOTH on native fullscreen (the
+   panel is the fullscreen element) and on the automatic CSS immersive
+   fallback (body.ft-immersive, set when native was denied). */
+body.t3-fs #t3Panel,
+body.ft-playing.ft-immersive #t3Panel{
+  max-width:none;width:100vw;height:100vh;
+  margin:0;border-radius:0;border:none;
+  padding:clamp(14px,3vh,34px) clamp(14px,4vw,48px);
+  box-sizing:border-box;justify-content:flex-start;overflow:auto;
+  background:var(--bg,#0a0d13);
+}
+body.t3-fs #t3Panel .ft-panel-h,
+body.ft-playing.ft-immersive #t3Panel .ft-panel-h{display:none}
+body.t3-fs #t3Panel .t3-board-wrap,
+body.ft-playing.ft-immersive #t3Panel .t3-board-wrap{flex:1;display:flex;align-items:center}
+body.t3-fs #t3Panel .t3-board,
+body.ft-playing.ft-immersive #t3Panel .t3-board{
+  /* Leave room for the toolbar, status, actions and scoreboard rows so the
+     whole panel fits without scrolling at every viewport in the matrix. */
+  max-width:min(62vh,90vw,560px);
+}
+/* Inline (non-FS) play while chrome is hidden: keep the board centred and
+   comfortably sized within the now-full-width main column. */
+body.ft-playing #t3Panel{margin:0 auto;width:100%;max-width:min(900px,100%)}
+
+/* The 3×3 board sits large and centred in its own view. */
+.t3-board-wrap{display:flex;justify-content:center;padding:6px 0}
+.ft-game .t3-board{max-width:min(420px,72vh)}
+
+.ft-panel{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+  padding:clamp(18px,2vw,26px);display:flex;flex-direction:column;gap:16px;min-width:0;
+}
+.ft-panel-h{display:flex;align-items:flex-start;gap:14px}
+.ft-ico{--ws:var(--acc)}
+.ft-panel-t{flex:1;min-width:0}
+.ft-name{font-size:clamp(15.5px,1.3vw,18.5px);font-weight:700;letter-spacing:-.01em}
+.ft-blurb{font-size:12.5px;color:var(--ink-dim);margin-top:5px;line-height:1.55}
+
+/* Difficulty selector. */
+.ft-toolbar{display:flex;gap:8px;flex-wrap:wrap}
+.ft-diff{
+  font-family:var(--mono);font-size:11px;letter-spacing:.03em;
+  color:var(--ink-dim);background:transparent;cursor:pointer;
+  border:1px solid var(--line2);border-radius:20px;padding:7px 14px;
+  transition:color .15s,border-color .15s,background .15s;
+}
+.ft-diff:hover{color:var(--ink);border-color:var(--ink-faint)}
+.ft-diff:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.ft-diff.on{
+  color:var(--acc);border-color:rgba(94,242,192,.4);
+  background:rgba(94,242,192,.08);font-weight:700;
+}
+
+/* Turn / result banner. Colour-coded per outcome for glanceability. */
+.ft-status{
+  font-family:var(--mono);font-size:12px;color:var(--ink-dim);
+  min-height:20px;letter-spacing:.02em;
+}
+.ft-status.win{color:var(--acc)}
+.ft-status.loss{color:var(--red)}
+.ft-status.draw{color:var(--amber)}
+
+/* Board: square cells sized from the container, never overflowing. */
+.t3-board{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;
+  width:100%;max-width:340px;margin:0 auto;aspect-ratio:1;
+}
+.t3-cell{
+  /* Generous touch target with a visible focus ring. */
+  min-height:64px;border-radius:12px;cursor:pointer;
+  background:var(--panel2);border:1px solid var(--line);
+  color:var(--ink);font-size:clamp(26px,6vw,38px);font-weight:800;
+  font-family:var(--mono);line-height:1;
+  display:grid;place-items:center;
+  transition:border-color .15s,background .15s,transform .15s;
+}
+.t3-cell:not(:disabled):hover{
+  border-color:rgba(94,242,192,.4);background:rgba(94,242,192,.05);
+}
+.t3-cell:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.t3-cell:disabled{cursor:default;opacity:.92}
+/* X = theme green, O = blue: instantly distinguishable without relying
+   on colour alone (the glyphs differ). */
+.t3-cell[data-x="1"]{color:var(--acc)}
+.t3-cell[data-o="1"]{color:var(--blue)}
+/* Winning line stays highlighted after the round ends. */
+.t3-cell.win{
+  border-color:rgba(94,242,192,.55);background:rgba(94,242,192,.1);
+}
+.t3-cell.win.loss{border-color:rgba(255,107,129,.5);background:rgba(255,107,129,.08)}
+
+.ft-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.ft-btn{
+  font-family:var(--mono);font-size:11.5px;cursor:pointer;
+  color:var(--ink-dim);background:transparent;
+  border:1px solid var(--line2);border-radius:10px;padding:10px 18px;
+  transition:color .15s,border-color .15s,background .15s;
+}
+.ft-btn:hover{color:var(--ink);border-color:var(--ink-faint)}
+.ft-btn:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.ft-btn.primary{
+  color:#06251a;background:var(--acc);border-color:var(--acc);font-weight:700;
+}
+.ft-btn.primary:hover{filter:brightness(1.06);color:#06251a}
+
+/* Scoreboard: three equal columns. */
+.ft-scores{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+  border-top:1px solid var(--line);padding-top:14px;
+}
+.ft-score{
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:10px 8px;text-align:center;min-width:0;
+}
+.ft-sk{
+  display:block;font-family:var(--mono);font-size:9px;color:var(--ink-faint);
+  text-transform:uppercase;letter-spacing:.11em;
+}
+.ft-sv{display:block;font-size:19px;font-weight:800;margin-top:4px}
+
+/* ---------- Space Invaders (Phase 11) ---------- */
+.si-hud{
+  display:flex;gap:8px;flex-wrap:wrap;justify-content:center;
+}
+.si-stat{
+  display:inline-flex;align-items:center;gap:7px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+  padding:6px 12px;min-width:0;
+}
+.si-k{
+  font-family:var(--mono);font-size:9px;color:var(--ink-faint);
+  text-transform:uppercase;letter-spacing:.11em;
+}
+.si-v{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums}
+
+.si-stage{
+  position:relative;width:100%;margin:0 auto;
+  border-radius:12px;overflow:hidden;
+  border:1px solid var(--line);
+  background:#07090d;
+  /* Larger playfield in the dedicated view, but never taller than the
+   * viewport so the HUD and controls stay reachable without scrolling. */
+  max-width:min(640px,calc((100vh - 300px) * 480 / 620));
+}
+#siCanvas{display:block;width:100%;height:auto;touch-action:none}
+
+/* Wave banner: brief, non-blocking, hidden from a11y tree (the HUD
+ * already reports the wave number). */
+.si-wave-banner{
+  position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);
+  font-family:var(--mono);font-size:clamp(13px,2.4vw,17px);font-weight:700;
+  color:var(--acc);letter-spacing:.06em;text-transform:uppercase;
+  background:rgba(7,9,13,.82);border:1px solid rgba(94,242,192,.35);
+  border-radius:10px;padding:10px 18px;
+  opacity:0;pointer-events:none;
+  transition:opacity .25s;
+}
+.si-wave-banner.show{opacity:1}
+/* Phase 1: LEVEL COMPLETE variant of the same banner — gold accent from
+ * the existing palette, no layout change. */
+.si-wave-banner.level{
+  color:#ffd7ba;border-color:rgba(255,215,186,.45);
+}
+/* Phase 2: POWER-UP ACQUIRED variant — sits below LEVEL COMPLETE so both
+ * are readable during the between-levels beat. Same shape and rhythm. */
+.si-wave-banner.power{
+  top:56%;color:#c9f2ff;border-color:rgba(201,242,255,.4);
+}
+
+/* Phase 2: active power-up indicator strip under the HUD. Empty by
+ * default (zero height, no border) so nothing changes when no power is
+ * active; chips fade/scale in when granted. */
+.si-powers{
+  display:flex;gap:8px;flex-wrap:wrap;justify-content:center;
+  min-height:0;
+}
+.si-powers.has-powers{margin-top:10px}
+.si-pow{
+  display:inline-flex;align-items:center;gap:8px;
+  background:var(--panel2);border:1px solid rgba(201,242,255,.35);
+  border-radius:9px;padding:5px 10px;
+  animation:siPowIn .3s ease-out;
+}
+.si-pow-k{
+  font-family:var(--mono);font-size:9px;color:#c9f2ff;
+  text-transform:uppercase;letter-spacing:.11em;
+}
+.si-pow-t{
+  font-family:var(--mono);font-size:10px;font-weight:700;color:var(--ink);
+  font-variant-numeric:tabular-nums;min-width:2ch;text-align:right;
+}
+.si-pow-bar{
+  display:block;width:34px;height:3px;border-radius:2px;
+  background:rgba(201,242,255,.16);overflow:hidden;
+}
+.si-pow-fill{
+  display:block;height:100%;background:#c9f2ff;border-radius:2px;
+  transition:width .25s linear;
+}
+/* Expiry flash: brief red blink on the chip that just ran out. */
+.si-pow.expired{animation:siPowOut .35s ease-in}
+@keyframes siPowIn{
+  from{opacity:0;transform:translateY(-4px) scale(.94)}
+  to{opacity:1;transform:none}
+}
+@keyframes siPowOut{
+  0%{opacity:1}45%{opacity:.15;border-color:#ff6b81}100%{opacity:0}
+}
+@media (prefers-reduced-motion: reduce){
+  .si-pow{animation:none}
+  .si-pow.expired{animation:none;opacity:.4}
+}
+
+/* Overlay: Ready / Paused / Game Over. */
+.si-overlay{
+  position:absolute;inset:0;display:grid;place-items:center;
+  background:rgba(7,9,13,.86);backdrop-filter:blur(3px);
+  z-index:2;
+}
+.si-overlay.hidden{display:none}
+.si-ov-inner{
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+  padding:22px 26px;text-align:center;max-width:92%;
+}
+.si-ov-title{
+  font-size:clamp(19px,3.4vw,26px);font-weight:800;letter-spacing:-.01em;
+}
+.si-ov-sub{
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);
+  line-height:1.65;max-width:340px;
+}
+/* Persistent control bar under the stage. */
+.si-controls{display:flex;gap:9px;flex-wrap:wrap;justify-content:center}
+.si-exit{text-decoration:none;display:inline-block}
+
+/* Sound toggle: same shape as the other controls, with a clear on state. */
+.si-sound .si-snd-ico{margin-right:5px;font-size:12px}
+.si-sound.on{
+  color:var(--acc);border-color:rgba(94,242,192,.45);
+  background:rgba(94,242,192,.08);font-weight:700;
+}
+
+/* Phase 3/4: audio settings — two independent rows (music / effects),
+ * each with a volume slider, live percentage and its own mute button. */
+.si-audio{
+  display:flex;flex-direction:column;gap:8px;align-items:center;
+  margin-top:2px;
+}
+.si-audio-row{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
+  max-width:520px;width:100%;
+}
+.si-audio-l{
+  font-family:var(--mono);font-size:9px;color:var(--ink-faint);
+  text-transform:uppercase;letter-spacing:.11em;min-width:48px;text-align:right;
+}
+.si-audio-v{
+  font-family:var(--mono);font-size:10px;font-weight:700;color:var(--ink);
+  font-variant-numeric:tabular-nums;min-width:34px;
+}
+.si-audio input[type="range"]{
+  -webkit-appearance:none;appearance:none;
+  flex:1 1 140px;min-width:120px;max-width:240px;height:4px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:3px;
+  outline:none;cursor:pointer;padding:0;margin:0;
+}
+.si-audio input[type="range"]::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;
+  width:14px;height:14px;border-radius:50%;
+  background:#c9f2ff;border:1px solid rgba(201,242,255,.6);
+  cursor:pointer;transition:transform .1s;
+}
+.si-audio input[type="range"]::-webkit-slider-thumb:hover{transform:scale(1.15)}
+.si-audio input[type="range"]::-moz-range-thumb{
+  width:13px;height:13px;border-radius:50%;
+  background:#c9f2ff;border:1px solid rgba(201,242,255,.6);cursor:pointer;
+}
+.si-mute{
+  font-family:var(--mono);font-size:10px;padding:5px 10px;
+}
+.si-mute.muted{
+  color:#ff8fab;border-color:rgba(255,143,171,.45);
+  background:rgba(255,143,171,.07);font-weight:700;
+}
+
+/* Non-blocking fullscreen feedback (also used for unsupported notices). */
+.si-fs-notice{
+  font-family:var(--mono);font-size:11px;color:var(--ink-dim);
+  text-align:center;min-height:16px;
+  opacity:0;transition:opacity .2s;pointer-events:none;
+}
+.si-fs-notice.show{opacity:1}
+
+/* ---- Fullscreen arcade layout -------------------------------------
+ * Applied to <body> while the game panel is the real fullscreen element.
+ * The panel becomes the screen; the canvas letterboxes inside it at the
+ * correct aspect ratio so logical coordinates never stretch. */
+body.si-fs #siPanel,
+body.ft-playing.ft-immersive #siPanel{
+  max-width:none;width:100vw;height:100vh;
+  margin:0;border-radius:0;border:none;
+  padding:clamp(10px,2vh,26px) clamp(12px,3vw,40px);
+  box-sizing:border-box;
+  /* auto margins (not justify-content:center) centre the block when it fits
+     and never clip the top when it doesn't — the touch pads stay reachable. */
+  justify-content:flex-start;
+  overflow:auto;
+  background:var(--bg,#0a0d13);
+}
+/* In fullscreen the stage sizes to its canvas (which siResize() fits by
+ * height, capped by width) so the HUD, controls and touch pads always stay
+ * on screen — the panel never needs to scroll or clip. */
+body.si-fs .si-stage,
+body.ft-playing.ft-immersive .si-stage{max-width:none;flex:0 1 auto;min-height:0;
+  display:flex;align-items:center;justify-content:center}
+/* Keep the HUD and controls compact and reachable in fullscreen. */
+body.si-fs .si-hud,
+body.ft-playing.ft-immersive .si-hud{gap:14px}
+body.si-fs .ft-panel-h,
+body.ft-playing.ft-immersive .ft-panel-h{display:none}          /* title repeats in the top bar */
+body.si-fs .si-help,
+body.ft-playing.ft-immersive .si-help{display:none}             /* hints live in the overlay */
+/* Inline play with chrome hidden: fill the main column, keep HUD+controls
+   near the canvas. */
+body.ft-playing #siPanel{margin:0 auto;width:100%;max-width:min(1100px,100%)}
+
+/* ---------- LAUNCH OVERLAY POLISH (all games) ----------
+ * The ready/launch overlay gets a prominent, single-click way into real
+ * browser fullscreen. Browsers require a user gesture for fullscreen, so
+ * this button is the reliable entry point — never an automatic request. */
+.ft-ov-launch{
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  margin-top:4px;width:100%;
+}
+.ft-ov-fs{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:9px 18px;border-radius:11px;
+  font-family:var(--mono);font-size:12px;font-weight:700;
+  letter-spacing:.02em;
+  color:var(--ink-dim);
+  background:transparent;
+  border:1px dashed var(--line2);
+  cursor:pointer;
+  transition:border-color .15s,color .15s,background .15s;
+}
+.ft-ov-fs:hover{color:var(--ink);border-color:var(--ink-faint)}
+.ft-ov-fs[aria-pressed="true"]{color:var(--acc);border-style:solid;border-color:var(--acc)}
+.ft-ov-fs svg{width:14px;height:14px;flex:none}
+.ft-ov-hint{
+  font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);
+  text-align:center;letter-spacing:.05em;line-height:1.6;
+}
+
+/* Touch pads stay usable in fullscreen on phones/tablets. */
+@media (hover:none) and (pointer:coarse){
+  body.si-fs .si-touch{padding-bottom:env(safe-area-inset-bottom,0)}
+}
+
+/* ---------- CYBER RUSH fullscreen ------------------------------------
+ * FULLSCREEN/VIEWPORT FIX · real fullscreen is requested on #crPanel, so
+ * the PANEL IS THE SCREEN: no outer margin, border, radius or padding.
+ * Inside it a strict flex column:
+ *   .cr-hud       → flow row at the top (score/speed/time/dist/lap/best)
+ *   .cr-meter-row → flow row (nitro meter)
+ *   .cr-stage     → flex:1 — EVERY remaining pixel; crResize() sizes the
+ *                   canvas to this exact box with an aspect-adaptive
+ *                   logical width, so the game fills the stage completely
+ *                   with no letterbox bands, no stretching, no clipping.
+ * Because the HUD rows stay in flow (never overlaid on the canvas), they
+ * can never collide with the canvas-drawn instruments (radar top-centre,
+ * position panel top-left, minimap top-right) and can never be pushed
+ * outside the viewport. Menu mode hides both rows and the stage simply
+ * grows to the full screen (flex). */
+body.cr-fs #crPanel,
+body.ft-playing.ft-immersive #crPanel{
+  max-width:none !important;
+  width:100vw;height:100vh;
+  margin:0 !important;border-radius:0 !important;border:none !important;
+  padding:0 !important;                     /* every pixel to the game */
+  gap:0 !important;
+  box-sizing:border-box;
+  display:flex !important;flex-direction:column;
+  justify-content:flex-start;
+  overflow:hidden !important;
+  background:var(--bg,#0a0d13);
+}
+/* HUD strip: compact flow row pinned to the top of the screen. */
+body.cr-fs .cr-hud,
+body.ft-playing.ft-immersive .cr-hud{
+  flex:none;margin:0;padding:5px 10px 1px;gap:8px;
+}
+/* Nitro meter directly under it, equally compact. */
+body.cr-fs .cr-meter-row,
+body.ft-playing.ft-immersive .cr-meter-row{
+  flex:none;margin:0 0 2px;padding:0 10px;
+}
+/* The stage takes EVERY remaining pixel and hosts the canvas plus the
+ * overlaid chips/touch pads/notice — all anchored inside it, so nothing
+ * can ever sit outside the visible viewport. */
+body.cr-fs .cr-stage,
+body.ft-playing.ft-immersive .cr-stage{
+  flex:1 1 auto;min-height:0;min-width:0;
+  max-width:none !important;width:100%;
+  margin:0 !important;
+  display:flex;align-items:center;justify-content:center;
+  border:none !important;border-radius:0 !important;
+  background:#05070a;
+}
+/* Title header hidden in fullscreen (title repeats in the chips row). */
+body.cr-fs .ft-panel-h,
+body.ft-playing.ft-immersive .ft-panel-h{display:none}
+/* The fullscreen notice stays anchored to the stage bottom-centre. */
+body.cr-fs .cr-fs-notice,
+body.ft-playing.ft-immersive .cr-fs-notice{z-index:6}
+/* Touch pads: safe-area aware on notched devices. */
+@media (hover:none) and (pointer:coarse){
+  body.cr-fs .cr-touch,
+  body.ft-playing.ft-immersive .cr-touch{
+    padding-bottom:env(safe-area-inset-bottom,0);
+  }
+}
+/* Inline play with chrome hidden (NOT native fullscreen / immersive —
+ * those un-cap the stage above): the panel fills the viewport width (the
+ * .cr-wide 900px cap below is overridden by this higher-specificity
+ * selector) and the stage keeps a HEIGHT-AWARE cap so the canvas plus the
+ * in-flow HUD/meter rows can never overflow the viewport bottom.
+ * :not() keeps this rule from leaking into the fullscreen layout, where
+ * the stage must span every remaining pixel. */
+body.ft-playing #crPanel{margin:0 auto;width:100%;max-width:none}
+/* FULLSCREEN/VIEWPORT FIX · the height allowance covers every row above
+ * the canvas in inline play (topbar 61 + content padding + panel padding
+ * ~26 + title header ~66 + HUD strip ~31 + nitro meter ~14 + flex gaps)
+ * plus the panel's bottom padding — measured ≈ 240px on a 1440x900
+ * window. The old 170px constant let the canvas bottom overflow the
+ * viewport by ~9-29px depending on zoom. */
+body.ft-playing:not(.cr-fs):not(.ft-immersive) .cr-stage{
+  max-width:min(100%,calc((100vh - 240px) * 16 / 9)) !important;
+  width:100%;
+}
+
+/* ---------- HACK THE TERMINAL fullscreen ----------
+ * The panel becomes a real console screen: a compact command deck on top
+ * (mission header + HUD), the terminal window taking every spare pixel in
+ * the middle, and the control bar docked to the bottom edge. The terminal
+ * itself is a flex COLUMN (bar / scrolling log / input row), so the log
+ * scrolls internally whatever its length — the input row can never be
+ * pushed off-screen. Keyboard focus is preserved by htFsBind(). */
+body.ht-fs #htPanel,
+body.ft-playing.ft-immersive #htPanel{
+  max-width:none;width:100vw;height:100vh;
+  margin:0;border-radius:0;border:none;
+  padding:clamp(8px,1.6vh,20px) clamp(12px,2.4vw,32px);
+  box-sizing:border-box;
+  display:flex;flex-direction:column;
+  gap:clamp(8px,1.2vh,14px);
+  overflow:hidden;
+  background:var(--bg,#0a0d13);
+}
+body.ht-fs #htPanel .ft-panel-h,
+body.ft-playing.ft-immersive #htPanel .ft-panel-h{display:none}   /* mission header replaces it */
+/* The terminal window absorbs all leftover height and manages its own
+ * internal scroll; the input row stays pinned inside it. */
+body.ht-fs .ht-term,
+body.ft-playing.ft-immersive .ht-term{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+body.ht-fs .ht-out,
+body.ft-playing.ft-immersive .ht-out{
+  flex:1 1 auto;min-height:0;height:auto;max-height:none;
+  font-size:clamp(12.5px,1.6vh,15.5px);line-height:1.72;
+}
+body.ht-fs .ht-in-row,
+body.ft-playing.ft-immersive .ht-in-row{margin-top:0;flex:none}
+body.ht-fs .si-help,
+body.ft-playing.ft-immersive .si-help{display:none}                /* hints live in the intro */
+/* Inline play with chrome hidden: the terminal fills the main column and
+ * still owns the full viewport height, so no dead band is left below it.
+ * flex:1 stretches the panel down the .content-inner column (which itself
+ * is min-height:100%), and the terminal window takes the surplus. */
+body.ft-playing #htPanel{
+  margin:0 auto;width:100%;
+  max-width:min(1180px,100%);
+  /* Fill the column, but never exceed the viewport: a long log must scroll
+     INSIDE .ht-out, not stretch the panel past the screen. While playing,
+     all dashboard chrome is hidden and the panel starts at the viewport
+     top, so 100vh is the exact available height. */
+  flex:1 1 auto;
+  min-height:0;
+  max-height:100vh;
+  overflow:hidden;
+}
+
+.si-help{
+  display:flex;gap:14px;flex-wrap:wrap;justify-content:center;
+  font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);
+}
+
+/* Touch pads: large targets, no text selection, no double-tap zoom. */
+.si-touch{
+  display:flex;gap:12px;justify-content:center;flex-wrap:wrap;
+}
+.si-pad{
+  font-family:var(--mono);font-size:14px;font-weight:700;cursor:pointer;
+  color:var(--ink-dim);background:var(--panel2);
+  border:1px solid var(--line2);border-radius:14px;
+  min-width:76px;min-height:56px;padding:0 20px;
+  user-select:none;-webkit-user-select:none;touch-action:none;
+  transition:color .12s,border-color .12s,background .12s;
+}
+.si-pad:hover{color:var(--ink);border-color:var(--ink-faint)}
+.si-pad:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.si-pad:active{background:rgba(94,242,192,.1);border-color:rgba(94,242,192,.4);color:var(--acc)}
+/* The middle pad is an indicator, not a control: firing is automatic. */
+.si-auto{
+  cursor:default;color:var(--acc);border-color:rgba(94,242,192,.3);
+  background:rgba(94,242,192,.06);font-size:11px;letter-spacing:.08em;
+}
+.si-auto:hover{color:var(--acc);border-color:rgba(94,242,192,.3)}
+
+@media (prefers-reduced-motion:reduce){
+  /* Gameplay itself is unaffected; only decorative twinkling is dropped
+   * (handled in siDraw via SIG.reducedMotion) and this banner fades
+   * instantly instead of animating. */
+  .si-wave-banner{transition:none}
+}
+/* Reduced motion: Fun Time's static styling uses only transitions, which
+   shell.css already collapses under prefers-reduced-motion. The Space
+   Invaders canvas is gameplay (not decoration) so it keeps running; its
+   decorative starfield twinkle is disabled in siDraw via
+   SIG.reducedMotion, and the wave banner stops fading (see above). */
+
+/* ---------- HACK THE TERMINAL (cyberpunk terminal game) ----------
+ * All classes namespaced ht- to avoid collisions with the other games.
+ * Theme: black terminal, neon green (--acc), cyan (--blue) and a touch of
+ * violet (--violet) on the dashboard's dark palette.
+ *
+ * Layout contract (windowed AND fullscreen):
+ *   #htPanel  — flex column: mission header / HUD / terminal / controls
+ *   .ht-term  — flex column: title bar / scrolling log / input row
+ *   .ht-out   — the ONLY scrolling element; it takes whatever height the
+ *               viewport leaves after the fixed rows, so the prompt row can
+ *               never be pushed off-screen by a long log. */
+
+/* Card art on the Fun Time selector. */
+.ft-card-art.ht{
+  background:
+    radial-gradient(circle at 30% 20%,rgba(94,242,192,.12),transparent 55%),
+    linear-gradient(180deg,rgba(180,140,255,.05),rgba(7,9,13,.55));
+}
+.ht-card-term{
+  width:min(230px,74%);color:var(--acc);
+  font-family:var(--mono);font-size:clamp(10px,1.7vw,13px);line-height:1.5;
+  border:1px solid rgba(94,242,192,.4);border-radius:10px;
+  padding:12px 14px;background:rgba(7,9,13,.72);
+  box-shadow:0 0 22px -6px rgba(94,242,192,.25), inset 0 0 30px rgba(94,242,192,.04);
+}
+.ht-card-term .ln{display:block;white-space:nowrap;overflow:hidden}
+.ht-card-term .c{color:var(--blue)}
+.ht-card-term .p{color:var(--violet)}
+.ht-card-term .ok{color:var(--acc);font-weight:700}
+.ht-card-term .cur{
+  display:inline-block;width:.62em;height:1.05em;vertical-align:-.18em;
+  background:var(--acc);animation:ht-blink 1.1s steps(1) infinite;
+}
+@keyframes ht-blink{50%{opacity:0}}
+
+/* Dedicated view: wide panel like Space Invaders. */
+.ft-game.ht-wide{max-width:900px}
+
+/* Mission header: one clear band with mission number + title, replacing
+ * the old ASCII ══ rules. Sits directly under the panel head. */
+.ht-mhead{
+  display:flex;align-items:center;gap:12px;min-width:0;
+  padding:9px 13px;border-radius:11px;
+  border:1px solid var(--line);
+  border-left:3px solid var(--acc);
+  background:linear-gradient(90deg,rgba(94,242,192,.07),rgba(16,20,29,.35) 55%);
+}
+.ht-mhead .ht-mnum{
+  flex:none;font-family:var(--mono);font-size:10px;font-weight:700;
+  letter-spacing:.12em;color:var(--acc);
+  text-transform:uppercase;
+  padding:4px 8px;border-radius:7px;
+  border:1px solid rgba(94,242,192,.32);background:rgba(94,242,192,.08);
+}
+.ht-mhead .ht-mtitle{
+  min-width:0;flex:1;font-size:clamp(13.5px,1.2vw,15.5px);font-weight:700;
+  letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.ht-mhead .ht-mmeta{
+  flex:none;font-family:var(--mono);font-size:10px;color:var(--ink-faint);
+  letter-spacing:.05em;white-space:nowrap;
+}
+@media (max-width:640px){
+  .ht-mhead{flex-wrap:wrap;gap:8px}
+  .ht-mhead .ht-mmeta{display:none}
+}
+
+/* HUD strip (mirrors si-hud). */
+.ht-hud{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.ht-hud .si-stat{cursor:default}
+.ht-timer.warn .si-v{color:var(--amber)}
+.ht-timer.crit .si-v{color:var(--red)}
+
+/* Terminal window. */
+.ht-term{
+  position:relative;border:1px solid var(--line);border-radius:12px;
+  background:#05070a;overflow:hidden;
+  box-shadow:inset 0 0 60px rgba(94,242,192,.03), 0 0 0 1px rgba(94,242,192,.04);
+  display:flex;flex-direction:column;min-height:0;
+  flex:1 1 auto;
+}
+.ht-term-bar{
+  display:flex;align-items:center;gap:8px;flex:none;
+  padding:8px 12px;border-bottom:1px solid var(--line);
+  background:rgba(16,20,29,.85);
+}
+.ht-dots{display:flex;gap:5px}
+.ht-dots i{width:9px;height:9px;border-radius:50%;background:var(--line2)}
+.ht-term-title{
+  flex:1;text-align:center;font-family:var(--mono);font-size:10px;
+  color:var(--ink-faint);letter-spacing:.1em;text-transform:uppercase;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  min-width:0;
+}
+.ht-net{font-family:var(--mono);font-size:9.5px;color:var(--acc);
+  letter-spacing:.06em;display:inline-flex;align-items:center;gap:5px;flex:none}
+.ht-net i{width:6px;height:6px;border-radius:50%;background:var(--acc);
+  animation:ht-pulse 2.2s ease-in-out infinite}
+@keyframes ht-pulse{50%{opacity:.25}}
+
+/* Output log: the single scrolling surface. Height is driven by the flex
+ * chain from the panel, with a sane floor/ceiling for very short or very
+ * tall viewports. */
+.ht-out{
+  flex:1 1 auto;min-height:200px;max-height:none;
+  overflow-y:auto;overscroll-behavior:contain;
+  padding:14px 18px;font-family:var(--mono);font-size:12.5px;line-height:1.7;
+  color:var(--acc);word-break:break-word;
+  scrollbar-width:thin;scrollbar-color:var(--line2) transparent;
+}
+.ht-out::-webkit-scrollbar{width:8px}
+.ht-out::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
+
+/* ---- Line semantics -------------------------------------------------
+ * Every line class gets colour PLUS a structural cue (weight, prefix or
+ * spacing) so meaning survives even without colour vision. */
+.ht-out .l-cmd{color:var(--ink);font-weight:600}
+.ht-out .l-cmd::before{content:'❯ ';color:var(--ink-faint);font-weight:400}
+.ht-out .l-sys{color:var(--ink-dim)}
+.ht-out .l-dim{color:var(--ink-dim)}
+.ht-out .l-err{color:var(--red);font-weight:600}
+.ht-out .l-warn{color:var(--amber)}
+.ht-out .l-cy{color:var(--blue)}
+.ht-out .l-vio{color:var(--violet)}
+.ht-out .l-ok{color:var(--acc);font-weight:700}
+.ht-out .l-big{font-size:14px;letter-spacing:.04em}
+/* Section label inside the log (INTEL, AVAILABLE COMMANDS, …): small caps
+ * eyebrow with a hairline rule — no more duplicated ══ bars. */
+.ht-out .l-hd{
+  display:flex;align-items:center;gap:10px;
+  margin:12px 0 6px;padding:0;
+  color:var(--acc);font-weight:700;font-size:10.5px;
+  letter-spacing:.14em;text-transform:uppercase;
+}
+.ht-out .l-hd::after{
+  content:'';flex:1;height:1px;
+  background:linear-gradient(90deg,rgba(94,242,192,.35),transparent);
+}
+/* Intelligence clues: their own visual group — indented, cyan, marked. */
+.ht-out .ht-clue{
+  display:block;position:relative;
+  padding:2px 0 2px 20px;color:var(--blue);
+}
+.ht-out .ht-clue::before{
+  content:'▸';position:absolute;left:4px;top:2px;
+  color:var(--ink-faint);font-size:11px;
+}
+/* Transcript blocks the simulation prints ($ system.connect() etc.) are
+ * dimmed so the operator's own echoed commands stand out. */
+.ht-out .l-sim{color:var(--ink-dim)}
+.ht-out .l-sim::before{content:'$ ';color:var(--ink-faint)}
+
+/* Input row with blinking block cursor. */
+.ht-in-row{
+  display:flex;align-items:center;gap:8px;flex:none;
+  padding:11px 16px;border-top:1px solid var(--line);
+  background:rgba(16,20,29,.65);
+}
+.ht-ps{font-family:var(--mono);font-size:12.5px;color:var(--acc);
+  white-space:nowrap;font-weight:700}
+.ht-input{
+  flex:1;min-width:0;background:transparent;border:none;outline:none;
+  font-family:var(--mono);font-size:13px;color:var(--ink);
+  caret-color:var(--acc);padding:2px 0;
+}
+.ht-input::placeholder{color:var(--ink-faint)}
+.ht-input:focus-visible{outline:none}   /* the row itself shows focus */
+.ht-in-row:focus-within{
+  box-shadow:inset 0 0 0 1px rgba(94,242,192,.45);
+  border-radius:0 0 12px 12px;
+}
+.ht-cur{
+  width:.62em;height:1.15em;background:var(--acc);flex:none;
+  animation:ht-blink 1.1s steps(1) infinite;
+}
+
+/* Scanlines + restrained glitch: pure CSS overlays, GPU-cheap, and both
+ * collapse under prefers-reduced-motion. */
+.ht-scan{
+  position:absolute;inset:0;pointer-events:none;z-index:1;
+  background:repeating-linear-gradient(180deg,
+    rgba(255,255,255,.022) 0 1px, transparent 1px 3px);
+  mix-blend-mode:overlay;
+}
+.ht-glitch{
+  position:absolute;inset:0;pointer-events:none;z-index:1;opacity:0;
+  background:linear-gradient(90deg,transparent 48%,rgba(111,183,255,.07) 50%,transparent 52%);
+}
+.ht-glitch.on{animation:ht-glitch .32s steps(2) 1}
+@keyframes ht-glitch{
+  0%{opacity:1;transform:translateX(-3px)}
+  40%{opacity:.75;transform:translateX(2px)}
+  100%{opacity:0;transform:none}
+}
+
+/* Control bar: docked to the terminal's bottom edge as part of the same
+ * visual unit (shared border, matching radius) instead of a loose row
+ * underneath. Wraps gracefully; primary action first, exit last. */
+.ht-controls{
+  display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:center;
+  flex:none;
+  padding:10px 12px;
+  border-top:1px solid var(--line);
+  background:rgba(16,20,29,.72);
+}
+/* The terminal frame provides the outer border+radius; the control bar
+   closes the bottom of that frame. */
+.ht-controls .ft-btn{padding:9px 15px}
+.ht-exit{text-decoration:none;display:inline-block}
+
+@media (prefers-reduced-motion:reduce){
+  .ht-card-term .cur,.ht-cur,.ht-net i{animation:none}
+  .ht-glitch.on{animation:none;opacity:0}
+  .ht-scan{display:none}
+}
+
+/* ---------- P1 · control overlays on the canvas ------------------------
+ * Compact corner chips (top-right) + touch pads (bottom corners).
+ * Semi-transparent so the road stays visible; pointer events only on
+ * the controls themselves. */
+/* Control chips: top-right over the canvas. FULLSCREEN/VIEWPORT FIX ·
+ * in fullscreen they clear the overlay HUD strip (top offset is larger
+ * there) so pause/restart/sound/fullscreen/exit stay clickable and fully
+ * visible at every viewport. */
+.cr-ctl-overlay{
+  position:absolute;top:10px;right:10px;z-index:5;
+  display:flex;gap:6px;align-items:center;
+}
+body.cr-fs .cr-ctl-overlay,
+body.ft-playing.ft-immersive .cr-ctl-overlay{top:44px}
+.cr-chip{
+  font-family:var(--mono);font-size:13px;line-height:1;
+  color:var(--ink-dim);
+  background:rgba(9,12,19,.55);
+  border:1px solid rgba(42,51,71,.8);border-radius:8px;
+  padding:6px 9px;cursor:pointer;
+  transition:color .15s,border-color .15s,background .15s;
+}
+.cr-chip:hover{color:var(--ink);border-color:var(--ink-faint)}
+.cr-chip[aria-pressed="true"]{color:var(--acc);border-color:var(--acc)}
+.cr-snd-lbl{display:none}
+
+/* Touch pads: overlaid at the bottom of the stage, split left/right so
+ * they never cover the player car in the centre.
+ * FULLSCREEN/VIEWPORT FIX · the pads are clamped inside the stage box
+ * (max-width:100%, no horizontal overflow) and wrap on narrow screens,
+ * so they can never be pushed outside the visible viewport. */
+.cr-touch-ov{
+  position:absolute;left:0;right:0;bottom:8px;z-index:5;
+  display:flex;justify-content:space-between;gap:8px;
+  padding:0 10px;pointer-events:none;   /* the row itself is transparent */
+  max-width:100%;flex-wrap:wrap;
+}
+.cr-touch-ov .cr-pad{pointer-events:auto} /* only the pads catch input */
+
+/* Controls row reuses .ft-btn; its full styling lives in the ht- block
+   above (docked to the terminal frame). */
+.ht-exit{text-decoration:none;display:inline-block}
+
+@media (prefers-reduced-motion:reduce){
+  .ht-card-term .cur,.ht-cur,.ht-net i{animation:none}
+  .ht-glitch.on{animation:none;opacity:0}
+  .ht-scan{display:none}
+}
+
+/* ---------- SOKET STREET RACING: CYBER RUSH (pseudo-3D racer) ----------
+ * All classes namespaced cr- to avoid collisions with the other games.
+ * Palette: night-city asphalt, neon magenta/violet accents (distinct from
+ * HT's green terminal and SI's pink invaders). */
+
+/* Card art on the Fun Time selector. */
+.ft-card-art.cr{
+  background:
+    radial-gradient(circle at 65% 30%,rgba(255,92,168,.13),transparent 55%),
+    linear-gradient(180deg,rgba(180,140,255,.07),rgba(7,9,13,.6));
+}
+.cr-card-scene{
+  position:relative;width:min(250px,80%);height:clamp(96px,15vw,132px);
+  display:block;overflow:hidden;
+}
+/* Perspective road: a trapezoid that narrows to a vanishing point. */
+.cr-card-road{
+  position:absolute;left:50%;bottom:0;transform:translateX(-50%);
+  width:120%;height:78%;
+  background:linear-gradient(180deg,#0d1117 0%,#141b26 100%);
+  clip-path:polygon(44% 0,56% 0,86% 100%,14% 100%);
+  border-bottom:2px solid rgba(255,92,168,.35);
+}
+.cr-card-lane{
+  position:absolute;left:50%;bottom:0;width:4px;height:70%;
+  transform-origin:bottom center;
+  background:repeating-linear-gradient(180deg,var(--acc) 0 10px,transparent 10px 22px);
+  opacity:.85;
+}
+.cr-card-lane.l{transform:translateX(-190%) skewX(-24deg)}
+.cr-card-lane.r{transform:translateX(190%) skewX(24deg)}
+.cr-card-car{
+  position:absolute;left:50%;bottom:8px;transform:translateX(-50%);
+  width:34px;height:20px;color:#ff5ca8;
+  filter:drop-shadow(0 0 8px rgba(255,92,168,.55));
+}
+.cr-card-car svg{display:block;width:100%;height:auto}
+.cr-card-glow{
+  position:absolute;left:50%;bottom:-14px;transform:translateX(-50%);
+  width:130px;height:26px;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(255,92,168,.3),transparent);
+}
+
+/* Dedicated view: wide panel like the other canvas games. */
+.ft-game.cr-wide{max-width:900px}
+
+/* HUD strip (mirrors si-hud/ht-hud). */
+/* P1.2 · one horizontal row, never wraps. Compact stats that scale
+ * down gracefully on narrow viewports instead of breaking the row. */
+.cr-hud{
+  display:flex;gap:6px;flex-wrap:nowrap;justify-content:center;
+  min-width:0;overflow:hidden;
+}
+.cr-hud .si-stat{padding:4px 8px;gap:5px;border-radius:8px}
+.cr-hud .si-k{font-size:8.5px;letter-spacing:.08em;color:var(--ink-dim)}
+.cr-hud .si-v{font-size:13.5px}
+@media (max-width:900px){
+  .cr-hud{gap:4px}
+  .cr-hud .si-stat{padding:3px 6px}
+  .cr-hud .si-k{font-size:7.5px}
+  .cr-hud .si-v{font-size:12px}
+}
+.cr-hud .si-stat{cursor:default}
+.cr-nitro .si-v{color:var(--violet)}
+
+/* Stage wrapper: keeps the canvas letterboxed and centered.
+ * FULLSCREEN FIX · windowed cap is now purely height-aware (the old
+ * flat 760px ceiling wasted half the panel): the canvas may use any
+ * width so long as its 16/9 design aspect (960x540) still fits under the
+ * viewport minus the dashboard chrome. Fullscreen/immersive paths un-cap
+ * this entirely (see the body.* overrides above, where crResize() owns
+ * the fit). */
+.cr-stage{
+  position:relative;width:100%;margin:0 auto;
+  border-radius:12px;overflow:hidden;
+  border:1px solid var(--line);
+  background:#05070a;
+  max-width:min(100%,calc((100vh - 320px) * 16 / 9));
+}
+#crCanvas{display:block;width:100%;height:auto;touch-action:none}
+/* Overlay: Ready / Paused / Game Over / Result / Menus.
+ * FULLSCREEN FIX · removed backdrop-filter (it smeared the attract scene
+ * into mud and cost GPU on every frame) and dropped the scrim from .86:
+ * menu screens get a lighter .55 wash so the neon skyline stays visible,
+ * while pause/results keep a denser .68 for stat readability. The
+ * `cr-scrim-heavy` class is toggled by crScreen()/crOverlay(). */
+.cr-overlay{
+  position:absolute;inset:0;display:grid;place-items:center;
+  background:rgba(7,9,13,.55);z-index:2;
+}
+.cr-overlay.cr-scrim-heavy{background:rgba(7,9,13,.68)}
+.cr-overlay.hidden{display:none}
+.cr-ov-inner{
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+  padding:22px 26px;text-align:center;max-width:92%;
+}
+.cr-ov-title{font-size:clamp(19px,3.4vw,26px);font-weight:800;letter-spacing:-.01em}
+.cr-ov-sub{
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);
+  line-height:1.65;max-width:360px;
+}
+.cr-ov-stats{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));
+  gap:8px;width:100%;max-width:420px;margin-top:2px;
+}
+.cr-ov-stat{
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:9px 8px;min-width:0;
+}
+.cr-ov-stat .k{display:block;font-family:var(--mono);font-size:9px;
+  color:var(--ink-faint);text-transform:uppercase;letter-spacing:.11em}
+.cr-ov-stat .v{display:block;font-size:17px;font-weight:800;margin-top:3px;
+  font-variant-numeric:tabular-nums}
+
+/* Nitro meter under the HUD. */
+.cr-meter-row{
+  display:flex;align-items:center;gap:10px;justify-content:center;
+  margin:2px 0 4px;
+}
+.cr-meter-k{
+  font-family:var(--mono);font-size:9px;color:var(--ink-faint);
+  text-transform:uppercase;letter-spacing:.11em;
+}
+.cr-meter{
+  flex:1;max-width:340px;height:10px;border-radius:6px;overflow:hidden;
+  background:var(--panel2);border:1px solid var(--line);
+}
+.cr-meter-fill{
+  height:100%;width:100%;border-radius:5px;
+  background:linear-gradient(90deg,var(--violet),var(--blue));
+  transition:width .12s linear;
+}
+.cr-meter.ready .cr-meter-fill{
+  background:linear-gradient(90deg,var(--acc),var(--blue));
+  box-shadow:0 0 10px rgba(94,242,192,.45);
+}
+
+/* Touch controls: steer + brake + nitro. */
+/* P1: touch pads show only on coarse pointers; keyboard otherwise. */
+@media (hover:hover) and (pointer:fine){
+  .cr-touch-ov{opacity:.28}
+  .cr-touch-ov .cr-pad{pointer-events:none}
+  .cr-touch-ov:hover{opacity:1}
+  .cr-touch-ov:hover .cr-pad{pointer-events:auto}
+}
+.cr-pad{
+  min-width:64px;min-height:52px;padding:8px 14px;
+  font-family:var(--mono);font-size:13px;font-weight:700;
+  color:var(--ink-dim);background:var(--panel2);
+  border:1px solid var(--line2);border-radius:12px;
+  touch-action:none;user-select:none;-webkit-user-select:none;
+}
+.cr-pad:active{color:var(--ink);border-color:var(--ink-faint)}
+.cr-pad.nitro{color:var(--violet);border-color:rgba(180,140,255,.4)}
+.cr-pad.drift{color:#5ef2c0;border-color:rgba(94,242,192,.35)}
+
+/* Fullscreen notice (same shape as SI's). */
+/* Live drift read-out in the HUD: glows while a drift is accruing. */
+.cr-drift .si-v, .cr-drift{font-weight:700}
+.cr-drift{color:var(--acc);opacity:0;transition:opacity .15s;letter-spacing:.04em}
+.cr-drift.on{opacity:1;text-shadow:0 0 12px rgba(94,242,192,.55)}
+
+/* PHASE 4 · combo chain read-out: violet glow while the chain is live. */
+.cr-combo{
+  color:var(--violet);font-weight:800;letter-spacing:.05em;
+  text-shadow:0 0 12px rgba(180,140,255,.6);
+  transition:opacity .18s;
+}
+.cr-combo.hidden{display:none}
+
+/* PHASE 4 · results rating tile: accent-bordered hero stat. */
+.cr-ov-rating{border-color:rgba(94,242,192,.4)}
+.cr-ov-rating .v{color:var(--acc);text-shadow:0 0 14px rgba(94,242,192,.45)}
+
+/* PHASE 4 · HUD strip may wrap on narrow screens; keep stats compact. */
+.cr-hud .si-stat .si-v{font-variant-numeric:tabular-nums}
+
+.cr-fs-notice{
+  position:absolute;left:50%;bottom:10px;transform:translateX(-50%);
+  font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);
+  background:rgba(7,9,13,.9);border:1px solid var(--line);
+  border-radius:8px;padding:6px 12px;opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:3;white-space:nowrap;
+}
+.cr-fs-notice.show{opacity:1}
+
+
+/* ===================== PHASE 6 · menus, garage, records ================ */
+/* Menu screens sit inside .cr-overlay; only one is visible at a time. */
+.cr-menu{gap:14px}
+.cr-menu-btns{display:flex;flex-direction:column;gap:8px;min-width:230px}
+.cr-menu-foot{
+  font-family:var(--mono);font-size:10px;color:var(--ink-faint);
+  letter-spacing:.08em;text-transform:uppercase;
+}
+
+/* FULLSCREEN FIX · while ANY menu screen is up (main menu, difficulty,
+ * garage, records, championship) the racing HUD strip and the nitro meter
+ * row are hidden — they belong to a live race, not the attract scene.
+ * `#crPanel.cr-menu-on` is toggled by crScreen()/crScreenHide(). The
+ * control chips (.cr-ctl-overlay) live OUTSIDE #crOverlay and are NOT
+ * affected: Pause/Restart/Sound/Fullscreen/Exit stay reachable. */
+#crPanel.cr-menu-on .cr-hud,
+#crPanel.cr-menu-on .cr-meter-row{display:none}
+/* While the HUD rows are hidden the stage takes their place: let it grow
+ * so the attract scene fills the panel instead of leaving dead bands. */
+#crPanel.cr-menu-on .cr-stage{flex:1 1 auto;min-height:0}
+.cr-diff-note{
+  font-family:var(--mono);font-size:11px;color:var(--ink-dim);
+  max-width:320px;line-height:1.6;
+}
+.cr-back{align-self:center}
+
+/* Garage: car grid + customizer. */
+.cr-garage{max-width:640px;width:100%}
+.cr-garage-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:10px;width:100%;
+}
+.cr-car-card{
+  display:flex;flex-direction:column;gap:6px;align-items:center;
+  background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+  padding:10px 8px;cursor:pointer;color:inherit;font:inherit;
+  transition:border-color .15s, transform .15s, box-shadow .15s;
+  position:relative;
+}
+.cr-car-card:hover{transform:translateY(-2px)}
+.cr-car-card.sel{
+  border-color:var(--acc);
+  box-shadow:0 0 0 1px var(--acc), 0 6px 18px rgba(94,242,192,.14);
+}
+.cr-car-card.locked{opacity:.55;cursor:not-allowed}
+.cr-car-card.locked:hover{transform:none}
+.cr-car-name{font-weight:800;font-size:13px;letter-spacing:.02em}
+.cr-car-desc{
+  font-family:var(--mono);font-size:9.5px;color:var(--ink-dim);
+  line-height:1.5;min-height:28px;text-align:center;
+}
+.cr-car-stats{display:flex;flex-direction:column;gap:3px;width:100%;padding:0 6px}
+.cr-car-stats i{display:flex;align-items:center;gap:6px;font-style:normal;
+  font-family:var(--mono);font-size:8.5px;color:var(--ink-faint)}
+.cr-car-stats b{width:34px;text-transform:uppercase;letter-spacing:.06em}
+.cr-car-stats span{
+  flex:1;height:4px;border-radius:2px;background:var(--panel);
+  overflow:hidden;position:relative;
+}
+.cr-car-stats span::after{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:inherit;
+  background:linear-gradient(90deg,var(--acc),var(--blue));border-radius:2px;
+}
+.cr-car-lock{
+  font-family:var(--mono);font-size:9px;color:#ffc857;letter-spacing:.04em;
+}
+.cr-car-card canvas{width:100%;height:auto}
+
+/* Customization panel. */
+.cr-garage-custom{
+  width:100%;display:flex;flex-direction:column;gap:8px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;
+}
+.cr-cust-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cr-cust-row>label{
+  font-family:var(--mono);font-size:9px;color:var(--ink-faint);
+  text-transform:uppercase;letter-spacing:.11em;width:52px;
+}
+.cr-sw-row{display:flex;gap:6px;flex-wrap:wrap}
+.cr-neon-sw{
+  width:22px;height:22px;border-radius:50%;border:2px solid transparent;
+  cursor:pointer;padding:0;
+}
+.cr-neon-sw.sel{border-color:#fff;box-shadow:0 0 10px currentColor}
+.cr-opt-row{display:flex;gap:6px;flex-wrap:wrap}
+.cr-opt-row button, .cr-cust-row button{
+  font-family:var(--mono);font-size:10px;padding:5px 10px;border-radius:8px;
+  background:var(--panel);border:1px solid var(--line);color:var(--ink-dim);
+  cursor:pointer;
+}
+.cr-opt-row button.sel{
+  color:var(--acc);border-color:rgba(94,242,192,.5);
+  box-shadow:0 0 8px rgba(94,242,192,.18);
+}
+.cr-opt-row button.locked{opacity:.5}
+#crPlateIn{
+  font-family:var(--mono);font-size:12px;letter-spacing:.14em;
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  color:var(--ink);padding:5px 10px;width:120px;text-transform:uppercase;
+}
+.cr-garage-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+
+/* Records + achievements. */
+.cr-rec-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+  gap:8px;width:100%;max-width:520px;
+}
+.cr-rec{
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:8px 10px;display:flex;flex-direction:column;gap:2px;
+}
+.cr-rec .k{font-family:var(--mono);font-size:8.5px;color:var(--ink-faint);
+  text-transform:uppercase;letter-spacing:.1em}
+.cr-rec .v{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums}
+.cr-ach-list{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+  gap:6px;width:100%;max-width:560px;max-height:180px;overflow-y:auto;
+  padding-right:4px;
+}
+.cr-ach{
+  display:flex;gap:8px;align-items:center;
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:7px 10px;opacity:.5;
+}
+.cr-ach.got{
+  opacity:1;border-color:rgba(94,242,192,.35);
+}
+.cr-ach .ico{font-size:17px}
+.cr-ach .tx{display:flex;flex-direction:column;line-height:1.3}
+.cr-ach .tx b{font-size:11.5px}
+.cr-ach .tx i{font-style:normal;font-family:var(--mono);font-size:9px;
+  color:var(--ink-dim)}
+
+/* Championship. */
+.cr-champ-body{max-width:480px;width:100%;text-align:left}
+.cr-champ-evs{list-style:none;display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.cr-champ-evs li{
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:8px 12px;font-size:12px;display:flex;justify-content:space-between;
+  gap:8px;flex-wrap:wrap;align-items:center;
+}
+.cr-champ-evs li.done{opacity:.75}
+.cr-champ-evs li.next{border-color:rgba(94,242,192,.45)}
+.cr-champ-evs .res{font-family:var(--mono);font-size:10px;color:var(--acc)}
+.cr-champ-pts{font-family:var(--mono);font-size:11px;color:var(--ink-dim)}
+.cr-champ-note{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint)}
+.cr-champ-table{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
+.cr-champ-table th{
+  font-family:var(--mono);font-size:8.5px;color:var(--ink-faint);
+  text-transform:uppercase;letter-spacing:.1em;text-align:left;padding:4px 8px;
+}
+.cr-champ-table td{padding:4px 8px;border-top:1px solid var(--line)}
+h4{margin:14px 0 4px;font-size:12px;letter-spacing:.04em}
+
+/* Results progression line. */
+.cr-ov-progress{display:flex;flex-direction:column;gap:4px;max-width:420px}
+.cr-prog{
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.03em;
+  padding:5px 10px;border-radius:8px;background:var(--panel2);
+  border:1px solid var(--line);
+}
+.cr-prog.rec{color:var(--acc);border-color:rgba(94,242,192,.35)}
+.cr-prog.ach{color:#ffc857;border-color:rgba(255,200,87,.3)}
+.cr-prog.unlk{color:var(--violet);border-color:rgba(180,140,255,.35)}
+.cr-prog.champ{color:#ff5ca8;border-color:rgba(255,92,168,.35)}
+
+@media (prefers-reduced-motion:reduce){
+  .cr-car-card:hover{transform:none}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .cr-meter-fill{transition:none}
+  .cr-card-lane{animation:none}
+  .cr-card-car{filter:none}
+}
+
+/* Internal evaluation workspaces ---------------------------
+ * Six read-only surfaces over the internal_eval kit (question banks,
+ * datasets, benchmarks, model evaluations, reports, tools). They reuse the
+ * console's own tokens so they read as native workspaces. */
+.ev-portal-head{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  margin:26px 0 14px;flex-wrap:wrap;
+}
+.ev-portal-t{
+  font-family:var(--mono);font-size:11px;color:var(--acc);letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.ev-portal-s{color:var(--ink-dim);font-size:12.5px;margin-top:4px}
+/* The eval grid uses the same card component but a denser 3-column layout
+ * (six cards → two balanced rows on desktop). */
+.ev-grid{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+@media (min-width:1151px){ body.ws-launcher .ev-grid{grid-template-columns:repeat(3,1fr)} }
+.ev-select{
+  background:var(--bg);border:1px solid var(--line2);color:var(--ink);
+  border-radius:10px;padding:6px 11px;font-family:var(--mono);font-size:11.5px;
+  outline:none;cursor:pointer;transition:border-color .15s;
+}
+.ev-select:hover{border-color:var(--acc-dim)}
+.ev-select:focus-visible{border-color:var(--acc)}
+.ev-facets{display:flex;flex-direction:column;gap:9px;margin-bottom:16px}
+.ev-facet{display:flex;gap:12px;align-items:flex-start}
+.ev-facet-k{
+  font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);text-transform:uppercase;
+  letter-spacing:.1em;min-width:74px;padding-top:5px;flex-shrink:0;
+}
+.ev-facet-v{display:flex;flex-wrap:wrap;gap:5px;min-width:0}
+.ev-chip{
+  display:inline-flex;align-items:center;gap:6px;background:var(--panel);
+  border:1px solid var(--line2);color:var(--ink-dim);border-radius:20px;
+  padding:3px 10px;font-family:var(--mono);font-size:10.5px;cursor:pointer;
+  transition:all .13s;white-space:nowrap;
+}
+.ev-chip span{color:var(--ink-faint);font-size:9.5px}
+.ev-chip:hover{color:var(--ink);border-color:var(--acc-dim)}
+.ev-chip.on{
+  color:var(--acc);border-color:rgba(94,242,192,.32);background:rgba(94,242,192,.07);
+}
+.ev-chip.on span{color:var(--acc-dim)}
+.ev-chip.static{cursor:default}
+.ev-chip-row{display:flex;flex-wrap:wrap;gap:6px}
+.ev-pre{
+  margin:0;padding:16px 18px;overflow:auto;max-height:60vh;
+  font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--ink-dim);
+  white-space:pre-wrap;word-break:break-word;
+}
+.ev-two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+@media (max-width:1000px){.ev-two-col{grid-template-columns:1fr}}
+.ev-doc-link{
+  display:flex;flex-direction:column;align-items:flex-start;gap:3px;width:100%;
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:11px 14px;cursor:pointer;text-align:left;transition:all .14s;
+}
+.ev-doc-link:hover{border-color:var(--acc-dim);background:var(--panel)}
+.ev-doc-link-t{font-size:13px;font-weight:600;color:var(--ink)}
+.ev-doc-link-s{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint)}
+.ev-run-body{padding:16px 18px;display:flex;flex-direction:column;gap:16px}
+.ev-sub-h{
+  font-family:var(--mono);font-size:10px;color:var(--ink-faint);text-transform:uppercase;
+  letter-spacing:.1em;margin-bottom:8px;
+}
+.ev-big-acc{
+  font-size:26px;font-weight:800;color:var(--acc);letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
+}
+.ev-stat{
+  font-family:var(--mono);font-size:11px;color:var(--ink-dim);
+  background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+  padding:6px 11px;
+}
+.ev-stat b{color:var(--ink);font-weight:700}
+.ev-sum-row{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:12px 15px;
+}
+.ev-sum-t{font-size:13.5px;font-weight:600}
+.ev-sum-s{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-top:2px}
+.ev-sum-acc{
+  font-size:21px;font-weight:800;color:var(--acc);letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;flex-shrink:0;
+}
+.ev-md{
+  padding:18px 22px;max-width:900px;font-size:13.5px;line-height:1.75;color:var(--ink-dim);
+}
+.ev-md h1,.ev-md h2,.ev-md h3{color:var(--ink);letter-spacing:-.01em;margin:22px 0 10px}
+.ev-md h1{font-size:21px}.ev-md h2{font-size:17px}.ev-md h3{font-size:14.5px}
+.ev-md h1:first-child{margin-top:0}
+.ev-md p{margin:10px 0}
+.ev-md ul,.ev-md ol{margin:10px 0 10px 22px}
+.ev-md li{margin:4px 0}
+.ev-md code{
+  font-family:var(--mono);font-size:11.5px;background:var(--panel2);
+  border:1px solid var(--line);border-radius:5px;padding:1.5px 5px;color:var(--ink);
+}
+.ev-md pre{
+  background:var(--bg);border:1px solid var(--line);border-radius:10px;
+  padding:13px 15px;overflow-x:auto;margin:12px 0;
+}
+.ev-md pre code{background:none;border:none;padding:0}
+.ev-md table{width:auto;min-width:420px;margin:12px 0;border:1px solid var(--line);border-radius:10px}
+.ev-md th,.ev-md td{padding:8px 12px;font-size:12px}
+.ev-md a{color:var(--acc)}
+.ev-md blockquote{
+  border-left:3px solid var(--acc-dim);margin:12px 0;padding:4px 0 4px 14px;color:var(--ink-faint);
+}
+
+/* Launcher grid with five cards: 3 + 2 on wide desktops (balanced rows),
+ * 2 columns on tablet, one column on phones. The internal-evaluation grid
+ * below it keeps its own denser 3-column layout at the same breakpoint. */
+@media (min-width:1151px){
+  body.ws-launcher .ws-grid{grid-template-columns:repeat(3,1fr)}
+  body.ws-launcher .ev-grid{grid-template-columns:repeat(3,1fr)}
+}
+
+.ws-card{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+  padding:clamp(20px,2.2vw,30px);display:flex;flex-direction:column;gap:14px;position:relative;
+  overflow:hidden;--ws:var(--acc);min-height:0;
+  /* The card itself is the link (workspace-selection screen). */
+  text-decoration:none;color:inherit;
+  transition:border-color .15s, transform .15s, box-shadow .15s;
+}
+body.ws-launcher .ws-card{justify-content:space-between;gap:clamp(10px,2.2vh,22px)}
+/* Large cards: the title band centers in the space above the anchored
+ * Open action, so the card's middle reads as breathing room, not a dead
+ * zone squeezed between two fixed gaps. */
+body.ws-launcher .ws-head{flex:1;align-items:center}
+.ws-card:hover{
+  border-color:color-mix(in srgb,var(--ws) 50%,transparent);
+  transform:translateY(-2px);
+  box-shadow:0 10px 30px -12px rgba(94,242,192,.18);
+}
+.ws-card:focus-visible{outline:2px solid var(--ws);outline-offset:2px}
+.ws-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--ws);opacity:.75}
+.ws-head{display:flex;align-items:flex-start;gap:14px}
+.ws-ico{
+  width:clamp(38px,3vw,46px);height:clamp(38px,3vw,46px);flex-shrink:0;border-radius:11px;display:grid;place-items:center;
+  color:var(--ws);background:color-mix(in srgb,var(--ws) 10%,transparent);
+  border:1px solid color-mix(in srgb,var(--ws) 26%,transparent);
+}
+.ws-ico svg{width:20px;height:20px}
+.ws-title{flex:1;min-width:0}
+.ws-name{font-size:clamp(15.5px,1.35vw,19px);font-weight:700;letter-spacing:-.01em}
+.ws-blurb{font-size:clamp(12px,1vw,13.5px);color:var(--ink-dim);margin-top:6px;line-height:1.55}
+/* Launcher mode: badge sits under the title row instead of squeezing it. */
+body.ws-launcher .ws-badge{margin-left:auto}
+/* Collapse to one column when the viewport is too narrow for two usable
+ * cards side by side; keep every card visible without scroll where the
+ * height allows (cards shrink with the grid, never clip). */
+@media (max-width:900px){
+  body.ws-launcher .ws-grid{grid-template-columns:1fr;grid-auto-rows:minmax(170px,auto)}
+  body.ws-launcher .ev-grid{grid-template-columns:1fr;grid-auto-rows:minmax(150px,auto)}
+  body.ws-launcher .content-inner{padding:20px 20px 16px}
+  body.ws-launcher .portal-sub{display:none}
+}
+.ws-badge{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;
+  padding:3px 8px;border-radius:20px;border:1px solid var(--line2);color:var(--ink-faint);
+  white-space:nowrap;flex-shrink:0;
+}
+.ws-badge.ok{color:var(--acc);border-color:rgba(94,242,192,.32);background:rgba(94,242,192,.07)}
+.ws-badge.idle{color:var(--blue);border-color:rgba(111,183,255,.3);background:rgba(111,183,255,.06)}
+.ws-badge.warn{color:var(--amber);border-color:rgba(255,200,87,.3);background:rgba(255,200,87,.06)}
+.ws-badge.err{color:var(--red);border-color:rgba(255,107,129,.32);background:rgba(255,107,129,.07)}
+.ws-badge.na{color:var(--ink-faint)}
+.ws-badge.sk{animation:pulse 1.6s infinite}
+
+.ws-metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;flex:1}
+.ws-metric{min-width:0}
+.ws-mk{font-family:var(--mono);font-size:9px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.11em}
+.ws-mv{font-size:16.5px;font-weight:700;letter-spacing:-.01em;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws-ms{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws-mv .dim{color:var(--ink-faint);font-weight:500;font-size:12.5px}
+.ws-mv .na{color:var(--ink-faint);font-weight:500;font-size:12.5px}
+.ws-error{
+  grid-column:1/-1;font-family:var(--mono);font-size:11px;color:var(--red);
+  background:rgba(255,107,129,.06);border:1px solid rgba(255,107,129,.22);
+  border-radius:9px;padding:10px 12px;word-break:break-word;
+}
+.ws-note{
+  grid-column:1/-1;font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);
+  line-height:1.6;word-break:break-word;
+}
+.ws-foot{display:flex;justify-content:flex-end}
+.ws-open{
+  font-family:var(--mono);font-size:11px;color:var(--ws);
+  padding:7px 12px;border-radius:9px;border:1px solid color-mix(in srgb,var(--ws) 30%,transparent);
+  display:inline-block;
+}
+.ws-card:hover .ws-open{background:color-mix(in srgb,var(--ws) 10%,transparent)}
+
+.sk-line{
+  height:11px;border-radius:6px;background:linear-gradient(90deg,var(--panel2) 25%,var(--line) 50%,var(--panel2) 75%);
+  background-size:200% 100%;animation:shimmer 1.4s infinite;
+}
+.sk-line.short{width:55%}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* Activity: one column per real source. No synthetic unified feed. */
+.act-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;padding:16px 18px}
+.act-col{min-width:0}
+.act-src{
+  font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);text-transform:uppercase;
+  letter-spacing:.11em;margin-bottom:9px;padding-bottom:7px;border-bottom:1px solid var(--line);
+}
+.act-table{width:100%;border-collapse:collapse}
+.act-table td{padding:5px 6px 5px 0;font-size:11.5px;vertical-align:middle;max-width:0}
+.act-k{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act-m{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act-s{font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);white-space:nowrap}
+.act-t{font-family:var(--mono);font-size:10px;color:var(--ink-faint);white-space:nowrap;text-align:right}
+.empty-note{
+  padding:26px 18px;font-family:var(--mono);font-size:11px;color:var(--ink-faint);
+  text-align:center;line-height:1.7;
+}
+@media (max-width:720px){
+  .ws-metrics{grid-template-columns:1fr}
+  .act-grid{grid-template-columns:1fr}
+}
+
+/* ---------- navigation groups (Loop shell) ---------- */
+.nav-group{
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;color:var(--ink-faint);
+  text-transform:uppercase;padding:12px 12px 4px;user-select:none;white-space:nowrap;
+}
+.nav .nav-group:first-child{padding-top:2px}
+a.nav-item{text-decoration:none;display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:10px;cursor:pointer;color:var(--ink-dim);font-weight:500;font-size:13.5px;white-space:nowrap;border:1px solid transparent;transition:all .16s}
+a.nav-item:hover{color:var(--ink);background:var(--panel)}
+a.nav-item:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* ---------- pipeline workspaces ---------- */
+.stage-chip{
+  display:inline-block;font-family:var(--mono);font-size:9.5px;padding:2px 7px;
+  border-radius:6px;background:var(--panel2);border:1px solid var(--line2);
+  color:var(--ink-dim);margin:1px 2px 1px 0;white-space:nowrap;
+}
+.lang-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.lang-k{font-family:var(--mono);font-size:11px;color:var(--ink-dim);width:76px;flex-shrink:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lang-bar{flex:1;height:7px;border-radius:5px;background:var(--bg);border:1px solid var(--line);overflow:hidden}
+.lang-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc-dim),var(--acc));border-radius:5px}
+.lang-v{font-family:var(--mono);font-size:10px;color:var(--ink-faint);width:110px;text-align:right;flex-shrink:0}
+.stage-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.stage-card{
+  background:var(--bg2);border:1px solid var(--line);border-radius:11px;padding:14px 15px;
+  display:flex;flex-direction:column;gap:11px;min-width:0;
+}
+.stage-head{display:flex;gap:11px;align-items:flex-start}
+.stage-num{
+  font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--amber);
+  border:1px solid rgba(255,200,87,.3);background:rgba(255,200,87,.07);
+  border-radius:7px;padding:3px 7px;flex-shrink:0;
+}
+.stage-name{font-size:13.5px;font-weight:600}
+.stage-id{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);margin-top:2px}
+.stage-bars{display:flex;flex-direction:column;gap:6px}
+.stage-bar-row{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
+.stage-bar-row span{width:38px;flex-shrink:0}
+.stage-bar-row b{color:var(--ink-dim);width:44px;text-align:right;flex-shrink:0}
+.stage-stats{display:flex;flex-direction:column;gap:3px;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim)}
+.stage-reasons{border-top:1px dashed var(--line);padding-top:9px}
+.reason-row{display:flex;justify-content:space-between;gap:10px;font-family:var(--mono);font-size:10px;margin-top:4px}
+.reason-k{color:var(--red);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reason-v{color:var(--ink-faint);white-space:nowrap}
+.stage-path{
+  font-family:var(--mono);font-size:9px;color:var(--ink-faint);word-break:break-all;
+  border-top:1px solid var(--line);padding-top:8px;margin-top:auto;
+}
+.dim{color:var(--ink-faint)}
+
+/* ---------- embedded mode ----------
+ * When mounted inside the unified dashboard's iframe, hide the guest's own
+ * sidebar and topbar — the shell supplies navigation and page titles. The
+ * content fills the frame; the toast stays (useful feedback for copies,
+ * deletes and saves made from inside the frame).
+ */
+html.embedded .sidebar{display:none}
+html.embedded .topbar{display:none}
+html.embedded .app{height:100%}
+html.embedded .chat-layout{height:calc(100vh - 0px)}
+/* Guest's own hash routing still works in the frame; its nav is hidden but
+ * the router remains driven by the shell repointing location.hash. */
+
+@media (max-width:900px){
+  .conv-list{display:none}
+  .chat-scroll,.composer-wrap{padding-left:14px;padding-right:14px}
+  .wf-label{width:120px}
+  .wf-track{left:130px}
+  .wf-axis{margin-left:130px}
+  .sidebar{width:58px}
+  .nav-item span,.brand-txt,.side-foot{display:none}
+}
+
+/* ============================================================
+   DIAGRAM SHELL STYLES (shared by #pretrain/architecture and
+   #sft/workflow). The pretraining architecture view embeds the
+   prebuilt pipeline_architecture.html in an iframe; the SFT workflow
+   view uses the pan/zoom engine directly. Both share this toolbar.
+   ============================================================ */
+
+/* Entry card on the stage view */
+.pa-entry{
+  display:flex;align-items:center;justify-content:space-between;gap:18px;
+  background:linear-gradient(135deg,var(--panel),var(--panel2));
+  border:1px solid var(--line2);border-radius:var(--rad);
+  padding:16px 20px;margin-bottom:18px;
+}
+.pa-entry-t{font-weight:600;font-size:14.5px}
+.pa-entry-s{color:var(--ink-dim);font-size:12.5px;margin-top:3px;max-width:640px}
+.pa-entry-btn{
+  display:inline-flex;align-items:center;gap:8px;flex-shrink:0;
+  color:var(--acc);text-decoration:none;font-weight:600;font-size:13px;
+  border:1px solid rgba(94,242,192,.3);background:rgba(94,242,192,.07);
+  padding:9px 15px;border-radius:10px;transition:all .16s;white-space:nowrap;
+}
+.pa-entry-btn:hover{background:rgba(94,242,192,.14);border-color:rgba(94,242,192,.5)}
+.pa-entry-btn svg{width:15px;height:15px}
+
+/* Layout */
+.pa-wrap{max-width:none;padding-bottom:26px}
+.pa-toolbar{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  margin-bottom:12px;flex-wrap:wrap;
+}
+.pa-toolbar-l,.pa-toolbar-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pa-sep{width:1px;height:20px;background:var(--line2);margin:0 4px}
+.pa-btn{
+  display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+  background:var(--panel2);border:1px solid var(--line2);color:var(--ink-dim);
+  font-family:var(--sans);font-size:12.5px;font-weight:500;
+  padding:7px 13px;border-radius:9px;transition:all .15s;
+}
+.pa-btn:hover{color:var(--ink);border-color:var(--acc-dim);background:var(--panel)}
+.pa-btn:disabled{opacity:.4;cursor:not-allowed}
+.pa-btn svg{width:14px;height:14px}
+.pa-zoom-btn{min-width:34px;justify-content:center;font-size:15px;line-height:1;padding:6px 0}
+.pa-zoom-pct{
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);
+  min-width:44px;text-align:center;
+}
+
+.pa-stage-row{display:flex;gap:14px;align-items:stretch}
+.pa-viewport{
+  position:relative;flex:1;min-width:0;height:calc(100vh - 250px);min-height:520px;
+  background:
+    radial-gradient(900px 420px at 70% -10%, rgba(94,242,192,.045), transparent 60%),
+    radial-gradient(700px 380px at 0% 110%, rgba(180,140,255,.04), transparent 60%),
+    var(--bg2);
+  border:1px solid var(--line);border-radius:var(--rad);
+  overflow:hidden;cursor:grab;touch-action:none;
+}
+.pa-viewport:active{cursor:grabbing}
+.pa-world{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
+.pa-hint{
+  position:absolute;left:14px;bottom:12px;pointer-events:none;
+  font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);
+  background:rgba(7,9,13,.72);padding:5px 10px;border-radius:7px;
+  border:1px solid var(--line);
+}
+
+/* Details panel */
+.pa-detail{
+  width:330px;flex-shrink:0;display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+  overflow:hidden;
+}
+.pa-detail-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+  padding:16px 18px 13px;border-bottom:1px solid var(--line);
+}
+.pa-detail-group{
+  font-family:var(--mono);font-size:10px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-faint);margin-bottom:4px;
+}
+.pa-detail-title{font-weight:600;font-size:15px;line-height:1.35}
+.pa-badge{
+  flex-shrink:0;font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;
+  padding:4px 9px;border-radius:20px;white-space:nowrap;margin-top:2px;
+}
+.pa-badge-built{color:var(--acc);background:rgba(94,242,192,.1);border:1px solid rgba(94,242,192,.3)}
+.pa-badge-planned{color:var(--amber);background:rgba(255,200,87,.09);border:1px solid rgba(255,200,87,.3)}
+.pa-detail-body{padding:14px 18px 18px;overflow-y:auto;flex:1}
+.pa-detail-empty{color:var(--ink-dim);font-size:12.5px;line-height:1.75;padding-top:6px}
+.pa-detail-row{margin-bottom:14px}
+.pa-detail-row:last-child{margin-bottom:0}
+.pa-detail-k{
+  font-family:var(--mono);font-size:10px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--acc-dim);margin-bottom:5px;
+}
+.pa-detail-v{color:var(--ink-dim);font-size:12.5px;line-height:1.68}
+
+/* Legend */
+.pa-legend{
+  display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+  margin-top:12px;padding:0 4px;
+  font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);
+}
+.pa-lg{display:inline-flex;align-items:center;gap:7px}
+.pa-lg-dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+.pa-lg-built{background:rgba(94,242,192,.16);border:1px solid rgba(94,242,192,.55)}
+.pa-lg-planned{background:rgba(255,200,87,.1);border:1px dashed rgba(255,200,87,.55)}
+.pa-lg-arrow{
+  width:20px;height:0;border-top:2px solid var(--line2);
+  display:inline-block;position:relative;
+}
+.pa-lg-arrow::after{
+  content:'';position:absolute;right:-1px;top:-4px;
+  border-left:6px solid var(--line2);border-top:3px solid transparent;
+  border-bottom:3px solid transparent;
+}
+.pa-note{margin-left:auto;letter-spacing:0;font-family:var(--sans)}
+
+/* ---- SVG world ---- */
+.pa-group-box{fill:rgba(255,255,255,.014);stroke-width:1.4}
+.pa-hue-blue   { stroke:rgba(111,183,255,.30) }
+.pa-hue-cyan   { stroke:rgba(94,242,192,.28) }
+.pa-hue-amber  { stroke:rgba(255,200,87,.28) }
+.pa-hue-violet { stroke:rgba(180,140,255,.30) }
+.pa-hue-green  { stroke:rgba(94,242,192,.30) }
+.pa-hue-pink   { stroke:rgba(255,107,129,.28) }
+.pa-group-title{
+  fill:var(--ink);font-family:var(--sans);font-size:21px;font-weight:600;
+  letter-spacing:-.01em;
+}
+.pa-group-sub{
+  fill:var(--ink-faint);font-family:var(--mono);font-size:12px;letter-spacing:.04em;
+}
+
+.pa-node{cursor:pointer;outline:none}
+.pa-node-box{
+  fill:var(--panel);stroke:var(--line2);stroke-width:1.3;
+  transition:stroke .15s, filter .15s;
+}
+.pa-node:hover .pa-node-box,
+.pa-node:focus-visible .pa-node-box{stroke:var(--acc);filter:drop-shadow(0 0 10px rgba(94,242,192,.22))}
+.pa-node-sel .pa-node-box{stroke:var(--acc);stroke-width:1.8;
+  filter:drop-shadow(0 0 12px rgba(94,242,192,.3))}
+.pa-node-planned .pa-node-box{stroke-dasharray:5 4}
+.pa-node-box-out{fill:rgba(94,242,192,.05)}
+.pa-node-inner{pointer-events:none}
+.pa-node-title{
+  color:var(--ink);font-family:var(--sans);font-size:15.5px;font-weight:600;
+  line-height:1.32;letter-spacing:-.01em;
+}
+.pa-node-sub{
+  color:var(--ink-dim);font-family:var(--mono);font-size:11.5px;
+  line-height:1.5;margin-top:5px;
+}
+.pa-node-out .pa-node-title{color:var(--acc)}
+
+.pa-edge{
+  fill:none;stroke:var(--line2);stroke-width:1.7;
+  marker-end:url(#paArrow);transition:stroke .15s, stroke-width .15s;
+}
+.pa-edge-hit{fill:none;stroke:transparent;stroke-width:16;pointer-events:none}
+.pa-edge-on{stroke:var(--acc);stroke-width:2.4;
+  filter:drop-shadow(0 0 5px rgba(94,242,192,.35))}
+.pa-arrow{fill:var(--line2)}
+.pa-edge-on + .pa-edge-hit ~ .pa-arrow,
+.edge-on .pa-arrow{fill:var(--acc)}
+
+.pa-removal-box{
+  fill:rgba(255,107,129,.035);stroke:rgba(255,107,129,.28);
+  stroke-width:1.3;stroke-dasharray:7 5;
+}
+.pa-removal{cursor:pointer;outline:none}
+.pa-removal:hover .pa-removal-box,
+.pa-removal:focus-visible .pa-removal-box{stroke:var(--red)}
+.pa-removal-title{
+  color:var(--red);font-family:var(--mono);font-size:14px;font-weight:500;
+}
+.pa-removal-sub{color:var(--ink-dim);font-size:12px;line-height:1.6;margin-top:6px}
+
+/* Fullscreen mode */
+body.pa-fs .pa-wrap{height:100vh;display:flex;flex-direction:column;padding:0;max-width:none}
+body.pa-fs .content{height:100vh;overflow:hidden}
+body.pa-fs .content-inner{height:100%;display:flex;flex-direction:column;padding:14px 18px}
+body.pa-fs .pa-stage-row{flex:1;min-height:0}
+body.pa-fs .pa-viewport{height:auto;flex:1}
+body.pa-fs .pa-detail{width:360px}
+
+@media (max-width:1080px){
+  .pa-stage-row{flex-direction:column}
+  .pa-detail{width:100%;max-height:300px}
+  .pa-viewport{height:56vh;min-height:380px}
+}
+@media (max-width:720px){
+  .pa-entry{flex-direction:column;align-items:flex-start}
+  .pa-note{margin-left:0}
+  .pa-viewport{height:48vh;min-height:320px}
+}
+
+/* ---- additions shared by both pipeline canvases ---- */
+
+/* DEMO DATA flag in the toolbar */
+.pa-demo-flag{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--amber);
+  border:1px solid rgba(255,200,87,.35);background:rgba(255,200,87,.08);
+  padding:5px 10px;border-radius:20px;white-space:nowrap;
+}
+
+/* Side lanes (selftest harness / planned work) */
+.pa-lane{cursor:pointer;outline:none}
+.pa-lane-box{
+  fill:rgba(94,242,192,.035);stroke:rgba(94,242,192,.26);
+  stroke-width:1.3;stroke-dasharray:7 5;
+}
+.pa-lane-planned{
+  fill:rgba(255,200,87,.035);stroke:rgba(255,200,87,.28);
+}
+.pa-lane:hover .pa-lane-box,
+.pa-lane:focus-visible .pa-lane-box{stroke:var(--acc)}
+.pa-lane-planned:hover .pa-lane-box,
+.pa-lane-planned:focus-visible .pa-lane-box{stroke:var(--amber)}
+.pa-lane-title{
+  color:var(--acc);font-family:var(--mono);font-size:14px;font-weight:500;
+}
+.pa-lane-planned .pa-lane-title{color:var(--amber)}
+.pa-lane-sub{color:var(--ink-dim);font-size:12px;line-height:1.6;margin-top:6px}
+
+/* Optional-layer node style (judge) */
+.pa-node-optional .pa-node-box{stroke-dasharray:3 4}
+
+/* Iframe mount for the embedded architecture component */
+.pa-frame-box{
+  position:relative;border:1px solid var(--line);border-radius:var(--rad);
+  overflow:hidden;background:var(--bg2);
+  height:calc(100vh - 235px);min-height:540px;
+}
+.pa-frame{position:absolute;inset:0;width:100%;height:100%;border:0;display:block;background:#fff}
+.pa-open-standalone{
+  display:inline-flex;align-items:center;color:var(--ink-dim);text-decoration:none;
+  font-size:12.5px;font-weight:500;padding:7px 11px;border-radius:9px;
+  border:1px solid var(--line2);background:var(--panel2);transition:all .15s;
+}
+.pa-open-standalone:hover{color:var(--ink);border-color:var(--acc-dim)}
+.pa-note-line{
+  margin-top:10px;font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);
+}
+.pa-note-line code{color:var(--ink-dim)}
+
+/* ---------- SFT code explorer (#sft/code) ---------- */
+.sx-layout{display:grid;grid-template-columns:250px minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:980px){.sx-layout{grid-template-columns:1fr}}
+.sx-side{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+  overflow:hidden;position:sticky;top:0;
+}
+.sx-side-h{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-faint);padding:12px 14px 8px;
+}
+.sx-files{max-height:calc(100vh - 220px);overflow-y:auto;padding:0 8px 10px}
+.sx-file{
+  display:block;width:100%;text-align:left;cursor:pointer;background:transparent;border:1px solid transparent;
+  border-radius:9px;padding:8px 10px;margin-bottom:2px;transition:all .14s;
+}
+.sx-file:hover{background:var(--panel2);border-color:var(--line2)}
+.sx-file-on{background:rgba(94,242,192,.08)!important;border-color:rgba(94,242,192,.35)!important}
+.sx-file-n{display:block;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink)}
+.sx-file-l{display:block;font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);margin-top:2px}
+.sx-main{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);overflow:hidden;
+  display:flex;flex-direction:column;min-width:0;
+}
+.sx-head{
+  display:flex;justify-content:space-between;align-items:flex-start;gap:12px;
+  padding:13px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;
+}
+.sx-file-name{font-size:14px;font-weight:600}
+.sx-file-path{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-top:2px;word-break:break-all}
+.sx-file-meta{font-family:var(--mono);font-size:10px;color:var(--ink-dim);white-space:nowrap}
+.sx-syms{
+  display:flex;flex-wrap:wrap;gap:5px;padding:10px 14px;border-bottom:1px solid var(--line);
+}
+.sx-sym{
+  display:inline-flex;align-items:center;gap:6px;cursor:pointer;background:var(--panel2);
+  border:1px solid var(--line2);border-radius:7px;padding:3px 8px;transition:all .14s;
+}
+.sx-sym:hover{border-color:var(--acc-dim);color:var(--ink)}
+.sx-sym-k{font-family:var(--mono);font-size:9px;color:var(--violet);text-transform:uppercase;letter-spacing:.06em}
+.sx-sym-class .sx-sym-k{color:var(--blue)}
+.sx-sym-n{font-family:var(--mono);font-size:11px;color:var(--ink)}
+.sx-sym-l{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint)}
+.sx-doc{
+  margin:10px 14px 0;padding:10px 12px;border:1px dashed var(--line2);border-radius:9px;
+  font-size:12px;color:var(--ink-dim);line-height:1.65;white-space:pre-wrap;
+}
+.sx-src{
+  margin:10px 14px 14px;padding:14px 16px;background:var(--bg2);border:1px solid var(--line);
+  border-radius:10px;overflow:auto;max-height:calc(100vh - 330px);min-height:300px;
+  font-family:var(--mono);font-size:11.5px;line-height:1.62;color:var(--ink-dim);
+  tab-size:4;
+}
+.sx-src code{white-space:pre}
+.sx-kw{color:var(--violet)}
+.sx-str{color:var(--acc)}
+.sx-com{color:var(--ink-faint);font-style:italic}
+.sx-num{color:var(--amber)}
+.sx-flag-group{margin-bottom:12px}
+.sx-flag-group:last-child{margin-bottom:0}
+.sx-flag-sev{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  margin-bottom:6px;
+}
+
+/* Fullscreen keeps the frame filling the screen */
+body.pa-fs .pa-frame-box{height:auto;flex:1;min-height:0}
+@media (max-width:1080px){.pa-frame-box{height:60vh;min-height:420px}}
+@media (max-width:720px){.pa-frame-box{height:52vh;min-height:360px}}
+</style>
+<link rel="stylesheet" href="/shell.css">
+</head>
+<body>
+<!-- Embedded mode: this page is mounted inside the unified dashboard's
+     iframe (/system#console…). The shell already provides navigation and a
+     title bar, so the guest hides its own chrome via .embedded on <body>.
+     Detection is frame-busting-safe (same origin only) and degrades to the
+     standalone layout when opened directly at /console. -->
+<script>try { if (window.self !== window.top) document.documentElement.classList.add('embedded'); } catch (e) {}</script>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">S</div>
+      <div class="brand-txt">
+        <div class="brand-name">Loop</div>
+        <div class="brand-sub">AI console &amp; workspaces</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot"><span class="live-dot" id="connDot"></span><span id="connLabel">connecting…</span></div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <div class="page-title" id="pageTitle">Overview</div>
+        <div class="page-sub" id="pageSub">—</div>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="refresh-note" id="refreshNote"></div>
+      <div class="sw-user" id="userChip" hidden>
+        <div class="sw-avatar" id="userAvatar">·</div>
+        <span class="sw-user-name" id="userName"></span>
+        <!-- Revealed only when the server confirms this caller may use
+             /api/admin/*. Hidden by default; never a source of truth. -->
+        <a class="sw-signout sw-admin-link" id="adminNavLink" href="/admin" hidden
+           title="Review registration requests">Approvals</a>
+        <button class="sw-signout" id="signOutBtn" type="button" title="Sign out">Sign out</button>
+      </div>
+    </header>
+    <div id="viewRoot" style="display:flex;flex-direction:column;flex:1;min-height:0"></div>
+  </div>
+</div>
+<div class="toast hidden" id="toast"></div>
+<script src="/console/chess.js"></script>
+<script src="/console/chess-game.js"></script>
+<script src="/console/timberman-game.js"></script>
+<script src="/console/solitaire-engine.js"></script>
+<script src="/console/solitaire-game.js"></script>
+<script src="/console/fruitninja-game.js"></script>
+<script src="/console/ludo-engine.js"></script>
+<script src="/console/ludo-game.js"></script>
+<script src="/console/snakes-engine.js"></script>
+<script src="/console/snakes-game.js"></script>
+<script src="/console/eval-workspaces.js"></script>
+<script src="/console/console-app.js"></script>
+</body>
+</html>

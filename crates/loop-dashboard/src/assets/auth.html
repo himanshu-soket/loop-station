@@ -1,0 +1,1146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop · Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shell.css">
+</head>
+<body class="sw-auth">
+<!-- Everything the user normally sees. Hidden as a unit while the Dino
+     Runner occupies the viewport, so the transition feels like a real
+     screen change rather than an extra card appearing below the form. -->
+<div id="authViews" class="auth-views">
+<main class="auth-shell">
+  <div class="sw-brand">
+    <div class="sw-mark" aria-hidden="true">L</div>
+    <div>
+      <div class="sw-name">Loop</div>
+      <div class="sw-sub">unified AI development &amp; data operations</div>
+    </div>
+  </div>
+
+  <!-- ======================= SIGN IN ======================= -->
+  <section class="auth-card" id="signinCard" aria-labelledby="signinTitle">
+    <div class="auth-head">
+      <h1 class="auth-title" id="signinTitle">Sign in</h1>
+      <p class="auth-sub">Access your Loop workspace.</p>
+    </div>
+
+    <div id="signinAlert" class="alert-slot" role="status" aria-live="polite" hidden>
+      <div class="alert alert-error"><span class="alert-icon" aria-hidden="true">!</span><span id="signinAlertText"></span></div>
+    </div>
+
+    <form id="signinForm" novalidate>
+      <div class="field">
+        <label for="identifier">Email or username</label>
+        <input id="identifier" name="identifier" type="text" autocomplete="username"
+               placeholder="you@example.com" required autofocus
+               aria-describedby="identifierHint">
+        <div class="field-hint" id="identifierHint">Accounts are provisioned by an administrator.</div>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <div class="pw-wrap">
+          <input id="password" name="password" type="password"
+                 autocomplete="current-password" placeholder="Your password" required>
+          <button type="button" class="pw-toggle" id="pwToggle" aria-label="Show password"
+                  aria-pressed="false">&#128065;</button>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="signinBtn" type="submit">Sign in</button>
+    </form>
+
+    <div class="auth-alt">
+      Need an account? <a href="/register">Request access</a>
+    </div>
+  </section>
+
+  <!-- ======================= REGISTER ======================= -->
+  <section class="auth-card" id="registerCard" aria-labelledby="registerTitle" hidden>
+    <div class="auth-head">
+      <h1 class="auth-title" id="registerTitle">Request access</h1>
+      <p class="auth-sub">New accounts are reviewed by an administrator before they can sign in.</p>
+    </div>
+
+    <div id="registerAlert" class="alert-slot" role="status" aria-live="polite" hidden>
+      <div class="alert alert-error"><span class="alert-icon" aria-hidden="true">!</span><span id="registerAlertText"></span></div>
+    </div>
+
+    <form id="registerForm" novalidate>
+      <div class="field">
+        <label for="regEmail">Work email</label>
+        <input id="regEmail" name="email" type="email" autocomplete="email"
+               placeholder="you@soket.ai" required inputmode="email"
+               aria-describedby="regEmailHint">
+        <div class="field-hint" id="regEmailHint">
+          Only <strong>@soket.ai</strong> addresses can register.
+        </div>
+      </div>
+      <div class="field">
+        <label for="regPassword">Password</label>
+        <div class="pw-wrap">
+          <input id="regPassword" name="password" type="password"
+                 autocomplete="new-password" placeholder="Create a password" required
+                 aria-describedby="pwRules">
+          <button type="button" class="pw-toggle" id="regPwToggle" aria-label="Show password"
+                  aria-pressed="false">&#128065;</button>
+        </div>
+        <ul class="pw-rules" id="pwRules">
+          <li data-rule="len"     >At least 8 characters</li>
+          <li data-rule="max"     >No more than 256 characters</li>
+          <li data-rule="charset">Letters, numbers and symbols allowed</li>
+        </ul>
+      </div>
+      <div class="field">
+        <label for="regConfirm">Confirm password</label>
+        <div class="pw-wrap">
+          <input id="regConfirm" name="confirm" type="password"
+                 autocomplete="new-password" placeholder="Repeat your password" required>
+          <button type="button" class="pw-toggle" id="regPwToggle2" aria-label="Show password"
+                  aria-pressed="false">&#128065;</button>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="registerBtn" type="submit">Request access</button>
+    </form>
+
+    <div class="auth-alt">
+      Already have an account? <a href="/signin">Sign in</a>
+    </div>
+  </section>
+
+  <!-- ================== PENDING APPROVAL =================== -->
+  <section class="auth-card auth-success" id="pendingCard" aria-labelledby="pendingTitle" hidden>
+    <div class="success-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor"
+           stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 6L9 17l-5-5"/>
+      </svg>
+    </div>
+    <div class="auth-head">
+      <h1 class="auth-title" id="pendingTitle">Request received</h1>
+      <p class="auth-sub">Your registration has been recorded and is waiting for review.</p>
+    </div>
+    <div class="pending-body">
+      <p>An administrator must approve your account before you can sign in.
+         You are not signed in yet — nothing was created on your machine.</p>
+      <p class="pending-note">Once approved, return here and sign in with the
+         email and password you provided.</p>
+    </div>
+    <button class="btn btn-primary" id="backToSignin" type="button">Back to sign in</button>
+  </section>
+
+  <!-- ============== FIRST-RUN ADMINISTRATOR BOOTSTRAP ============== -->
+  <!-- Shown only when /api/auth/status reports firstRun (no administrator
+       exists). The server refuses POST /api/auth/signup once one does, so
+       this view can never create a second administrator. -->
+  <section class="auth-card" id="bootstrapCard" aria-labelledby="bootstrapTitle" hidden>
+    <div class="auth-head">
+      <h1 class="auth-title" id="bootstrapTitle">Set up this instance</h1>
+      <p class="auth-sub">This is a fresh installation. Create the administrator account to begin.</p>
+    </div>
+
+    <div id="bootstrapAlert" class="alert-slot" role="status" aria-live="polite" hidden>
+      <div class="alert alert-error"><span class="alert-icon" aria-hidden="true">!</span><span id="bootstrapAlertText"></span></div>
+    </div>
+
+    <form id="bootstrapForm" novalidate>
+      <div class="field">
+        <label for="bootEmail">Email or username</label>
+        <input id="bootEmail" name="identifier" type="text" autocomplete="username"
+               placeholder="admin@example.com" required autofocus>
+        <div class="field-hint">This account becomes the sole administrator of this instance.</div>
+      </div>
+      <div class="field">
+        <label for="bootPassword">Password</label>
+        <div class="pw-wrap">
+          <input id="bootPassword" name="password" type="password"
+                 autocomplete="new-password" placeholder="Create a password" required
+                 aria-describedby="bootPwHint">
+          <button type="button" class="pw-toggle" id="bootPwToggle" aria-label="Show password"
+                  aria-pressed="false">&#128065;</button>
+        </div>
+        <div class="field-hint" id="bootPwHint">At least 8 characters.</div>
+      </div>
+      <button class="btn btn-primary" id="bootstrapBtn" type="submit">Create administrator</button>
+    </form>
+  </section>
+
+  <p class="auth-foot">Local instance · accounts never leave this machine</p>
+</main>
+</div><!-- /#authViews -->
+
+  <!-- ======================= DINO RUNNER (Phase 8) =======================
+       A full-viewport interlude offered after three consecutive
+       *credential* failures (HTTP 401) in this view. It is pure
+       distraction UI and nothing more:
+         * it never authenticates anything and creates no session,
+         * it cannot be triggered by any client-supplied counter — the count
+           comes only from real server responses,
+         * it never blocks or replaces the sign-in form: one control returns
+           to it, with the identifier preserved and focus restored,
+         * pending-account (403 approval), rate-limit (429), network and
+           server errors do NOT increment the count, because those are not
+           "wrong password" outcomes.
+       It is not a security control and not a CAPTCHA replacement — it has
+       no effect on what the server accepts. -->
+  <section class="dino-screen" id="dinoScreen" aria-labelledby="dinoTitle" hidden>
+
+    <header class="dino-topbar">
+      <div class="sw-brand dino-brand">
+        <div class="sw-mark" aria-hidden="true">L</div>
+        <div>
+          <div class="sw-name">Loop</div>
+          <div class="sw-sub">unified AI development &amp; data operations</div>
+        </div>
+      </div>
+      <button type="button" class="btn dino-exit" id="dinoBackBtn">
+        Back to sign in
+      </button>
+    </header>
+
+    <div class="dino-hero">
+      <h1 class="dino-title" id="dinoTitle">Take a breather</h1>
+      <p class="dino-tagline" id="dinoTagline">
+        Three attempts didn&#39;t match. Have a quick run, then try again.
+      </p>
+    </div>
+
+    <div class="dino-board">
+      <div class="dino-stage"
+           role="application"
+           aria-label="Dino Runner mini-game. Press Space or Up to jump.">
+        <canvas id="dinoCanvas" aria-hidden="true" tabindex="-1"></canvas>
+
+        <div class="dino-hud" aria-hidden="true">
+          <span class="dino-hud-score"><span class="dino-hud-k">score</span>
+            <span id="dinoScore">0</span></span>
+          <span class="dino-hud-best"><span class="dino-hud-k">best</span>
+            <span id="dinoBest">0</span></span>
+          <span class="dino-hud-speed"><span class="dino-hud-k">speed</span>
+            <span id="dinoSpeed">1.0&times;</span></span>
+        </div>
+
+        <div class="dino-overlay" id="dinoOverlay">
+          <p class="dino-overlay-eyebrow" id="dinoOverlayEyebrow">Ready?</p>
+          <p class="dino-overlay-title" id="dinoOverlayTitle">Nice run.</p>
+          <p class="dino-overlay-sub" id="dinoOverlaySub">
+            Space / &uarr; to jump &middot; tap anywhere on mobile
+          </p>
+          <div class="dino-overlay-btns">
+            <button type="button" class="btn btn-primary" id="dinoStartBtn">Run</button>
+            <button type="button" class="btn" id="dinoRetryBtn">Try again</button>
+            <button type="button" class="btn" id="dinoExitBtn">Back to sign in</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dino-controls">
+        <button type="button" class="btn dino-ctl" id="dinoPauseBtn"
+                aria-pressed="false">Pause</button>
+        <button type="button" class="btn dino-ctl" id="dinoRestartBtn">Restart</button>
+        <button type="button" class="btn dino-ctl" id="dinoCloseBtn">Back to sign in</button>
+      </div>
+
+      <p class="dino-help">
+        <b>Jump</b> Space or &uarr; &nbsp;&middot;&nbsp;
+        <b>Pause</b> P &nbsp;&middot;&nbsp;
+        <b>Restart</b> R &nbsp;&middot;&nbsp;
+        <b>Exit</b> Esc &nbsp;&middot;&nbsp;
+        On touch screens, tap the play area.
+      </p>
+    </div>
+
+    <div class="sr-only" role="status" aria-live="polite" id="dinoLive"></div>
+  </section>
+</body>
+
+<script>
+'use strict';
+/* Loop authentication page (Phase 5).
+ *
+ * Three views share one document: sign-in, registration, and the
+ * post-registration "pending approval" confirmation. The mode is derived
+ * from the path; /api/auth/status decides which entry point makes sense on
+ * this machine (first-run bootstrap vs. established install).
+ *
+ * Contracts (verified against the Rust handlers):
+ *   GET  /api/auth/status   -> { firstRun, signedIn, identifier }
+ *   POST /api/auth/signin   -> 200 { ok } + Set-Cookie | 401/403/429 { error }
+ *                              403 AccountPending => "awaiting administrator approval"
+ *   POST /api/auth/register -> 202 { ok, status:"pending", message } | 400/409/429 { error }
+ *   POST /api/auth/signup   -> first-run administrator bootstrap ONLY.
+ *
+ * Registration NEVER falls back to /signup: that endpoint creates the sole
+ * administrator, and using it for ordinary users would be a privilege bug.
+ * A successful registration does NOT sign the user in — the backend mints
+ * no session until an administrator approves the account. */
+
+const $ = s => document.querySelector(s);
+const params = new URLSearchParams(location.search);
+
+/* Where sign-in lands by default: the console's Welcome page, not the
+ * bare observatory root (which reads as "Overview" and feels like the
+ * app skipped its landing page). Three shapes all mean "nothing specific
+ * was requested", and every one of them lands on Welcome:
+ *   • no next at all (the sign-in page was opened directly);
+ *   • next = "/" or "/index.html" — the app's default URL (the server
+ *     guard already rewrites these before the form is even served);
+ *   • next = "/#overview" or "/index.html#overview" — the observatory's
+ *     DEFAULT view, recorded automatically when a session expires while
+ *     that page is open. A stale default is not a deep link, so it must
+ *     not override the Welcome destination.
+ * Anything else — a named observatory view ("#sessions", "#session:<id>"),
+ * another workspace, an admin path — is a deliberate destination and is
+ * returned untouched. */
+function postSignInTarget() {
+  const next = params.get('next');
+  if (next && next.startsWith('/') && !next.startsWith('//')) {
+    const hashAt = next.indexOf('#');
+    const path = hashAt === -1 ? next : next.slice(0, hashAt);
+    const view = hashAt === -1 ? '' : next.slice(hashAt + 1);
+    const isRoot = path === '/' || path === '/index.html';
+    const isDefaultView = view === '' || view === 'overview';
+    if (!isRoot || !isDefaultView) return next;
+  }
+  return '/console#overview';
+}
+
+/* ---------- view switching ---------- */
+const views = {
+  signin:    $('#signinCard'),
+  register:  $('#registerCard'),
+  pending:   $('#pendingCard'),
+  bootstrap: $('#bootstrapCard'),
+};
+let currentView = 'signin';
+
+function show(name) {
+  for (const [key, el] of Object.entries(views)) el.hidden = key !== name;
+  currentView = name;
+  // Move focus to the first control so keyboard users land correctly.
+  const target = { signin: '#identifier', register: '#regEmail',
+                   pending: '#backToSignin', bootstrap: '#bootEmail' }[name];
+  if (target && $(target)) $(target).focus({ preventScroll: true });
+  // Reflect the view in the URL without reloading. The bootstrap view is
+  // only reachable on a fresh install, where /signup is its canonical URL.
+  if (name === 'bootstrap') return;
+  history.replaceState(null, '', name === 'signin' ? '/signin' : '/' + name);
+}
+
+/* ---------- alerts ---------- */
+function setAlert(boxId, textId, msg, kind) {
+  const box = $(boxId), text = $(textId);
+  if (!msg || !text) { if (box) box.hidden = true; return; }
+  text.textContent = msg;              // textContent only: never innerHTML
+  box.firstElementChild.className = 'alert alert-' + (kind || 'error');
+  box.hidden = false;
+}
+const signinError    = m => setAlert('#signinAlert', '#signinAlertText', m, 'error');
+const registerError  = m => setAlert('#registerAlert', '#registerAlertText', m, 'error');
+const bootstrapError = m => setAlert('#bootstrapAlert', '#bootstrapAlertText', m, 'error');
+const clearErrors    = () => {
+  for (const b of ['#signinAlert', '#registerAlert', '#bootstrapAlert']) setAlert(b, null, null);
+};
+
+/* ---------- button busy state (prevents double submit) ---------- */
+function busy(btn, on, label) {
+  btn.disabled = on;
+  btn.textContent = on ? label : btn.dataset.label;
+  btn.setAttribute('aria-busy', String(on));
+}
+function armButtons() {
+  for (const b of document.querySelectorAll('.auth-card .btn')) b.dataset.label = b.textContent;
+}
+armButtons();
+
+/* ---------- password visibility toggles ---------- */
+function wireToggle(btnId, inputId) {
+  const btn = $(btnId), input = $(inputId);
+  if (!btn || !input) return;
+  btn.addEventListener('click', () => {
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', String(show));
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+  });
+}
+wireToggle('#pwToggle', '#password');
+wireToggle('#regPwToggle', '#regPassword');
+wireToggle('#regPwToggle2', '#regConfirm');
+wireToggle('#bootPwToggle', '#bootPassword');
+
+/* ---------- shared fetch helper ---------- */
+async function postJson(url, payload) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    credentials: 'same-origin',
+  });
+  const body = await res.json().catch(() => ({}));
+  // Surface the server's Retry-After (seconds) when present, so callers can
+  // tell the user how long to wait instead of a vague "try later".
+  const retryAfterRaw = res.headers.get('Retry-After');
+  const retryAfterSecs = retryAfterRaw !== null && /^\d+$/.test(retryAfterRaw)
+    ? Number(retryAfterRaw) : null;
+  return { res, body, retryAfterSecs };
+}
+
+/** Human phrasing for a Retry-After value, e.g. 90 -> "90 seconds",
+ *  3600 -> "about 1 hour". Returns '' when secs is null/unknown. */
+function waitPhrase(secs) {
+  if (secs === null || !Number.isFinite(secs) || secs < 0) return '';
+  if (secs < 60) return secs + ' second' + (secs === 1 ? '' : 's');
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return 'about ' + mins + ' minute' + (mins === 1 ? '' : 's');
+  const hours = Math.round(mins / 60);
+  return 'about ' + hours + ' hour' + (hours === 1 ? '' : 's');
+}
+
+/* ---------- client-side validation (server remains authoritative) ---------- */
+const DOMAIN = 'soket.ai';
+
+function validateRegistration(email, password, confirm) {
+  const e = email.trim().toLowerCase();
+  if (!e) return 'Enter your work email.';
+  if (e.length > 254) return 'That email address is too long.';
+  const at = e.split('@');
+  if (at.length !== 2 || !at[0] || !at[1]) return 'Enter a valid email address.';
+  if (at[1] !== DOMAIN) return 'Only @' + DOMAIN + ' addresses can register.';
+  if (!/^[a-z0-9._%+-]+$/.test(at[0])) return 'The email local part contains invalid characters.';
+  if (at[0].startsWith('.') || at[0].endsWith('.') || at[0].includes('..'))
+    return 'The email local part has invalid dot placement.';
+  if (password.length < 8) return 'Password must be at least 8 characters.';
+  if (password.length > 256) return 'Password must be at most 256 characters.';
+  if (password !== confirm) return 'Passwords do not match.';
+  return null;
+}
+
+/* Live password-rule feedback (advisory, non-blocking). */
+function wirePasswordRules() {
+  const pw = $('#regPassword');
+  const rules = {
+    len: v => v.length >= 8 && v.length <= 256,
+    max: v => v.length <= 256,
+    charset: () => true,
+  };
+  const items = document.querySelectorAll('#pwRules li');
+  pw.addEventListener('input', () => {
+    for (const li of items) {
+      const rule = li.dataset.rule;
+      const ok = rules[rule] ? rules[rule](pw.value) : false;
+      li.classList.toggle('ok', ok && pw.value.length > 0);
+    }
+  });
+}
+wirePasswordRules();
+
+/* ---------- sign-in ---------- */
+$('#signinForm').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  clearErrors();
+  const btn = $('#signinBtn');
+  const identifier = $('#identifier').value.trim();
+  const password = $('#password').value;
+
+  if (!identifier) return signinError('Enter your email or username.');
+  if (!password) return signinError('Enter your password.');
+
+  busy(btn, true, 'Signing in…');
+  try {
+    const { res, body, retryAfterSecs } = await postJson('/api/auth/signin', { identifier, password });
+    if (res.ok) {
+      // Success: clear the consecutive-failure display state before
+      // navigating away, so a later visit never inherits a stale count.
+      if (window.__dino) window.__dino.resetFailureState();
+      // Preserve a deep link captured before authentication.
+      location.replace(postSignInTarget());
+      return;
+    }
+    busy(btn, false);
+    if (res.status === 403 && /approval/i.test(body.error || '')) {
+      // Backend distinguishes pending accounts AFTER verifying the password.
+      // Truthful message; NOT a success and NOT a credential failure, so
+      // the mini-game counter is deliberately left untouched here.
+      signinError('Your account is awaiting administrator approval. Please try again once it has been approved.');
+    } else if (res.status === 429) {
+      const w = waitPhrase(retryAfterSecs);
+      signinError(w
+        ? 'Too many attempts. Please wait ' + w + ' before trying again.'
+        : 'Too many attempts. Please wait a few minutes and try again.');
+    } else if (res.status === 401) {
+      // A genuine credential failure: count it and, at the threshold,
+      // offer the mini-game. The count lives only in this page's memory
+      // and is derived solely from real server responses.
+      signinError('Incorrect email or password.');
+      if (window.__dino && window.__dino.noteCredentialFailure()) {
+        window.__dino.offer();
+      }
+    } else {
+      signinError(body.error || 'Sign-in failed. Try again.');
+    }
+  } catch (e) {
+    busy(btn, false);
+    signinError('Network error — is the dashboard still running?');
+  }
+});
+
+/* ---------- registration ---------- */
+$('#registerForm').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  clearErrors();
+  const btn = $('#registerBtn');
+  const email = $('#regEmail').value;
+  const password = $('#regPassword').value;
+  const confirm = $('#regConfirm').value;
+
+  const problem = validateRegistration(email, password, confirm);
+  if (problem) return registerError(problem);
+
+  busy(btn, true, 'Submitting…');
+  try {
+    const { res, body, retryAfterSecs } = await postJson('/api/auth/register', { email, password });
+    busy(btn, false);
+    if (res.status === 202) {
+      // Success: pending approval. Do NOT sign in; no session exists.
+      show('pending');
+      return;
+    }
+    if (res.status === 409) {
+      registerError('An account with that email already exists. Try signing in instead.');
+    } else if (res.status === 429) {
+      const w = waitPhrase(retryAfterSecs);
+      registerError(w
+        ? 'Too many registration requests. Please try again in ' + w + '.'
+        : 'Too many registration requests. Please try again later.');
+    } else if (res.status === 400) {
+      registerError(body.error || 'Please check your details and try again.');
+    } else {
+      registerError(body.error || 'Registration is unavailable right now.');
+    }
+  } catch (e) {
+    busy(btn, false);
+    registerError('Network error — is the dashboard still running?');
+  }
+});
+
+/* ---------- first-run administrator bootstrap ---------- */
+/* Uses POST /api/auth/signup — the ONLY legitimate caller. The server
+ * refuses it once an administrator exists, so this can never mint a second
+ * one even if the client is bypassed entirely. */
+$('#bootstrapForm').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  clearErrors();
+  const btn = $('#bootstrapBtn');
+  const identifier = $('#bootEmail').value.trim();
+  const password = $('#bootPassword').value;
+
+  if (!identifier) return bootstrapError('Enter an email or username.');
+  if (password.length < 8) return bootstrapError('Password must be at least 8 characters.');
+
+  busy(btn, true, 'Creating…');
+  try {
+    const { res, body } = await postJson('/api/auth/signup', { identifier, password });
+    busy(btn, false);
+    if (res.ok || res.status === 201) {
+      // Administrator created. Sign in to establish the session.
+      const r2 = await postJson('/api/auth/signin', { identifier, password });
+      if (r2.res.ok) { location.replace('/console#overview'); return; }
+      show('signin');
+      return signinError('Administrator created. Please sign in.');
+    }
+    if (res.status === 409) {
+      // An administrator already exists: bootstrap is closed. Fall back to
+      // plain sign-in rather than looping on a dead endpoint.
+      show('signin');
+      return signinError('An administrator account already exists. Sign in instead.');
+    }
+    bootstrapError(body.error || 'Setup failed. Try again.');
+  } catch (e) {
+    busy(btn, false);
+    bootstrapError('Network error — is the dashboard still running?');
+  }
+});
+
+/* ---------- navigation between views ---------- */
+document.addEventListener('click', ev => {
+  const a = ev.target.closest('a[href^="/"]');
+  if (!a) return;
+  const href = a.getAttribute('href');
+  if (href === '/signin' || href === '/register') {
+    ev.preventDefault();
+    clearErrors();
+    show(href === '/signin' ? 'signin' : 'register');
+  }
+});
+$('#backToSignin').addEventListener('click', () => {
+  clearErrors();
+  show('signin');
+});
+
+/* ---------- boot ---------- */
+async function boot() {
+  // Establish which view fits this machine before revealing anything.
+  let firstRun = false, signedIn = false;
+  try {
+    const res = await fetch('/api/auth/status');
+    if (res.ok) {
+      const st = await res.json();
+      firstRun = !!st.firstRun;
+      signedIn = !!st.signedIn;
+    }
+  } catch (e) { /* probe failed: fall through to the default view */ }
+
+  if (signedIn) {
+    location.replace(postSignInTarget());
+    return;
+  }
+
+  // Fresh install and no administrator yet: offer bootstrap. This is the
+  // only situation where /api/auth/signup is used, and the server enforces
+  // that independently of this client.
+  if (firstRun) { show('bootstrap'); return; }
+
+  const requested = location.pathname === '/register' ? 'register' : 'signin';
+  show(requested);
+}
+boot();
+
+/* ================================================================
+   Dino Runner (Phase 8)
+   ================================================================
+   Offered after three consecutive *credential* failures (HTTP 401) in this
+   sign-in view. Design constraints, all enforced below:
+
+     * The counter is driven ONLY by real server responses. Nothing a
+       client sends can increment it, and it is never sent anywhere.
+     * It counts 401s exclusively. A pending-account 403, a rate-limit
+       429 and a network error are not "wrong password" outcomes, so they
+       leave the count untouched (and never trigger the game).
+     * A successful sign-in resets the count to zero.
+     * No passwords, tokens or secrets are stored: the only state kept is
+       a single integer in a page-scoped variable, so nothing survives a
+       reload and nothing is written to any web-storage API.
+     * The game cannot authenticate anyone, create a session, or unhide
+       any protected route. Closing it just returns focus to the form.
+   ================================================================ */
+(function dinoRunner() {
+  const THRESHOLD = 3;
+
+  const screen = $('#dinoScreen');
+  const canvas = $('#dinoCanvas');
+  if (!screen || !canvas) return;            // markup absent: do nothing
+
+  const ctx        = canvas.getContext('2d');
+  const stage      = screen.querySelector('.dino-stage');
+  const overlay    = $('#dinoOverlay');
+  const ovEyebrow  = $('#dinoOverlayEyebrow');
+  const ovTitle    = $('#dinoOverlayTitle');
+  const ovSub      = $('#dinoOverlaySub');
+  const startBtn   = $('#dinoStartBtn');
+  const retryBtn   = $('#dinoRetryBtn');
+  const exitBtn    = $('#dinoExitBtn');
+  const backBtn    = $('#dinoBackBtn');
+  const pauseBtn   = $('#dinoPauseBtn');
+  const restartBtn = $('#dinoRestartBtn');
+  const closeBtn   = $('#dinoCloseBtn');
+  const scoreEl    = $('#dinoScore');
+  const bestEl     = $('#dinoBest');
+  const speedEl    = $('#dinoSpeed');
+  const liveEl     = $('#dinoLive');
+
+  /* =====================================================================
+     Failure counting — server-response driven only.
+     =====================================================================
+     The counter increments exclusively inside the HTTP 401 branch of the
+     sign-in handler. Nothing a client sends can move it, and it is never
+     transmitted anywhere. It lives in a page-scoped closure variable, so
+     no web-storage API, cookie or backend call is involved at all.
+     ===================================================================== */
+  let consecutiveFailures = 0;
+  let offered = false;
+
+  function noteCredentialFailure() {
+    consecutiveFailures++;
+    if (consecutiveFailures >= THRESHOLD && !offered) {
+      offered = true;
+      return true;                            // caller should offer now
+    }
+    return false;
+  }
+
+  /** A successful sign-in clears the display state. */
+  function resetFailureState() {
+    consecutiveFailures = 0;
+    offered = false;
+  }
+
+  /* ---------- announcements for assistive tech ---------- */
+  function say(msg) {
+    if (liveEl) liveEl.textContent = msg || '';
+  }
+
+  const reduceMotion =
+    window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* =====================================================================
+     Difficulty model.
+     =====================================================================
+     Speed starts comfortable and rises in small steps on a fixed cadence,
+     which keeps every increase perceptible but gentle. It is hard-capped so
+     the run stays fair, and the spawn gap has both a floor (never an
+     impossible wall) and a ceiling (no long dead stretches).
+     ===================================================================== */
+  const BASE_SPEED   = 260;     // px/s at the start of a run
+  const MAX_SPEED    = 620;     // hard cap
+  const SPEED_STEP    = 22;     // px/s added per interval
+  const SPEED_EVERY_MS = 4200;  // how often the step is applied
+  const SPEED_RAMP_MS = 900;    // blend duration for each step
+
+  const GRAVITY = 2100;         // px/s^2
+  const JUMP_V  = -700;         // px/s
+
+  // Obstacle shapes: short/wide (jumpable), tall/narrow (needs timing).
+  const OBST_MIN_H = 16, OBST_MAX_H = 34;
+  const OBST_MIN_W = 12, OBST_MAX_W = 26;
+  const GAP_FLOOR   = 190;      // minimum travel distance between spawns
+  const GAP_CEIL    = 420;      // maximum
+  const MAX_ON_SCREEN = 4;      // simultaneous obstacle limit
+
+  /* ---------- run state ---------- */
+  const S = { IDLE: 0, RUN: 1, OVER: 2 };
+  let state = S.IDLE;
+  let rafId = null;
+  let lastTs = 0;
+  let score = 0;
+  let best = 0;                 // current page session only
+  let paused = false;
+  let speed = BASE_SPEED;
+  let targetSpeed = BASE_SPEED;
+  let speedBlendFrom = BASE_SPEED;
+  let speedBlendT = 1;          // 1 = not blending
+  let elapsedRunMs = 0;         // active-play time only
+  let nextStepAtMs = SPEED_EVERY_MS;
+
+  // World geometry, recomputed from the stage box whenever it changes.
+  let W = 800, H = 300, groundY = 250;
+  const dino = { x: 0, y: 0, vy: 0, w: 30, h: 34, onGround: true, legPhase: 0 };
+  let obstacles = [];
+  let clouds = [];
+  let nextSpawnPx = 0;
+
+  /* =====================================================================
+     Difficulty helpers — exposed for tests.
+     ===================================================================== */
+  function currentSpeed() { return Math.round(speed); }
+  function difficultyLevel() {
+    // 1-based "level"; 1 until the first step lands.
+    return 1 + Math.floor(elapsedRunMs / SPEED_EVERY_MS);
+  }
+  function speedForElapsed(ms) {
+    const steps = Math.floor(ms / SPEED_EVERY_MS);
+    return Math.min(BASE_SPEED + steps * SPEED_STEP, MAX_SPEED);
+  }
+
+  function resetDifficulty() {
+    speed = BASE_SPEED;
+    targetSpeed = BASE_SPEED;
+    speedBlendFrom = BASE_SPEED;
+    speedBlendT = 1;
+    elapsedRunMs = 0;
+    nextStepAtMs = SPEED_EVERY_MS;
+  }
+
+  function updateHud() {
+    scoreEl.textContent = String(Math.floor(score));
+    bestEl.textContent  = String(best);
+    speedEl.innerHTML   = '';
+    speedEl.textContent = ((speed / BASE_SPEED).toFixed(1)) + '\u00D7';
+  }
+
+  function resetWorld() {
+    score = 0;
+    obstacles = [];
+    clouds = [];
+    nextSpawnPx = 0;
+    dino.x = Math.max(46, Math.round(W * 0.09));
+    dino.y = groundY - dino.h;
+    dino.vy = 0;
+    dino.onGround = true;
+    dino.legPhase = 0;
+    resetDifficulty();
+    updateHud();
+  }
+
+  /* =====================================================================
+     Sizing. The canvas backing store follows the element's CSS box at the
+     device pixel ratio, while ALL game logic runs in CSS pixels. That keeps
+     collision detection independent of how large the stage happens to be,
+     and avoids stretching sprites on high-DPI screens.
+     ===================================================================== */
+  function resize() {
+    const rect = stage.getBoundingClientRect();
+    if (rect.width < 10 || rect.height < 10) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = Math.round(rect.width);
+    H = Math.round(rect.height);
+    canvas.width  = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    groundY = Math.round(H * 0.80);
+    if (dino.onGround) dino.y = groundY - dino.h;
+    draw();
+  }
+
+  /* =====================================================================
+     Rendering. Deliberately chunky pixel-art: integer coordinates and
+     whole-pixel blocks, so the look stays crisp at any stage size.
+     ===================================================================== */
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Ground: a solid line plus a dotted texture beneath it.
+    ctx.fillStyle = '#2a3347';
+    ctx.fillRect(0, groundY, W, 2);
+    ctx.fillStyle = 'rgba(93,104,126,.30)';
+    for (let i = 0; i < W; i += 14) {
+      ctx.fillRect(i, groundY + 6 + ((i / 14) % 3) * 4, 5, 2);
+    }
+
+    // Distant clouds — purely decorative, dropped under reduced motion.
+    if (!reduceMotion) {
+      ctx.fillStyle = 'rgba(93,104,126,.28)';
+      for (const c of clouds) ctx.fillRect(c.x | 0, c.y | 0, c.w, 2);
+    }
+
+    // Obstacles
+    for (const o of obstacles) {
+      const ox = o.x | 0, oy = (groundY - o.h) | 0;
+      ctx.fillStyle = '#ff6b81';
+      ctx.fillRect(ox, oy, o.w, o.h);
+      // top highlight
+      ctx.fillStyle = 'rgba(255,255,255,.18)';
+      ctx.fillRect(ox, oy, o.w, 2);
+      // base shadow
+      ctx.fillStyle = 'rgba(0,0,0,.35)';
+      ctx.fillRect(ox, oy + o.h - 2, o.w, 2);
+    }
+
+    // Dino
+    const dx = dino.x | 0, dy = dino.y | 0;
+    ctx.fillStyle = '#5ef2c0';
+    ctx.fillRect(dx, dy, dino.w, dino.h - 8);
+    // head
+    ctx.fillRect(dx + dino.w - 14, dy - 9, 14, 13);
+    // tail
+    ctx.fillRect(dx - 6, dy + 4, 6, 6);
+    // eye
+    ctx.fillStyle = '#07090d';
+    ctx.fillRect(dx + dino.w - 7, dy - 4, 2, 2);
+    // legs
+    ctx.fillStyle = '#5ef2c0';
+    const running = state === S.RUN && dino.onGround && !paused;
+    if (running) {
+      const up = Math.floor(dino.legPhase) % 2 === 0;
+      ctx.fillRect(dx + 4,       dy + dino.h - 8, 6, up ? 8 : 5);
+      ctx.fillRect(dx + dino.w - 10, dy + dino.h - 8, 6, up ? 5 : 8);
+    } else {
+      ctx.fillRect(dx + 4,           dy + dino.h - 8, 6, 8);
+      ctx.fillRect(dx + dino.w - 10, dy + dino.h - 8, 6, 8);
+    }
+  }
+
+  /* =====================================================================
+     Simulation.
+     ===================================================================== */
+  function step(dt) {
+    /* --- difficulty clock ------------------------------------------
+       Only active play advances the clock, so pausing or dying freezes
+       progression exactly as required.                                  */
+    elapsedRunMs += dt * 1000;
+
+    if (elapsedRunMs >= nextStepAtMs) {
+      targetSpeed = Math.min(targetSpeed + SPEED_STEP, MAX_SPEED);
+      speedBlendFrom = speed;
+      speedBlendT = 0;
+      nextStepAtMs += SPEED_EVERY_MS;
+    }
+
+    // Blend toward the target so each step is felt as a gentle ramp.
+    if (speedBlendT < 1) {
+      speedBlendT = Math.min(1, speedBlendT + dt * 1000 / SPEED_RAMP_MS);
+      const t = speedBlendT;
+      speed = speedBlendFrom + (targetSpeed - speedBlendFrom) * t;
+    } else {
+      speed = targetSpeed;
+    }
+    speed = Math.min(speed, MAX_SPEED);       // enforce the cap
+
+    const dx = speed * dt;
+
+    /* --- player physics --- */
+    if (!dino.onGround) {
+      dino.vy += GRAVITY * dt;
+      dino.y  += dino.vy * dt;
+      if (dino.y >= groundY - dino.h) {
+        dino.y = groundY - dino.h;
+        dino.vy = 0;
+        dino.onGround = true;
+      }
+    }
+    dino.legPhase += dt * 11;
+
+    /* --- decor --- */
+    if (!reduceMotion) {
+      for (const c of clouds) c.x -= dx * 0.16;
+      if (clouds.length < 4 && Math.random() < 0.02) {
+        clouds.push({ x: W + 24, y: 12 + Math.random() * 34, w: 20 + Math.random() * 34 });
+      }
+      clouds = clouds.filter(c => c.x + c.w > 0);
+    }
+
+    /* --- obstacles --- */
+    for (const o of obstacles) o.x -= dx;
+    obstacles = obstacles.filter(o => o.x + o.w > -6);
+
+    nextSpawnPx -= dx;
+    if (nextSpawnPx <= 0 && obstacles.length < MAX_ON_SCREEN) {
+      // Gap tightens slightly with difficulty but never below the floor.
+      const tightness = (speed - BASE_SPEED) / (MAX_SPEED - BASE_SPEED);
+      const span = (GAP_CEIL - GAP_FLOOR) * (1 - tightness * 0.55);
+      const gap = GAP_FLOOR + Math.random() * span;
+      const h = OBST_MIN_H + Math.random() * (OBST_MAX_H - OBST_MIN_H);
+      const w = OBST_MIN_W + Math.random() * (OBST_MAX_W - OBST_MIN_W);
+      obstacles.push({ x: W + 10, w: Math.round(w), h: Math.round(h) });
+      nextSpawnPx = gap;
+    }
+
+    /* --- score --- */
+    score += dx * 0.018;
+    updateHud();
+
+    /* --- collision (forgiving AABB) --- */
+    const m = 4;
+    for (const o of obstacles) {
+      if (dino.x + m < o.x + o.w &&
+          dino.x + dino.w - m > o.x &&
+          dino.y + m < groundY &&
+          dino.y + dino.h > groundY - o.h) {
+        gameOver();
+        return;
+      }
+    }
+  }
+
+  function frame(ts) {
+    rafId = requestAnimationFrame(frame);
+    if (lastTs === 0) lastTs = ts;
+    let dt = (ts - lastTs) / 1000;
+    lastTs = ts;
+    if (dt > 0.05) dt = 0.05;                 // clamp after tab switches
+    if (paused || state !== S.RUN) return;
+    step(dt);
+    draw();
+  }
+
+  /* =====================================================================
+     Lifecycle.
+     ===================================================================== */
+  function stopLoop() {
+    if (rafId != null) { cancelAnimationFrame(rafId); rafId = null; }
+    lastTs = 0;
+  }
+
+  /** Begin a fresh run at the initial speed. */
+  function start() {
+    resetWorld();                              // also resets difficulty
+    paused = false;
+    state = S.RUN;
+    stage.classList.remove('is-paused');
+    pauseBtn.textContent = 'Pause';
+    pauseBtn.setAttribute('aria-pressed', 'false');
+    overlay.hidden = true;
+    stopLoop();
+    rafId = requestAnimationFrame(frame);
+    say('Run started. Press Space or Up to jump.');
+  }
+
+  function gameOver() {
+    state = S.OVER;
+    stopLoop();
+    draw();
+    const final = Math.floor(score);
+    best = Math.max(best, final);
+    updateHud();
+    stage.classList.add('is-over');
+    ovEyebrow.textContent = 'Game over';
+    ovTitle.textContent = 'Nice run. Ready for another?';
+    ovSub.textContent = 'Score ' + final +
+                        ' \u00B7 best ' + best +
+                        ' \u00B7 speed ' + ((speed / BASE_SPEED).toFixed(1)) + '\u00D7';
+    overlay.hidden = false;
+    startBtn.hidden = true;                    // "Run" is for the first go
+    retryBtn.hidden = false;
+    say('Game over. Final score ' + final + '. Best this session ' + best + '.');
+    retryBtn.focus({ preventScroll: true });
+  }
+
+  function togglePause() {
+    if (state !== S.RUN) return;
+    paused = !paused;
+    stage.classList.toggle('is-paused', paused);
+    pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+    pauseBtn.setAttribute('aria-pressed', String(paused));
+    say(paused ? 'Paused.' : 'Resumed.');
+  }
+
+  /** Show the ready overlay without starting. */
+  function showReady() {
+    state = S.IDLE;
+    resetWorld();
+    stage.classList.remove('is-paused', 'is-over');
+    overlay.hidden = false;
+    startBtn.hidden = false;
+    retryBtn.hidden = true;
+    ovEyebrow.textContent = 'Ready?';
+    ovTitle.textContent = 'Take a breather';
+    ovSub.textContent = 'Space / \u2191 or tap to jump \u00B7 P to pause \u00B7 Esc to exit';
+  }
+
+  /** Tear the game down completely and hand control back to sign-in. */
+  function closeGame() {
+    stopLoop();
+    state = S.IDLE;
+    paused = false;
+    resetWorld();
+    stage.classList.remove('is-paused', 'is-over');
+    overlay.hidden = false;
+    screen.hidden = true;
+    document.body.classList.remove('sw-dino-active');
+    // Restore the normal auth column (brand, cards, footer).
+    const views = $('#authViews');
+    if (views) views.hidden = false;
+    say(null);
+    // Never touch #password: the identifier is preserved because the form
+    // was merely hidden, and focus returns to its first field.
+    const idf = $('#identifier');
+    if (idf) idf.focus({ preventScroll: true });
+  }
+
+  /* =====================================================================
+     Input.
+     ===================================================================== */
+  function jump() {
+    if (state !== S.RUN) { start(); return; }  // idle or game-over starts a run
+    if (paused) return;
+    if (dino.onGround) {
+      dino.vy = JUMP_V;
+      dino.onGround = false;
+    }
+  }
+
+  function onKeydown(ev) {
+    // Never steal keys while the user is typing credentials.
+    const t = ev.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' ||
+              t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (screen.hidden) return;
+    switch (ev.key) {
+      case ' ': case 'ArrowUp':
+        ev.preventDefault(); jump(); break;
+      case 'p': case 'P':
+        ev.preventDefault(); togglePause(); break;
+      case 'r': case 'R':
+        ev.preventDefault(); start(); break;
+      case 'Escape':
+        ev.preventDefault(); closeGame(); break;
+    }
+  }
+
+  function onPointerDown(ev) {
+    if (screen.hidden) return;
+    if (ev.target.closest('button')) return;   // buttons keep their own taps
+    if (state === S.RUN && !paused) { jump(); return; }
+    if (state === S.OVER || state === S.IDLE) { start(); return; }
+  }
+
+  document.addEventListener('keydown', onKeydown, { passive: false });
+  stage.addEventListener('pointerdown', onPointerDown);
+
+  startBtn.addEventListener('click', () => { start(); startBtn.blur(); });
+  retryBtn.addEventListener('click', () => { start(); retryBtn.blur(); });
+  restartBtn.addEventListener('click', () => { start(); restartBtn.blur(); });
+  pauseBtn.addEventListener('click', () => { togglePause(); pauseBtn.blur(); });
+  backBtn.addEventListener('click', closeGame);
+  exitBtn.addEventListener('click', closeGame);
+  closeBtn.addEventListener('click', closeGame);
+
+  // Keep the canvas crisp across viewport changes. The observer is created
+  // once and never disconnected, because the game screen can be re-offered
+  // within the same page session.
+  if ('ResizeObserver' in window) {
+    new ResizeObserver(() => { if (!screen.hidden) resize(); }).observe(stage);
+  }
+  window.addEventListener('resize', () => { if (!screen.hidden) resize(); });
+  window.addEventListener('beforeunload', stopLoop);
+
+  /* =====================================================================
+     Offer / withdraw.
+     ===================================================================== */
+  function offer() {
+    // Hide the normal auth column and reveal the game screen.
+    const views = $('#authViews');
+    if (views) views.hidden = true;
+    screen.hidden = false;
+    document.body.classList.add('sw-dino-active');
+    // Three consecutive failures means this password is wrong, so it has no
+    // value to keep — and leaving it in a toggleable field would expose it
+    // to anyone glancing at the screen. Clear it; the identifier stays,
+    // because retyping an email is the annoying part.
+    const pwField = $('#password');
+    if (pwField) pwField.value = '';
+    showReady();
+    resize();
+    say('Three attempts did not match. A mini-game is available.');
+    startBtn.focus({ preventScroll: true });
+  }
+
+  // Public surface for the sign-in handler and for tests.
+  window.__dino = {
+    noteCredentialFailure: noteCredentialFailure,
+    resetFailureState: resetFailureState,
+    offer: offer,
+    close: closeGame,
+    failures: () => consecutiveFailures,
+    isOffered: () => offered,
+    // Read-only diagnostics used by the browser test-suite.
+    state: () => state,
+    isPaused: () => paused,
+    speed: currentSpeed,
+    level: difficultyLevel,
+    speedForElapsed: speedForElapsed,
+    hudScore: () => Math.floor(score),
+    // Distance (CSS px) from the dino's leading edge to the next obstacle,
+    // or null when the track is clear. Read-only; used by the test-suite
+    // to time jumps the way a player watching the screen would.
+    nextGap: () => {
+      let best = null;
+      for (const o of obstacles) {
+        const gap = o.x - (dino.x + dino.w);
+        if (gap >= -o.w && (best === null || gap < best)) best = gap;
+      }
+      return best;
+    },
+    obstacleCount: () => obstacles.length,
+    resetForTest: () => { resetDifficulty(); },
+    config: {
+      base: BASE_SPEED, max: MAX_SPEED, step: SPEED_STEP, everyMs: SPEED_EVERY_MS
+    }
+  };
+})();
+</script>
+</html>

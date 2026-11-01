@@ -53,7 +53,8 @@ use crate::tracing_setup::TracingSetup;
 #[cfg(feature = "orchestration")]
 use crate::tui::find_workflow_task_index;
 use crate::tui::{
-    consume_frozen_lines, filter_files, find_at_mention, find_tool_index, footer_live_height,
+    assistant_greeting, consume_frozen_lines, filter_files, find_at_mention, find_tool_index,
+    footer_live_height,
     format_item_lines, format_live_lines, format_token_usage_line, insert_text, item_is_committed,
     list_files, live_overflow_count, render_lines_to_buffer, tool_args_summary, welcome_lines,
     CardStatus, ChatItem, CommandHistory, FileEntry, FooterOpts, InputBuffer, McpServerListing,
@@ -413,6 +414,13 @@ async fn run_loop(
             Vec::new()
         }
     };
+    // A fresh (non-resumed) session opens with the official Loop greeting so
+    // the assistant introduces itself in the transcript. Resumed sessions
+    // already carry their history, so re-injecting would duplicate it on every
+    // `--resume`. The greeting is UI-only and is never sent to the model.
+    if !runtime.resumed {
+        chat.push(assistant_greeting());
+    }
     for notice in std::mem::take(&mut runtime.startup_notices) {
         chat.push(sys(notice));
     }
@@ -493,6 +501,12 @@ async fn run_loop(
     let path_line = path_status_line(&runtime.cwd);
     let mut token_bar = TokenBarState::load(runtime).await;
     let mut refresh_token_bar = false;
+    // Embedded dashboard (traces + system monitor + inference console).
+    let dashboard_state = Arc::new(crate::dashboard::DashboardState::default());
+    // Session lifecycle tracing: pairs each user prompt with its turn span.
+    let turn_tracker = crate::session_trace::TurnTracker::new();
+    // Phase 2: buffered streaming-text capture for the open assistant message.
+    let mut stream_capture: Option<crate::session_trace::StreamCapture> = None;
 
     // Welcome banner into terminal scrollback (above the footer).
     print_welcome(terminal, runtime, version)?;
@@ -839,6 +853,8 @@ async fn run_loop(
                 &mut token_bar,
                 &mut refresh_token_bar,
                 &tx,
+                &turn_tracker,
+                &mut stream_capture,
             )
             .await;
             continue;
@@ -929,6 +945,9 @@ async fn run_loop(
                             &tx,
                             &mut token_bar,
                             &mut refresh_token_bar,
+                            dashboard_state.clone(),
+                            &turn_tracker,
+                            &mut stream_capture,
                         )
                         .await?;
                         token_bar.sync_window(runtime);
@@ -999,11 +1018,25 @@ async fn run_loop(
             &mut token_bar,
             &mut refresh_token_bar,
             &tx,
+            &turn_tracker,
+            &mut stream_capture,
         )
         .await;
     }
 
     runtime.harness.request_shutdown();
+    // Close any turn still open when the user quit mid-flight, so the trace
+    // never shows a dangling `running` span for an exited session.
+    let had_open_turn = {
+        // cancel_open consumes the open turn; whether one existed decides
+        // if this exit counts as a user cancellation of live work.
+        let had = turn_tracker.has_open();
+        turn_tracker.cancel_open(&runtime.session_trace);
+        had
+    };
+    if had_open_turn {
+        runtime.session_trace.mark_cancelled("quit while a turn was running");
+    }
     let has_user_message = chat
         .iter()
         .any(|item| matches!(item, ChatItem::User { .. }));
@@ -1346,6 +1379,8 @@ async fn drain_ui_events(
     token_bar: &mut TokenBarState,
     refresh_token_bar: &mut bool,
     tx: &mpsc::UnboundedSender<UiEvent>,
+    turn_tracker: &crate::session_trace::TurnTracker,
+    stream_capture: &mut Option<crate::session_trace::StreamCapture>,
 ) {
     while let Ok(ev) = rx.try_recv() {
         match ev {
@@ -1399,6 +1434,9 @@ async fn drain_ui_events(
                     token_bar,
                     refresh_token_bar,
                     active_agent_name(runtime),
+                    turn_tracker,
+                    &runtime.session_trace,
+                    stream_capture,
                 );
             }
             UiEvent::AgentReady { id, model, result } => {
@@ -1407,6 +1445,11 @@ async fn drain_ui_events(
                     Ok((backend, session)) => {
                         let resumed = runtime.session_id == session.native_id;
                         runtime.adopt_agent(&id, backend, session, model.clone());
+                        // Session tracing: the conversation id changed with
+                        // the agent; keep the trace bound to the active one.
+                        runtime
+                            .session_trace
+                            .rebind_session(&runtime.session_id, "agent");
                         runtime.sync_agent_effort().await;
                         // Without this the agent keeps its own default mode
                         // (Codex: auto review, which edits without asking).
@@ -1457,6 +1500,10 @@ async fn drain_ui_events(
                     "error: lost contact with the agent; the turn may be incomplete",
                 ));
                 *status = "error".into();
+                turn_tracker.end_failed(
+                    &runtime.session_trace,
+                    "lost contact with the agent; the turn may be incomplete",
+                );
             }
             UiEvent::TurnFailed(err) => {
                 *working = false;
@@ -1467,6 +1514,7 @@ async fn drain_ui_events(
                 if let Some(path) = &runtime.debug_log_path {
                     crate::debug_log::append_note(path, &format!("turn_failed: {err}"));
                 }
+                turn_tracker.end_failed(&runtime.session_trace, &err);
             }
             UiEvent::CompactDone(result) => {
                 *working = false;
@@ -1689,6 +1737,8 @@ async fn drain_ui_events(
         working,
         message_queue,
         tx,
+        turn_tracker,
+        stream_capture,
     );
 }
 
@@ -1896,6 +1946,8 @@ fn start_user_turn(
     display: String,
     prompt: String,
     tx: &mpsc::UnboundedSender<UiEvent>,
+    turn_tracker: &crate::session_trace::TurnTracker,
+    stream_capture: &mut Option<crate::session_trace::StreamCapture>,
 ) {
     // Keep prior turn output above this user message.
     settle_queue_at_end(chat, streaming_assistant, streaming_thinking);
@@ -1923,6 +1975,27 @@ fn start_user_turn(
     let tx = tx.clone();
     if let Some(path) = &runtime.debug_log_path {
         crate::debug_log::append_note(path, "turn: prompt submitted");
+    }
+    // Model spec for the trace's `llm.generate` span (captured before spawn).
+    let model_spec = runtime
+        .selected_model
+        .as_ref()
+        .map(|m| (m.id.clone(), m.provider.clone()));
+    // Session tracing: open the turn span before the prompt is sent.
+    turn_tracker.begin(&runtime.session_trace, Some(&prompt));
+    // Phase 2: a fresh stream capture for this turn's assistant output, and
+    // an `llm.generate` span recording which model is answering. The span is
+    // registered on the tracker so it closes on every turn exit path.
+    *stream_capture = None;
+    if let Some(span) = turn_tracker.open_span_id() {
+        if let Some(llm) = runtime.session_trace.begin_model_span(
+            &span,
+            turn_tracker.open_index().unwrap_or(0),
+            model_spec.as_ref().map(|(m, _)| m.as_str()),
+            model_spec.as_ref().map(|(_, p)| p.as_str()),
+        ) {
+            turn_tracker.set_llm_span(&llm);
+        }
     }
     tokio::spawn(async move {
         match backend
@@ -1957,6 +2030,8 @@ fn try_drain_message_queue(
     working: &mut bool,
     message_queue: &mut VecDeque<QueuedMessage>,
     tx: &mpsc::UnboundedSender<UiEvent>,
+    turn_tracker: &crate::session_trace::TurnTracker,
+    stream_capture: &mut Option<crate::session_trace::StreamCapture>,
 ) {
     // Wait until the harness is fully idle. AgentEnd clears `working` slightly
     // before phase flips, and Esc must be able to flush the queue in between.
@@ -1977,6 +2052,8 @@ fn try_drain_message_queue(
         item.display,
         item.prompt,
         tx,
+        turn_tracker,
+        stream_capture,
     );
 }
 
@@ -1995,6 +2072,8 @@ fn submit_user_text(
     message_queue: &mut VecDeque<QueuedMessage>,
     text: String,
     tx: &mpsc::UnboundedSender<UiEvent>,
+    turn_tracker: &crate::session_trace::TurnTracker,
+    stream_capture: &mut Option<crate::session_trace::StreamCapture>,
 ) {
     if runtime.is_native() && runtime.selected_model.is_none() {
         // Nothing can answer; don't queue or record the message.
@@ -2024,6 +2103,8 @@ fn submit_user_text(
             text.clone(),
             text,
             tx,
+            turn_tracker,
+            stream_capture,
         );
     }
 }
@@ -2254,6 +2335,9 @@ async fn handle_key(
     tx: &mpsc::UnboundedSender<UiEvent>,
     token_bar: &mut TokenBarState,
     refresh_token_bar: &mut bool,
+    dashboard_state: Arc<crate::dashboard::DashboardState>,
+    turn_tracker: &crate::session_trace::TurnTracker,
+    stream_capture: &mut Option<crate::session_trace::StreamCapture>,
 ) -> anyhow::Result<()> {
     if let Some(review) = active_approval.as_mut() {
         match key.code {
@@ -2811,6 +2895,9 @@ async fn handle_key(
                             tx,
                             token_bar,
                             refresh_token_bar,
+                            dashboard_state.clone(),
+                            turn_tracker,
+                            stream_capture,
                         )
                         .await?;
                     }
@@ -2826,6 +2913,8 @@ async fn handle_key(
                         message_queue,
                         line,
                         tx,
+                        &turn_tracker,
+                        stream_capture,
                     );
                 }
                 return Ok(());
@@ -2980,6 +3069,8 @@ async fn handle_key(
                         message_queue,
                         line,
                         tx,
+                        &turn_tracker,
+                        stream_capture,
                     );
                 }
                 return Ok(());
@@ -3555,6 +3646,10 @@ async fn adopt_forked_session(
             runtime.native.adopt_session(&id);
             runtime.session_id = id.clone();
             runtime.active_skills.clear();
+            // Session tracing: a fork/clone is a new conversation id.
+            runtime
+                .session_trace
+                .rebind_session(&runtime.session_id, "fork");
             *chat = match runtime.backend.transcript(&runtime.session_ref()).await {
                 Ok(updates) => chat_from_transcript(updates),
                 Err(e) => {
@@ -3615,8 +3710,13 @@ fn handle_update(
     token_bar: &mut TokenBarState,
     refresh_token_bar: &mut bool,
     source: Option<&str>,
+    turn_tracker: &crate::session_trace::TurnTracker,
+    session_trace: &crate::session_trace::SessionTrace,
+    stream_capture: &mut Option<crate::session_trace::StreamCapture>,
 ) {
     let live = origin == Origin::Live;
+    // Session tracing (Phase 2): the open turn's index for content events.
+    let turn_no = turn_tracker.open_index().unwrap_or(0);
     match update {
         SessionUpdate::Notice { level, text } => match level {
             NoticeLevel::Error => {
@@ -3674,6 +3774,13 @@ fn handle_update(
                 *turn_step = "streaming…".into();
             }
             finish_thinking(chat, streaming_thinking);
+            // Session tracing (Phase 2): buffer the real streamed text.
+            if live {
+                let capture = stream_capture.get_or_insert_with(|| {
+                    crate::session_trace::StreamCapture::new(turn_no)
+                });
+                capture.push(session_trace, delta);
+            }
             let idx = match *streaming_assistant {
                 Some(idx) => idx,
                 None => {
@@ -3734,6 +3841,19 @@ fn handle_update(
             }
             *streaming_assistant = None;
             finish_thinking(chat, streaming_thinking);
+            // Session tracing (Phase 2): flush any pending stream text so
+            // the timeline stays ordered before the tool call starts.
+            if live {
+                if let Some(capture) = stream_capture.as_mut() {
+                    capture.flush(session_trace);
+                }
+                session_trace.record_tool_started(
+                    turn_no,
+                    call.id.as_str(),
+                    &name,
+                    call.raw_input.as_ref(),
+                );
+            }
             let summary = match (&call.name, &call.raw_input) {
                 (Some(tool), Some(input)) => tool_args_summary(tool, input),
                 _ if call.title == raw_name => String::new(),
@@ -3761,14 +3881,83 @@ fn handle_update(
         }
         SessionUpdate::ToolCallUpdate(mut update) => {
             update.name = update.name.map(|name| tool_display_name(source, &name));
+            // Session tracing (Phase 2): record the tool's real result.
+            if live {
+                let finished = match update.status {
+                    Some(ToolCallStatus::Completed) => Some(false),
+                    Some(ToolCallStatus::Failed) => Some(true),
+                    _ => None,
+                };
+                if let Some(failed) = finished {
+                    let output = update
+                        .content
+                        .as_deref()
+                        .map(tool_text)
+                        .or_else(|| update.raw_output.as_ref().map(|o| o.to_string()));
+                    session_trace.record_tool_result(
+                        turn_no,
+                        update.id.as_str(),
+                        update.name.as_deref().unwrap_or("tool"),
+                        output.as_deref(),
+                        failed,
+                        None,
+                    );
+                }
+            }
             apply_tool_update(update, live, chat, turn_step);
         }
         SessionUpdate::Usage(usage) => {
             if live {
                 token_bar.apply_protocol_usage(&usage);
+                // Session tracing (Phase 2): merge real token counts.
+                session_trace.record_usage(
+                    turn_no,
+                    Some(usage.input_tokens),
+                    Some(usage.output_tokens),
+                    Some(usage.total_tokens),
+                    None,
+                );
             }
         }
         SessionUpdate::TurnEnded { stop, error, .. } => {
+            // Session tracing: close the turn span with its terminal status.
+            if live {
+                // Phase 2: persist the final assembled assistant response
+                // from the stream capture before closing the turn.
+                if let Some(capture) = stream_capture.take() {
+                    let text = capture.text();
+                    if !text.is_empty() {
+                        let status = if error.is_some() {
+                            "error"
+                        } else if stop == StopReason::Cancelled {
+                            "cancelled"
+                        } else {
+                            "complete"
+                        };
+                        session_trace.record_assistant_response(
+                            turn_no,
+                            text,
+                            status,
+                            Some(&format!("{stop:?}")),
+                        );
+                    }
+                }
+                if let Some(error) = &error {
+                    session_trace.record_error("turn", &error.message);
+                }
+                session_trace.record_event(
+                    "turn.ended",
+                    serde_json::json!({
+                        "stop": format!("{stop:?}"),
+                        "error": error.as_ref().map(|e| e.message.as_str()),
+                    }),
+                );
+                turn_tracker.end(
+                    session_trace,
+                    stop,
+                    error.as_ref().map(|e| e.message.as_str()),
+                );
+            }
             if let Some(error) = error {
                 push_before_queued(chat, error_item(format!("error: {}", error.message)));
             } else if live && stop == StopReason::Cancelled {
@@ -3983,6 +4172,9 @@ fn chat_from_agent_transcript(updates: Vec<SessionUpdate>, source: Option<&str>)
             &mut token_bar,
             &mut refresh,
             source,
+            &crate::session_trace::TurnTracker::new(),
+            &crate::session_trace::SessionTrace::disabled(),
+            &mut None,
         );
     }
     chat
@@ -4263,6 +4455,9 @@ async fn apply_effect(
     tx: &mpsc::UnboundedSender<UiEvent>,
     token_bar: &mut TokenBarState,
     refresh_token_bar: &mut bool,
+    dashboard_state: Arc<crate::dashboard::DashboardState>,
+    turn_tracker: &crate::session_trace::TurnTracker,
+    stream_capture: &mut Option<crate::session_trace::StreamCapture>,
 ) -> anyhow::Result<bool> {
     match effect {
         CommandEffect::Quit => return Ok(true),
@@ -4542,7 +4737,15 @@ async fn apply_effect(
                 Ok(()) => {
                     runtime.resumed = false;
                     runtime.active_skills.clear();
+                    // Session tracing: /new starts a fresh conversation id;
+                    // the trace follows it and records the switch.
+                    runtime
+                        .session_trace
+                        .rebind_session(&runtime.session_id, "new");
                     chat.clear();
+                    // A new conversation opens with the assistant greeting,
+                    // matching a fresh session.
+                    chat.push(assistant_greeting());
                     if let Some(bridge) = &runtime.tool_approval {
                         bridge.clear_session_grants();
                     }
@@ -4710,6 +4913,45 @@ async fn apply_effect(
                         runtime.theme.name,
                         runtime.project_trusted
                     )));
+                }
+            }
+        }
+        CommandEffect::Dashboard(arg) => {
+            match arg.as_deref() {
+                Some("off") | Some("stop") => match dashboard_state.stop() {
+                    Some(port) => {
+                        chat.push(sys(format!("dashboard stopped (port {port} was freed)")))
+                    }
+                    None => chat.push(sys("dashboard is not running")),
+                },
+                Some("status") => match dashboard_state.get() {
+                    Some(handle) => chat.push(sys(format!(
+                        "dashboard running at http://127.0.0.1:{} — /, /system, /console",
+                        handle.port
+                    ))),
+                    None => chat.push(sys("dashboard not running — /dashboard to start it")),
+                },
+                Some(other) => chat.push(sys(format!(
+                    "Usage: /dashboard [on|off|status] (unknown argument: {other})"
+                ))),
+                None => {
+                    // Start (or report) the embedded dashboard and open it.
+                    match crate::dashboard::start(runtime, &dashboard_state).await {
+                        Ok(handle) => {
+                            let url = format!("http://127.0.0.1:{}/console", handle.port);
+                            match crate::app::open_link(&url) {
+                                Ok(()) => chat.push(sys(format!(
+                                    "dashboard → {url}\n  traces : http://127.0.0.1:{}/\n  system : http://127.0.0.1:{}/system\n  console: {url}\n  stop   : /dashboard off",
+                                    handle.port, handle.port
+                                ))),
+                                Err(err) => chat.push(sys(format!(
+                                    "dashboard → {url} (could not open browser: {err})\n  traces : http://127.0.0.1:{}/\n  system : http://127.0.0.1:{}/system\n  console: {url}\n  stop   : /dashboard off",
+                                    handle.port, handle.port
+                                ))),
+                            }
+                        }
+                        Err(err) => chat.push(sys(format!("dashboard failed to start: {err:#}"))),
+                    }
                 }
             }
         }
@@ -5009,6 +5251,8 @@ async fn apply_effect(
                         display,
                         prompt,
                         tx,
+                        turn_tracker,
+                        stream_capture,
                     );
                 }
             } else {
@@ -5146,6 +5390,14 @@ async fn choose_model(
                 chat.push(sys("back to Loop's own agent"));
             }
             token_bar.sync_window(runtime);
+            // Session tracing: model switches are visible on the trace row.
+            runtime
+                .session_trace
+                .set_model(Some(&model.id), Some(&model.provider));
+            runtime.session_trace.record_event(
+                "model.switch",
+                serde_json::json!({ "provider": model.provider, "model": model.id }),
+            );
             chat.push(sys(format!("model → {}/{}", model.provider, model.id)));
         }
         Err(err) => chat.push(error_item(format!("{err:#}"))),
@@ -5281,6 +5533,9 @@ mod tests {
                 &mut token_bar,
                 &mut refresh,
                 None,
+                &crate::session_trace::TurnTracker::new(),
+                &crate::session_trace::SessionTrace::disabled(),
+                &mut None,
             );
         }
         (chat, status)
@@ -5324,6 +5579,9 @@ mod tests {
                 &mut token_bar,
                 &mut refresh,
                 None,
+                &crate::session_trace::TurnTracker::new(),
+                &crate::session_trace::SessionTrace::disabled(),
+                &mut None,
             );
         }
         chat

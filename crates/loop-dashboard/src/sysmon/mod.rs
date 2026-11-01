@@ -12,7 +12,9 @@ pub mod cpu;
 pub mod demo;
 pub mod disk;
 pub mod gpu;
+pub mod health;
 pub mod history;
+pub mod host;
 pub mod memory;
 pub mod metrics;
 pub mod net;
@@ -67,6 +69,8 @@ pub struct SysSnapshot {
     pub sample_count: u64,
     /// Seconds since boot (from `sysinfo::System::boot_time`).
     pub uptime_secs: Option<u64>,
+    /// Machine identity (hostname, OS). Read per pass; cheap static queries.
+    pub host: host::HostInfo,
     /// How long the last full sampling pass took (microseconds).
     /// Surfaced for the performance overlay; measurement, not a metric.
     pub sample_duration_us: u64,
@@ -94,6 +98,10 @@ pub struct History {
     pub net_recv_per_sec: Vec<history::Point>,
     /// Network upload bytes/sec.
     pub net_sent_per_sec: Vec<history::Point>,
+    /// GPU device utilization % (NaN when unavailable on this hardware).
+    pub gpu_util_percent: Vec<history::Point>,
+    /// Battery charge % (recorded on slow ticks; NaN when no battery).
+    pub battery_charge_percent: Vec<history::Point>,
 }
 
 /// Internal mutable state behind the RwLock.
@@ -113,6 +121,8 @@ struct HistoryBuffers {
     disk_write_per_sec: Series,
     net_recv_per_sec: Series,
     net_sent_per_sec: Series,
+    gpu_util_percent: Series,
+    battery_charge_percent: Series,
 }
 
 impl HistoryBuffers {
@@ -128,6 +138,8 @@ impl HistoryBuffers {
             disk_write_per_sec: s(),
             net_recv_per_sec: s(),
             net_sent_per_sec: s(),
+            gpu_util_percent: s(),
+            battery_charge_percent: s(),
         }
     }
 
@@ -142,6 +154,8 @@ impl HistoryBuffers {
             disk_write_per_sec: self.disk_write_per_sec.snapshot(),
             net_recv_per_sec: self.net_recv_per_sec.snapshot(),
             net_sent_per_sec: self.net_sent_per_sec.snapshot(),
+            gpu_util_percent: self.gpu_util_percent.snapshot(),
+            battery_charge_percent: self.battery_charge_percent.snapshot(),
         }
     }
 }
@@ -197,6 +211,12 @@ impl SysMonitor {
             processes: Vec::new(),
             sample_count: 0,
             uptime_secs: None,
+            host: host::HostInfo {
+                host_name: None,
+                os_name: None,
+                os_version: None,
+                kernel_version: None,
+            },
             sample_duration_us: 0,
         };
         Self {
@@ -294,6 +314,30 @@ impl SysMonitor {
                 .push(now_ms, network_totals.received_per_sec);
             h.net_sent_per_sec
                 .push(now_ms, network_totals.transmitted_per_sec);
+            // GPU utilization is sampled every tick; record NaN when the
+            // platform doesn't expose it so charts show a gap, not a fake 0.
+            h.gpu_util_percent.push(
+                now_ms,
+                match gpu.utilization_percent.value {
+                    Some(v) if gpu.utilization_percent.available => v,
+                    _ => f64::NAN,
+                },
+            );
+            // Charge moves minute-to-minute and is only re-read on slow
+            // ticks; record the current value then, NaN in between so the
+            // chart shows a sparse-but-honest series rather than a fake
+            // flat line at a stale value.
+            h.battery_charge_percent.push(
+                now_ms,
+                if slow_tick {
+                    match battery.charge_percent.value {
+                        Some(v) if battery.charge_percent.available => v,
+                        _ => f64::NAN,
+                    }
+                } else {
+                    f64::NAN
+                },
+            );
 
             guard.snapshot = SysSnapshot {
                 sampled_at_ms: now_ms,
@@ -312,6 +356,7 @@ impl SysMonitor {
                 uptime_secs: Some(
                     chrono::Utc::now().timestamp().max(0) as u64 - sysinfo::System::boot_time(),
                 ),
+                host: source.host(),
                 sample_duration_us,
             };
         }
@@ -442,6 +487,15 @@ impl SampleSource {
             Self::Demo(d) => d.processes(),
         }
     }
+
+    /// Machine identity. Read-only, so it takes `&self` (no advance).
+    fn host(&mut self) -> host::HostInfo {
+        if self.is_demo() {
+            host::demo_host_info()
+        } else {
+            host::HostInfo::read()
+        }
+    }
 }
 
 /// The real collector set owned by the sampling loop.
@@ -510,6 +564,15 @@ pub async fn run_sampler(monitor: SysMonitor, demo: bool, base_interval: Duratio
     }
 }
 
+/// Test-only access to the internal state so health-doc tests can inject
+/// domain readings (memory pressure, battery) without faking collectors.
+#[cfg(test)]
+impl SysMonitor {
+    pub(crate) fn inner_for_tests(&self) -> parking_lot::RwLockWriteGuard<'_, Inner> {
+        self.inner.write()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -524,6 +587,32 @@ mod tests {
         m.sample_with(&mut c);
         assert_eq!(m.snapshot().sample_count, 2);
         assert_eq!(m.history().cpu_percent.len(), 2);
+    }
+
+    /// Machine identity: real samples carry host info (string-or-null per
+    /// field); demo samples carry the clearly-labeled demo identity so a
+    /// synthetic dashboard can never masquerade as this machine.
+    #[test]
+    fn host_info_real_vs_demo() {
+        let m = SysMonitor::with_empty_snapshot(Duration::from_secs(2));
+        let mut real = SampleSource::real();
+        m.sample_with(&mut real);
+        let h = m.snapshot().host;
+        // On macOS all four resolve; assert at least hostname + OS name so a
+        // silent sysinfo regression is caught (fields stay Option-typed for
+        // other platforms).
+        assert!(h.host_name.is_some(), "hostname must resolve on macOS");
+        assert!(h.os_name.is_some(), "OS name must resolve on macOS");
+
+        let m2 = SysMonitor::with_empty_snapshot(Duration::from_secs(2));
+        let mut demo = SampleSource::demo();
+        m2.sample_with(&mut demo);
+        let hd = m2.snapshot().host;
+        assert_eq!(hd.host_name.as_deref(), Some("demo-host"));
+        assert_ne!(
+            hd.host_name, h.host_name,
+            "demo must not echo the real hostname"
+        );
     }
 
     /// Regression: disk rates must be divided by the inter-sample window,

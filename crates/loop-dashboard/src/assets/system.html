@@ -3,12 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>loop · system monitor</title>
+<title>Loop · System Dashboard</title>
 <style>
 :root{
   --bg:#0a0c10; --bg2:#0d1017; --panel:#131722; --panel2:#181d2b;
   --line:#212839; --line2:#2c3550;
-  --ink:#e9edf5; --ink-dim:#98a3b8; --ink-faint:#5c6779;
+  /* ink-faint is raised from #5c6779 (~3.0:1) for readable secondary text
+     on the dark panels; still clearly subordinate to --ink-dim. */
+  --ink:#e9edf5; --ink-dim:#a3aec2; --ink-faint:#78849b;
   --acc:#4ecdc4; --acc-dim:#2f8f89;
   --amber:#f5b841; --red:#ff6b7d; --blue:#64a8ff; --violet:#a78bfa;
   --mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
@@ -39,8 +41,8 @@ body{
   background:linear-gradient(135deg,#12332e,#17423a);border:1px solid #1f5a50;
   color:var(--acc);font-family:var(--mono);font-weight:700;font-size:13px;
 }
-.brand-name{font-weight:700;font-size:13.5px;letter-spacing:-.01em}
-.brand-sub{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);letter-spacing:.1em;text-transform:uppercase}
+.brand-name{font-weight:700;font-size:12.5px;letter-spacing:-.01em}
+.brand-sub{font-family:var(--mono);font-size:8.5px;color:var(--ink-faint);letter-spacing:.09em;text-transform:uppercase}
 .nav{padding:10px 8px;display:flex;flex-direction:column;gap:2px;flex:1;overflow-y:auto}
 .nav-item{
   display:flex;align-items:center;gap:9px;padding:7px 11px;border-radius:8px;cursor:pointer;
@@ -50,6 +52,12 @@ body{
 .nav-item:hover{color:var(--ink);background:var(--panel)}
 .nav-item.active{color:var(--acc);background:rgba(78,205,196,.09);border-color:rgba(78,205,196,.18)}
 .nav-item svg{width:15px;height:15px;flex-shrink:0;opacity:.85}
+/* Portal anchor in the sidebar: same metrics as .nav-item but a real link. */
+a.nav-item{text-decoration:none;display:flex;align-items:center;gap:9px;padding:7px 11px;
+  border-radius:8px;cursor:pointer;color:var(--ink-dim);font-weight:500;font-size:12.5px;
+  border:1px solid transparent;transition:background .12s,color .12s;user-select:none}
+a.nav-item:hover{color:var(--ink);background:var(--panel)}
+a.nav-item:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .side-foot{padding:11px 16px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
 .live-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--acc);margin-right:6px;animation:pulse 2.4s infinite}
 .live-dot.err{background:var(--red);animation:none}
@@ -76,16 +84,92 @@ body{
 .retry-btn:hover{color:var(--ink);border-color:var(--acc-dim)}
 .refresh-note{font-family:var(--mono);font-size:10px;color:var(--ink-faint)}
 
+/*
+ * Content column. Views stack their sections with a single gap rule instead
+ * of per-card inline margins. max-width keeps line lengths readable on very
+ * wide windows rather than stretching cards across 2000px.
+ */
 .content{flex:1;overflow-y:auto;padding:18px 20px 40px}
-.content-inner{max-width:1440px;margin:0 auto}
+/*
+ * The inner column fills the scroll container's height so flex children can
+ * distribute leftover vertical space (chart cards marked .fill). When content
+ * is taller than the viewport it simply grows and scrolls as before.
+ */
+.content-inner{
+  max-width:1560px;margin:0 auto;display:flex;flex-direction:column;gap:14px;
+  min-height:calc(100% - 54px);
+}
+/* The loading/error placeholders shouldn't stretch to full column height. */
+.content-inner > .loading-msg,
+.content-inner > .empty-msg{flex:0 0 auto}
 
 /* ---------- banners ---------- */
 .banner{border-radius:10px;padding:9px 14px;margin-bottom:16px;font-size:12.5px;display:flex;gap:10px;align-items:center}
 .banner.error{background:rgba(255,107,125,.08);border:1px solid rgba(255,107,125,.3);color:var(--red)}
 .banner.demo{background:rgba(245,184,65,.07);border:1px solid rgba(245,184,65,.3);color:var(--amber)}
+.banner.stale{background:rgba(245,184,65,.07);border:1px solid rgba(245,184,65,.32);color:var(--amber)}
+
+/* System health strip: honest aggregate of freshness + errors. */
+.health-strip{display:flex;align-items:center;gap:10px;border-radius:10px;
+  padding:10px 14px;margin-bottom:16px;border:1px solid var(--line);
+  background:var(--panel);font-size:12.5px;flex-wrap:wrap}
+.health-dot{width:9px;height:9px;border-radius:50%;flex:none;background:var(--acc)}
+.health-dot.warn{background:var(--amber)}
+.health-dot.err{background:var(--red)}
+.health-title{font-weight:700}
+.health-detail{color:var(--ink-dim)}
+.health-spacer{flex:1}
+
+/* ---------- AI System Overview card ---------- */
+.ai-card{margin-bottom:16px;padding:15px 17px}
+.ai-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.ai-head h3{margin-bottom:2px}
+.ai-verdict{
+  display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:12.5px;
+  padding:6px 12px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);
+  white-space:nowrap;
+}
+.ai-verdict.ok{color:var(--acc);border-color:rgba(94,242,192,.32);background:rgba(94,242,192,.07)}
+.ai-verdict.warn{color:var(--amber);border-color:rgba(245,184,65,.32);background:rgba(245,184,65,.07)}
+.ai-verdict.crit{color:var(--red);border-color:rgba(255,107,125,.32);background:rgba(255,107,125,.07)}
+.ai-verdict.unknown{color:var(--ink-dim)}
+.ai-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex:none;background:var(--acc)}
+.ai-dot.warn{background:var(--amber)}
+.ai-dot.crit{background:var(--red)}
+.ai-dot.na{background:var(--ink-faint);opacity:.5}
+.ai-rows{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:7px 22px;margin:13px 0 4px}
+.ai-row{display:flex;align-items:baseline;gap:9px;font-size:12.5px;min-width:0}
+.ai-row-name{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;color:var(--ink-faint);
+  width:72px;flex:none;text-transform:uppercase;
+}
+.ai-row-text{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai-recs{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+.ai-rec{font-size:12px;color:var(--ink-dim);padding-left:2px}
+.ai-rec.warn{color:var(--amber)}
+.ai-rec.crit{color:var(--red)}
+.ai-rec.ok{color:var(--ink-dim)}
+.ai-foot{
+  display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:11px;
+  border-top:1px dashed var(--line);padding-top:9px;
+}
+.ai-stamp{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint)}
+.ai-thresholds{font-family:var(--mono);font-size:9.5px;color:var(--ink-faint)}
 
 /* ---------- KPI cards ---------- */
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:11px;margin-bottom:16px}
+/*
+ * KPI grid. Overview shows 9 cards; auto-fit produced ragged rows like
+ * 7 + 2 on mid-width windows. Fixed track counts per breakpoint keep the
+ * grid balanced (9 → 5 + 4 at wide, 3×3 narrower), and every card in a row
+ * shares one height so the row reads evenly.
+ */
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:11px}
+.kpis > .kpi{min-width:0;display:flex;flex-direction:column}
+.kpi-value,.kpi-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:1450px){.kpis{grid-template-columns:repeat(4,1fr)}}
+@media (max-width:1150px){.kpis{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:820px){.kpis{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:520px){.kpis{grid-template-columns:1fr}}
 .kpi{
   background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
   padding:12px 14px 11px;position:relative;overflow:hidden;
@@ -99,9 +183,21 @@ body{
 .kpi.unavail .kpi-value{color:var(--ink-faint);font-size:15px;font-weight:500}
 .bar{height:4px;border-radius:3px;background:var(--bg);margin-top:8px;overflow:hidden}
 .bar i{display:block;height:100%;border-radius:3px;transition:width .45s ease}
+/* Compact trend line for cards without a utilization bar, so every card in
+   the row carries an equivalent visual element. */
+.spark{height:14px;margin-top:6px;display:block}
+.spark path{fill:none;stroke-width:1.3;stroke-linejoin:round;stroke-linecap:round}
 
 /* ---------- cards & charts ---------- */
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px;margin-bottom:16px}
+/*
+ * Chart grid: 2 x 2 on desktop (CPU+Memory, then Network+Disk) so the
+ * reclaimed width goes into taller, more readable charts; single column
+ * below ~1000px where two columns would be cramped.
+ */
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:1000px){.grid{grid-template-columns:1fr}}
+/* Direct card children of a view use the column gap (no inline margins). */
+.content-inner > .card{margin:0}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);padding:14px 16px;min-width:0}
 .card h3{font-size:12.5px;font-weight:650;margin-bottom:2px;display:flex;align-items:center;gap:7px}
 .card .hint{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-bottom:10px}
@@ -116,6 +212,17 @@ body{
  * and the SVG below is laid out in CSS pixels (no viewBox stretching), so
  * labels never scale away or clip.
  */
+/*
+ * A chart card marked .fill grows to absorb leftover vertical space in its
+ * view (flex column), and the chart box inside stretches with it. The SVG
+ * reads its box's real height at mount time, so no hardcoded chart heights.
+ */
+.card.fill{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+/* In the overview grid the row itself stretches; each card fills its cell. */
+.grid-fill{flex:1 1 auto;align-items:stretch;grid-auto-rows:1fr;min-height:0}
+.grid-fill .card.fill{flex:1 1 auto;height:100%}
+.card.fill .chart{flex:1;display:flex;flex-direction:column;min-height:120px}
+.card.fill .chart .chart-box{flex:1}
 .chart{width:100%;max-width:100%;position:relative;min-height:1px}
 .chart svg{display:block;width:100%;height:100%;overflow:visible}
 /* Only the plot area (lines/areas) is clipped; axes labels sit outside it. */
@@ -143,14 +250,73 @@ body{
 .chart-tip .r i{width:7px;height:7px;border-radius:2px;flex-shrink:0}
 .chart-tip .r b{font-weight:600;margin-left:auto;padding-left:10px}
 
+/*
+ * Chart toolbar — the time-range / step / live controls.
+ *
+ * This used to be `className = 'chart-legend chart-controls'` with NO rule
+ * for `.chart-controls` anywhere, so the toolbar was laid out entirely by
+ * `.chart-legend` and sat wherever it happened to land in document order.
+ * On cards whose legend wrapped onto several rows the toolbar could end up
+ * level with (or over) the card's heading area.
+ *
+ * It is now a real footer under the chart, in normal flow, so it can never
+ * overlap the title, subtitle, plot or legend regardless of how many series
+ * a card has. It keeps `.chart-legend` only for the shared focus-ring rule
+ * further down; all layout comes from here.
+ */
+.chart-controls{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+  margin-top:10px;min-height:24px;
+}
+/* Keep the two halves together when the row does wrap. */
+.chart-controls .range-nav{margin-right:2px}
+/* Touch targets: 9.5px type is fine for a pointer, too small for a thumb. */
+@media (pointer:coarse){
+  .step-btn,.live-badge,.range-ctrl button{min-height:26px;min-width:30px}
+}
+
 /* Time-range selector shown in chart headers that have enough history. */
-.range-ctrl{display:inline-flex;gap:2px;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:2px;margin-left:auto}
+.range-ctrl{display:inline-flex;gap:2px;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:2px}
 .range-ctrl button{
   font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);background:none;border:0;
   border-radius:5px;padding:2px 7px;cursor:pointer;
 }
 .range-ctrl button:hover{color:var(--ink-dim)}
 .range-ctrl button.on{background:var(--panel2);color:var(--acc)}
+
+/* Step buttons flanking the range control. */
+.range-nav{display:inline-flex;gap:2px}
+.step-btn{
+  font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);background:var(--bg);
+  border:1px solid var(--line);border-radius:6px;padding:2px 7px;cursor:pointer;line-height:1.4;
+}
+.step-btn:hover{color:var(--ink);border-color:var(--line2)}
+.step-btn:active{transform:translateY(1px)}
+
+/* Live badge / back-to-live. */
+.live-badge{
+  font-family:var(--mono);font-size:9.5px;border-radius:99px;padding:2px 9px;cursor:pointer;
+  background:var(--bg);border:1px solid var(--line);color:var(--ink-dim);
+}
+.live-badge.on{
+  color:var(--acc);border-color:rgba(78,205,196,.35);background:rgba(78,205,196,.07);
+  cursor:default;
+}
+.live-badge:not(.on){border-color:rgba(245,184,65,.4);color:var(--amber)}
+.live-badge:not(.on):hover{background:rgba(245,184,65,.1)}
+
+/* Historical-mode note ("viewing HH:MM:SS–HH:MM:SS"). */
+.hist-note{font-family:var(--mono);font-size:9.5px;color:var(--amber);opacity:.85}
+
+/* Chart plot is pannable: show a grab cursor only over the plot area. */
+.chart-box{cursor:crosshair}
+.chart-box:active{cursor:grabbing}
+
+/* Visible keyboard focus for every chart control (a11y). */
+.range-ctrl button:focus-visible,.step-btn:focus-visible,.live-badge:focus-visible,
+.lg-item:focus-visible,.chart-box:focus-visible{
+  outline:2px solid var(--acc-dim);outline-offset:1px;
+}
 
 /* ---------- per-core grid ---------- */
 .core-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(58px,1fr));gap:6px}
@@ -209,21 +375,42 @@ tbody tr:hover td{background:rgba(24,29,43,.55)}
 
 footer.note{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-top:22px;line-height:1.7;border-top:1px solid var(--line);padding-top:12px}
 
+/* ---------- unified shell ----------
+ * The system monitor is the primary shell; the Loop console (/console) is
+ * embedded seamlessly for console routes. Group labels segment the sidebar
+ * into SYSTEM and LOOP CONSOLE sections.
+ */
+.nav-group{
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;color:var(--ink-faint);
+  text-transform:uppercase;padding:12px 12px 4px;user-select:none;white-space:nowrap;
+}
+.nav .nav-group:first-child{padding-top:2px}
+/* Host for the embedded console: fills the content column, framed like a
+ * card so the guest app reads as part of this interface, not a portal. */
+.loop-host{
+  flex:1 1 auto;display:flex;flex-direction:column;min-height:420px;
+  border:1px solid var(--line);border-radius:var(--rad);overflow:hidden;background:var(--bg2);
+}
+.embed-frame{flex:1;width:100%;border:0;background:transparent}
+/* Wider windows buy wider charts instead of more margin. */
+@media (min-width:1800px){.content-inner{max-width:1760px}}
+
 @media (max-width:880px){
   .sidebar{width:56px}
-  .brand-name,.brand-sub,.nav-item span,.side-foot .label{display:none}
-  .nav-item{justify-content:center;padding:9px}
+  .brand-name,.brand-sub,.nav-item span,a.nav-item span,.side-foot .label,.nav-group{display:none}
+  .nav-item,a.nav-item{justify-content:center;padding:9px}
   .content{padding:14px 12px 32px}
   .topbar{padding:10px 12px}
 }
 </style>
+<link rel="stylesheet" href="/shell.css">
 </head>
 <body>
 <div class="app">
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">L</div>
-      <div><div class="brand-name">System Monitor</div><div class="brand-sub">local · macOS</div></div>
+      <div class="brand-mark">S</div>
+      <div><div class="brand-name">Loop</div><div class="brand-sub">system dashboard</div></div>
     </div>
     <nav class="nav" id="nav"></nav>
     <div class="side-foot"><span class="live-dot" id="liveDot"></span><span class="label" id="footStatus">connecting…</span></div>
@@ -247,6 +434,11 @@ footer.note{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin
         </select>
       </div>
       <div class="refresh-note" id="refreshNote"></div>
+      <div class="sw-user" id="userChip" hidden>
+        <div class="sw-avatar" id="userAvatar">·</div>
+        <span class="sw-user-name" id="userName"></span>
+        <button class="sw-signout" id="signOutBtn" type="button" title="Sign out">Sign out</button>
+      </div>
     </div>
     <main class="content" id="content">
       <div class="content-inner">
@@ -273,11 +465,27 @@ const VIEWS = [
   ['processes', 'Processes', 'M4 6h16M4 12h16M4 18h16'],
 ];
 
+/* Loop console routes are no longer sidebar items here — they belong to the
+ * Loop AI Console workspace (/console), which this shell links to directly.
+ * LOOP_ROUTES below still maps any legacy /system#<console-route> deep link
+ * to the embedded SPA so old URLs keep working. */
+
+/* Map a unified-shell route to what the embedded console SPA should show:
+ * shell route → console hash route. The console's own router takes over
+ * from there; its sidebar is hidden while embedded (see console.html). */
+const LOOP_ROUTES = {
+  console:   'chat',
+  models:    'models',
+  traces:    'traces',
+  analytics: 'analytics',
+  settings:  'settings',
+};
+
 const S = {
   // Deep-linkable view: /system#cpu, /system#processes, …
   view: (function(){
     const h = decodeURIComponent(location.hash.replace('#','')) || 'overview';
-    return VIEWS.some(v => v[0] === h) ? h : 'overview';
+    return VIEWS.some(v => v[0] === h) || LOOP_ROUTES[h] ? h : 'overview';
   })(),
   demo: false,
   error: null,
@@ -381,9 +589,69 @@ function mval(m, fmt) {
      clickable legend to toggle series, time-range windows.
    ================================================================ */
 
-/* Per-chart live state, keyed by element id. */
+/*
+ * Per-chart live state, keyed by the chart's stable name (data-chart).
+ *
+ * render() rebuilds the view DOM on every refresh, so keying by element
+ * identity would lose the user's range/series selections every two seconds.
+ * The placeholder name is stable for a given chart across rebuilds, and the
+ * CHARTS map is pruned when views change.
+ *
+ * A chart instance keeps its own SVG + controls once mounted; live updates
+ * call updateChart() which rewrites only the geometry of the existing DOM,
+ * never destroying the element (so hovers, drags and focus survive).
+ */
 const CHARTS = new Map();
 let chartSeq = 0;
+
+/* Load/save the user's per-chart range choice. Storage may be unavailable
+ * (private mode, disabled); both directions are guarded. */
+const RANGE_KEY = 'loop.sys.chartRange';
+function loadSavedRanges() {
+  try { return JSON.parse(localStorage.getItem(RANGE_KEY) || '{}') || {}; }
+  catch (e) { return {}; }
+}
+function saveRange(chartName, rangeMs) {
+  try {
+    const all = loadSavedRanges();
+    if (rangeMs == null) delete all[chartName]; else all[chartName] = rangeMs;
+    localStorage.setItem(RANGE_KEY, JSON.stringify(all));
+  } catch (e) { /* storage unavailable — ranges just won't persist */ }
+}
+
+/*
+ * Chart viewport model.
+ *
+ *   Live mode        the window trails the newest sample: [now-w, now].
+ *   Historical mode  the window is fixed where the user dragged it; new
+ *                    samples are collected silently and do not move it.
+ *
+ * `rangeMs` is the *window width* (null = all retained history). Entering
+ * historical mode is any backward pan; "Back to live" restores trailing.
+ */
+function freshViewportState() {
+  return {
+    rangeMs: null,      // window width; null = everything retained
+    live: true,         // trailing the newest sample?
+    anchor: null,       // historical: newest timestamp the window shows
+    hidden: {},         // series name -> hidden?
+    ro: null, lastCfg: null, tip: null,
+  };
+}
+
+/** Resolve the visible [t0, t1] window for a chart's current state. */
+function viewportWindow(st, dataT0, dataT1) {
+  const span = Math.max(1, dataT1 - dataT0);
+  let w = st.rangeMs != null ? st.rangeMs : span;
+  if (st.live) {
+    // Trail the newest sample.
+    return [dataT1 - w, dataT1];
+  }
+  // Historical: hold the anchor; clamp into available data.
+  let end = st.anchor != null ? st.anchor : dataT1;
+  end = Math.max(dataT0 + Math.min(w, span) * 0.999, Math.min(end, dataT1));
+  return [end - w, end];
+}
 
 /* Time-range windows in ms; null = everything collected. */
 const RANGES = [
@@ -412,28 +680,70 @@ function niceCeil(v) {
  *       warn: value that marks the start of abnormal readings}
  */
 function mountChart(el, cfg) {
-  const id = el.dataset.chartId || ('c' + (++chartSeq));
-  el.dataset.chartId = id;
+  // State is keyed by the chart's *name* (data-chart), not a per-element id:
+  // render() rebuilds the view DOM on every refresh, so keying by element
+  // identity would lose the user's range/series selections every two
+  // seconds. The placeholder name is stable for a given chart across
+  // rebuilds, and the CHARTS map is pruned when views change.
+  const id = el.dataset.chart || ('anon' + (++chartSeq));
   let st = CHARTS.get(id);
   if (!st) {
-    st = {rangeMs: null, hidden: {}, ro: null, lastCfg: null, tip: null};
+    st = freshViewportState();
+    // Restore a persisted range width (not viewport position).
+    const saved = loadSavedRanges()[id];
+    if (saved !== undefined) st.rangeMs = saved;
     CHARTS.set(id, st);
+  }
+  // A fresh element replaces the old one; drop the previous observer and
+  // tooltip so they don't leak or fire against detached nodes.
+  if (st.el !== el) {
+    if (st.ro) { try { st.ro.disconnect(); } catch (e) {} st.ro = null; }
+    if (st.tip) { st.tip.remove(); st.tip = null; }
+    st.wired = null;   // listeners belong to the old element
+    st.el = el;
   }
   st.lastCfg = cfg;
 
-  // Range window + per-series visibility filters.
-  const now = Date.now();
-  const cut = st.rangeMs != null ? now - st.rangeMs : -Infinity;
-  const series = cfg.series
+  // Full retained data first (needed to resolve the viewport window), then
+  // clip to the viewport. Series visibility is applied before geometry so
+  // hidden series never influence the y-domain.
+  const allSeries = cfg.series;
+  let dataT0 = Infinity, dataT1 = -Infinity;
+  allSeries.forEach(function (ser) {
+    ser.points.forEach(function (p) {
+      if (p && isFinite(p.t)) {
+        if (p.t < dataT0) dataT0 = p.t;
+        if (p.t > dataT1) dataT1 = p.t;
+      }
+    });
+  });
+  if (!isFinite(dataT0)) {
+    teardownChart(el, st);
+    el.innerHTML = '<div class="chart-empty">' +
+      (cfg.emptyMsg || 'waiting for more samples…') + '</div>';
+    return false;
+  }
+
+  // Resolve the visible window from Live/Historical state.
+  const win = viewportWindow(st, dataT0, dataT1);
+  const vt0 = win[0], vt1 = win[1];
+
+  // Keep null values (unavailable samples) so the renderer can draw an
+  // explicit gap instead of connecting across missing data.
+  const series = allSeries
     .filter(s => !st.hidden[s.name])
     .map(s => ({
       name: s.name, color: s.color,
-      points: s.points.filter(p => p && p.t >= cut && isFinite(p.v)),
+      points: s.points.filter(p => p && p.t >= vt0 && p.t <= vt1),
     }));
 
-  const finite = [];
-  series.forEach(s => s.points.forEach(p => finite.push(p)));
-  if (finite.length < 2) {
+  // Count only real values (nulls are gaps, not samples). One real sample
+  // is enough to draw: isolated points render as dots (see renderChartInto),
+  // so a genuine first reading is shown instead of the empty message.
+  let finiteCount = 0;
+  series.forEach(s => s.points.forEach(p => { if (p.v != null && isFinite(p.v)) finiteCount++; }));
+  const finite = {length: finiteCount};
+  if (finiteCount < 1) {
     teardownChart(el, st);
     el.innerHTML = '<div class="chart-empty">' +
       (cfg.emptyMsg || 'waiting for more samples…') + '</div>';
@@ -441,38 +751,84 @@ function mountChart(el, cfg) {
   }
 
   // ---- geometry -----------------------------------------------------
-  const H = cfg.height || 150;
+  /*
+   * Height SOURCE — must never be a measurement of this chart's own
+   * subtree. Reading el.clientHeight and writing it back into the same
+   * subtree is a feedback loop: the box/SVG heights feed the flex/grid
+   * intrinsic sizes above them (.grid-fill has flex-basis:auto and 1fr
+   * rows, so content height drives row height), which makes the container
+   * taller on every pass, which makes the next read taller still. That was
+   * the "charts grow on every refresh" regression.
+   *
+   * So the only heights written here are ones the layout cannot inflate:
+   *   * an explicit cfg.height (callers that want a fixed plot), or
+   *   * a viewport-proportional fallback for containers CSS does not size
+   *     (e.g. a bare .chart div with no flex ancestry).
+   *
+   * For flex-filled cards (.card.fill) nothing is written at all: CSS sizes
+   * the box (flex:1) and draw() reads the box's real pixel size each time
+   * it paints. Rendering therefore measures the available space instead of
+   * re-asserting a value derived from its own previous output.
+   */
+  const vh = (typeof window !== 'undefined' && window.innerHeight) || 800;
+  const fallbackH = Math.round(Math.max(120, Math.min(260, (vh - 380) * 0.42)));
+  const fixedH = cfg.height != null ? cfg.height : null;
   const PL_BASE = 8, PR = 10, PT = 8, PB = 18;
 
-  let t0 = Infinity, t1 = -Infinity, vmax = 0;
-  for (let i = 0; i < finite.length; i++) {
-    const p = finite[i];
-    if (p.t < t0) t0 = p.t;
-    if (p.t > t1) t1 = p.t;
-    if (p.v > vmax) vmax = p.v;
-  }
-  if (t1 === t0) t1 = t0 + 1;
+  // The x-domain is the *viewport*, so Live mode shows a trailing window of
+  // exactly rangeMs and Historical mode holds its position even as new
+  // samples arrive. Values outside the domain are simply not in `series`.
+  let t0 = vt0, t1 = vt1;
+  if (t1 <= t0) t1 = t0 + 1;
+  let vmax = 0;
+  series.forEach(function (ser) {
+    ser.points.forEach(function (p) {
+      if (p.v != null && isFinite(p.v) && p.v > vmax) vmax = p.v;
+    });
+  });
   const top = cfg.max != null ? cfg.max : niceCeil(vmax);
 
   // Gutter width depends on the axis labels, which depend on `top`.
   const labelW = measureLabelWidth(cfg, series, top);
   const PL = PL_BASE + labelW;
 
-  // Build DOM: a sized box holds the SVG; legend + tooltip follow.
-  el.innerHTML = '';
-  const box = document.createElement('div');
-  box.className = 'chart-box';
-  box.style.height = H + 'px';
-  el.appendChild(box);
+  // Build DOM once per element; subsequent mounts (live ticks) reuse it and
+  // only redraw geometry. The box keeps its identity so pointer capture,
+  // focus and hover listeners stay attached across updates.
+  let box = el.querySelector(':scope > .chart-box');
+  if (!box) {
+    el.innerHTML = '';
+    box = document.createElement('div');
+    box.className = 'chart-box';
+    el.appendChild(box);
+  }
+  // Only a caller-requested height is ever written. Derived heights are not
+  // (see the geometry note above): writing a measured height here is what
+  // made charts grow on every live refresh.
+  if (fixedH != null) box.style.height = fixedH + 'px';
 
   const svgNS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('width', '100%');
-  svg.setAttribute('height', H);
-  box.appendChild(svg);
+  let svg = box.querySelector('svg');
+  if (!svg) {
+    svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('width', '100%');
+    box.appendChild(svg);
+  }
+  // No height attribute: CSS (.chart svg{height:100%}) sizes the element to
+  // the box, and an explicit attribute would re-introduce a second path by
+  // which a rendered value could feed layout intrinsic sizes.
 
+  /*
+   * Draw from the box's REAL size. W/H are read at paint time, so the SVG
+   * coordinate system always matches the pixels actually available and a
+   * container resize (responsive breakpoint, window resize) is picked up by
+   * the ResizeObserver below. Geometry is stashed on the state so hover and
+   * pan handlers use the same numbers the painter used.
+   */
   const draw = function () {
     const W = Math.max(120, box.clientWidth);
+    const H = Math.max(60, Math.round(box.clientHeight || fallbackH));
+    st.geo = {W: W, H: H};
     svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
     renderChartInto(svg, {W: W, H: H, PL: PL, PR: PR, PT: PT, PB: PB,
                           t0: t0, t1: t1, top: top, series: series, cfg: cfg});
@@ -489,48 +845,269 @@ function mountChart(el, cfg) {
     st.ro.observe(box);
   }
 
-  // Legend: click toggles a series on/off.
-  const lg = document.createElement('div');
-  lg.className = 'chart-legend';
-  cfg.series.forEach(function (s) {
-    const item = document.createElement('span');
-    item.className = 'lg-item' + (st.hidden[s.name] ? ' off' : '');
-    item.innerHTML = '<i style="background:' + s.color + '"></i>' + esc(s.name);
-    item.addEventListener('click', function () {
-      st.hidden[s.name] = !st.hidden[s.name];
-      mountChart(el, st.lastCfg);
+  // Legend: click toggles a series on/off. Built once per element; ticks
+  // only re-sync the off state (no listener churn).
+  // NOTE: not '.chart-legend' — the toolbar also carries that class for the
+  // shared focus rule, and matching it here would return the toolbar instead
+  // of the legend.
+  let lg = el.querySelector(':scope > .chart-legend:not(.chart-controls)');
+  if (!lg) {
+    lg = document.createElement('div');
+    lg.className = 'chart-legend';
+    el.appendChild(lg);
+    cfg.series.forEach(function (s) {
+      const item = document.createElement('span');
+      item.className = 'lg-item';
+      item.dataset.series = s.name;
+      item.innerHTML = '<i style="background:' + s.color + '"></i>' + esc(s.name);
+      item.tabIndex = 0;
+      item.addEventListener('click', function () {
+        st.hidden[s.name] = !st.hidden[s.name];
+        mountChart(el, st.lastCfg);
+      });
+      item.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); item.click(); }
+      });
+      lg.appendChild(item);
     });
-    lg.appendChild(item);
+  }
+  lg.querySelectorAll('.lg-item').forEach(function (item) {
+    item.classList.toggle('off', !!st.hidden[item.dataset.series]);
   });
 
-  // Range control appears once enough history exists to make it useful.
-  const span = t1 - t0;
-  const rc = document.createElement('span');
-  rc.className = 'range-ctrl';
-  RANGES.forEach(function (r) {
-    if (r.ms != null && span < r.ms * 0.5) return; // not enough data yet
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = r.label;
-    if ((st.rangeMs || null) === r.ms) b.classList.add('on');
-    b.addEventListener('click', function () {
-      st.rangeMs = r.ms;
-      mountChart(el, st.lastCfg);
-    });
-    rc.appendChild(b);
-  });
-  if (rc.childNodes.length > 1) lg.appendChild(rc);
-  el.appendChild(lg);
+  /*
+  /*
+   * Controls row: [<< >>] [range buttons] [live badge / back-to-live].
+   *
+   * A range sets the window WIDTH. In Live mode the window keeps trailing
+   * the newest sample; in Historical mode a new width is applied around the
+   * current viewport's centre. Built once; ticks only sync button states.
+   */
+  const dataSpan = Math.max(1, dataT1 - dataT0);
 
-  attachHover(el, box, svg, st, {PL: PL, PR: PR, PT: PT, PB: PB, H: H,
+  const enterLive = function () {
+    st.live = true;
+    st.anchor = null;
+    mountChart(el, st.lastCfg);
+  };
+
+  let ctl = el.querySelector(':scope > .chart-controls');
+  if (!ctl) {
+    ctl = document.createElement('div');
+    ctl.className = 'chart-legend chart-controls';
+
+    const nav = document.createElement('span');
+    nav.className = 'range-nav';
+    const mkBtn = function (label, title, onClick) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'step-btn';
+      b.textContent = label;
+      b.title = title;
+      b.setAttribute('aria-label', title);
+      b.addEventListener('click', onClick);
+      return b;
+    };
+    // Step backward / forward by a quarter of the current window width.
+    const stepWin = function (dir) {
+      const w = st.rangeMs != null ? st.rangeMs : dataSpan;
+      const curEnd = st.live ? dataT1 : (st.anchor != null ? st.anchor : dataT1);
+      let end = curEnd + dir * w * 0.25;
+      end = Math.max(dataT0 + w * 0.25, Math.min(end, dataT1));
+      st.live = false;
+      st.anchor = end;
+      mountChart(el, st.lastCfg);
+    };
+    nav.appendChild(mkBtn('\u25C0', 'Step back (Left arrow)', function () { stepWin(-1); }));
+    nav.appendChild(mkBtn('\u25B6', 'Step forward (Right arrow)', function () {
+      const w = st.rangeMs != null ? st.rangeMs : dataSpan;
+      const curEnd = st.live ? dataT1 : (st.anchor != null ? st.anchor : dataT1);
+      if (curEnd + w * 0.25 >= dataT1 - w * 0.05) { enterLive(); return; }
+      stepWin(1);
+    }));
+    ctl.appendChild(nav);
+
+    const rc = document.createElement('span');
+    rc.className = 'range-ctrl';
+    RANGES.forEach(function (r) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = r.label;
+      b.dataset.range = r.ms == null ? '' : String(r.ms);
+      b.addEventListener('click', function () {
+        const oldW = st.rangeMs != null ? st.rangeMs : dataSpan;
+        st.rangeMs = r.ms;
+        saveRange(id, r.ms);
+        if (!st.live && st.anchor != null) {
+          // Historical: keep the viewport centred while the width changes.
+          const w = r.ms != null ? r.ms : dataSpan;
+          const centre = st.anchor - oldW / 2;
+          st.anchor = Math.max(dataT0 + w * 0.5, Math.min(centre + w, dataT1));
+        }
+        mountChart(el, st.lastCfg);
+      });
+      rc.appendChild(b);
+    });
+    ctl.appendChild(rc);
+
+    const lb = document.createElement('button');
+    lb.type = 'button';
+    lb.className = 'live-badge';
+    lb.addEventListener('click', enterLive);
+    ctl.appendChild(lb);
+
+    const info = document.createElement('span');
+    info.className = 'hist-note';
+    ctl.appendChild(info);
+
+    // Deterministic placement: the toolbar goes BEFORE the absolutely
+    // positioned .chart-tip (which must stay last so it paints above the
+    // plot), and AFTER the legend. Appending blindly put it after the tip,
+    // which is invisible-but-present and made ordering depend on mount
+    // timing across views.
+    const tip = el.querySelector(':scope > .chart-tip');
+    if (tip) el.insertBefore(ctl, tip); else el.appendChild(ctl);
+  }
+
+  // --- sync control states with current state (cheap, every tick) ---
+  ctl.querySelectorAll('.range-ctrl button').forEach(function (b) {
+    const ms = b.dataset.range === '' ? null : Number(b.dataset.range);
+    // Hide fixed windows longer than collected history ("all" always shows).
+    const tooLong = ms != null && dataSpan < ms * 0.5;
+    b.style.display = tooLong ? 'none' : '';
+    b.classList.toggle('on', (st.rangeMs || null) === ms);
+  });
+
+  const lbEl = ctl.querySelector('.live-badge');
+  lbEl.className = 'live-badge' + (st.live ? ' on' : '');
+  lbEl.textContent = st.live ? '\u25CF live' : 'back to live';
+  lbEl.title = st.live ? 'Following the newest sample' : 'Return to live mode';
+  lbEl.setAttribute('aria-pressed', st.live ? 'true' : 'false');
+  lbEl.disabled = st.live;
+
+  const noteEl = ctl.querySelector('.hist-note');
+  if (!st.live) {
+    noteEl.textContent = 'viewing ' + fmtClockShort(vt0) + '\u2013' + fmtClockShort(vt1) +
+      (st.rangeMs != null && dataSpan < st.rangeMs
+        ? ' \u00B7 showing ' + fmtDur(dataSpan) + ' of ' + fmtDur(st.rangeMs)
+        : '');
+    noteEl.style.display = '';
+  } else {
+    noteEl.style.display = 'none';
+  }
+
+  // Interaction handlers are attached ONCE per element (st.wired) and read
+  // their geometry from st.geo / st.lastCfg at event time, so live ticks
+  // never re-register listeners and never operate on stale dimensions.
+  attachHover(el, box, svg, st, {PL: PL, PR: PR, PT: PT, PB: PB,
                                  t0: t0, t1: t1, top: top, series: series, cfg: cfg});
+  // Data bounds for the pan handlers, refreshed on every mount.
+  st.bounds = {dataT0: dataT0, dataT1: dataT1, t0: t0, t1: t1};
+  attachPan(el, box, st, st.bounds);
   return true;
+}
+
+/*
+ * Horizontal drag-pan. Pointer events + pointer capture so the gesture keeps
+ * working outside the plot; text selection and page navigation are
+ * suppressed only while dragging. Vertical wheel scrolling is never
+ * captured — the page scrolls normally over charts.
+ *
+ * Listeners are registered once per element (st.wired.pan); every handler
+ * resolves the current data bounds from st.lastCfg at event time, because
+ * mountChart() runs on every live tick and would otherwise stack a fresh
+ * set of listeners per refresh.
+ */
+function attachPan(el, box, st, g) {
+  if (st.wired && st.wired.pan === box) return;
+  st.wired = st.wired || {};
+  st.wired.pan = box;
+  let dragging = null;   // {startX, startEnd}
+
+  box.style.touchAction = 'pan-y';   // vertical scroll stays native
+
+  // Current data bounds; refreshed by every mountChart() call.
+  const bounds = function () { return st.bounds || g; };
+
+  box.addEventListener('pointerdown', function (ev) {
+    if (ev.button !== 0) return;
+    const b = bounds();
+    const rect = box.getBoundingClientRect();
+    const w = b.t1 - b.t0;
+    const pxPerMs = w / Math.max(1, rect.width);
+    dragging = {
+      startX: ev.clientX,
+      startEnd: st.live ? b.dataT1 : (st.anchor != null ? st.anchor : b.dataT1),
+      pxPerMs: pxPerMs,
+      moved: false,
+    };
+    // Pointer capture is best-effort: synthetic/untrusted pointer events
+    // (tests, some automation) have no active pointer id and would throw.
+    try { box.setPointerCapture(ev.pointerId); } catch (e) {}
+    ev.preventDefault();          // no text selection during drag
+  });
+
+  box.addEventListener('pointermove', function (ev) {
+    if (!dragging) return;
+    const b = bounds();
+    const dx = ev.clientX - dragging.startX;
+    if (Math.abs(dx) > 3) dragging.moved = true;
+    // Dragging right moves the window back in time.
+    const end = dragging.startEnd - dx * dragging.pxPerMs;
+    const span = Math.max(1, b.dataT1 - b.dataT0);
+    const w = st.rangeMs != null ? Math.min(st.rangeMs, span) : span;
+    const clamped = Math.max(b.dataT0 + w * 0.25, Math.min(end, b.dataT1));
+    if (clamped !== st.anchor || st.live) {
+      st.live = false;
+      st.anchor = clamped;
+      // Lightweight: update viewport state and redraw geometry only.
+      mountChart(el, st.lastCfg);
+    }
+  });
+
+  const finish = function (ev) {
+    if (!dragging) return;
+    try { box.releasePointerCapture(ev.pointerId); } catch (e) {}
+    // A click without movement shouldn't leave live mode.
+    if (!dragging.moved && st.anchor == null) st.live = true;
+    dragging = null;
+  };
+  box.addEventListener('pointerup', finish);
+  box.addEventListener('pointercancel', finish);
+
+  // Keyboard: arrows step the window while the chart has focus.
+  box.tabIndex = 0;
+  box.setAttribute('role', 'img');
+  box.setAttribute('aria-label', 'Time-series chart. Use left and right arrow keys to pan.');
+  box.addEventListener('keydown', function (ev) {
+    const b = bounds();
+    const span = Math.max(1, b.dataT1 - b.dataT0);
+    const w = st.rangeMs != null ? Math.min(st.rangeMs, span) : span;
+    const curEnd = st.live ? b.dataT1 : (st.anchor != null ? st.anchor : b.dataT1);
+    if (ev.key === 'ArrowLeft') {
+      st.live = false;
+      st.anchor = Math.max(b.dataT0 + w * 0.25, curEnd - w * 0.25);
+      mountChart(el, st.lastCfg);
+      ev.preventDefault();
+    } else if (ev.key === 'ArrowRight') {
+      const next = curEnd + w * 0.25;
+      if (next >= b.dataT1 - w * 0.05) {
+        st.live = true; st.anchor = null;
+      } else {
+        st.live = false; st.anchor = next;
+      }
+      mountChart(el, st.lastCfg);
+      ev.preventDefault();
+    }
+  });
 }
 
 function teardownChart(el, st) {
   if (!st) return;
   if (st.ro) { try { st.ro.disconnect(); } catch (e) {} st.ro = null; }
   if (st.tip) { st.tip.remove(); st.tip = null; }
+  st.wired = null;
+  st.el = null;
 }
 
 /* The y-gutter is sized from the widest *axis label* so labels never clip.
@@ -554,13 +1131,18 @@ function measureLabelWidth(cfg, series, top) {
   return Math.min(80, Math.ceil(w) + 6);
 }
 
+/*
+ * Chart drawing. The svg keeps a stable child structure across redraws
+ * (grid group, plot group with one area+line pair per series, crosshair
+ * group); redraws update attributes in place rather than rebuilding nodes,
+ * which keeps live ticks cheap and avoids layout churn.
+ */
 function renderChartInto(svg, g) {
   const W = g.W, H = g.H, PL = g.PL, PR = g.PR, PT = g.PT, PB = g.PB;
   const t0 = g.t0, t1 = g.t1, top = g.top, series = g.series, cfg = g.cfg;
   const x = function (t) { return PL + (t - t0) / (t1 - t0) * (W - PL - PR); };
   const y = function (v) { return H - PB - (Math.max(0, Math.min(v, top)) / top) * (H - PT - PB); };
 
-  while (svg.firstChild) svg.removeChild(svg.firstChild);
   const svgNS = 'http://www.w3.org/2000/svg';
   const mk = function (tag, attrs) {
     const n = document.createElementNS(svgNS, tag);
@@ -568,81 +1150,215 @@ function renderChartInto(svg, g) {
     return n;
   };
 
-  // Gridlines + y labels.
+  // ---- ensure structure (first draw) --------------------------------
+  if (!svg._built) {
+    const gridG = mk('g', {});
+    for (let i = 0; i <= 4; i++) {
+      gridG.appendChild(mk('line', {stroke: '#212839', 'stroke-width': 1}));
+      gridG.appendChild(mk('text', {'text-anchor': 'end', 'font-size': 10,
+        fill: '#5c6779', 'font-family': 'ui-monospace,Menlo,monospace'}));
+    }
+    svg.appendChild(gridG);
+
+    // Time labels: first / mid / last.
+    ['start', 'middle', 'end'].forEach(function (anchor) {
+      svg.appendChild(mk('text', {'text-anchor': anchor, 'font-size': 10,
+        fill: '#5c6779', 'font-family': 'ui-monospace,Menlo,monospace'}));
+    });
+
+    const clipId = 'clip' + (++chartSeq);
+    const defs = mk('defs', {});
+    const clip = mk('clipPath', {id: clipId});
+    clip.appendChild(mk('rect', {}));
+    defs.appendChild(clip);
+    svg.appendChild(defs);
+
+    const plot = mk('g', {});
+    plot.setAttribute('class', 'plot');
+    plot.setAttribute('clip-path', 'url(#' + clipId + ')');
+    svg.appendChild(plot);
+
+    const cross = mk('g', {style: 'display:none', 'pointer-events': 'none'});
+    const vline = mk('line', {y1: PT, y2: H - PB, stroke: '#3a465f',
+      'stroke-width': 1, 'stroke-dasharray': '3 3'});
+    cross.appendChild(vline);
+    svg.appendChild(cross);
+
+    svg._built = {gridG, plot, clipRect: clip.firstChild, cross, vline,
+                  timeLabels: Array.prototype.slice.call(svg.querySelectorAll('text')).slice(0, 8).filter(t => !t.closest('.chart-tip')),
+                  pairs: []};
+  }
+  const B = svg._built;
+
+  // ---- update pass (cheap; runs every tick) ------------------------
+  const gridKids = B.gridG.childNodes;
   for (let i = 0; i <= 4; i++) {
     const v = top * i / 4, yy = y(v);
-    svg.appendChild(mk('line', {x1: PL, y1: yy, x2: W - PR, y2: yy, stroke: '#212839', 'stroke-width': 1}));
-    const t = mk('text', {x: PL - 6, y: yy + 3.2, 'text-anchor': 'end', 'font-size': 10,
-                          fill: '#5c6779', 'font-family': 'ui-monospace,Menlo,monospace'});
-    t.textContent = cfg.fmtY ? cfg.fmtY(v) : String(Math.round(v));
-    svg.appendChild(t);
+    const ln = gridKids[i * 2];
+    ln.setAttribute('x1', PL); ln.setAttribute('y1', yy);
+    ln.setAttribute('x2', W - PR); ln.setAttribute('y2', yy);
+    const tx = gridKids[i * 2 + 1];
+    tx.setAttribute('x', PL - 6); tx.setAttribute('y', yy + 3.2);
+    const label = cfg.fmtY ? cfg.fmtY(v) : String(Math.round(v));
+    if (tx.textContent !== label) tx.textContent = label;
   }
 
-  // Time labels: first / middle / last.
-  const tl = function (t, anchor) {
-    const e = mk('text', {x: x(t), y: H - 5, 'text-anchor': anchor, 'font-size': 10,
-                          fill: '#5c6779', 'font-family': 'ui-monospace,Menlo,monospace'});
-    e.textContent = fmtClockShort(t);
-    svg.appendChild(e);
-  };
-  tl(t0, 'start');
-  tl((t0 + t1) / 2, 'middle');
-  tl(t1, 'end');
+  // Time labels (positions 5..7 of the text nodes we created).
+  const timeTexts = [];
+  for (let i = 0; i < svg.childNodes.length; i++) {
+    const n = svg.childNodes[i];
+    if (n.tagName === 'text') timeTexts.push(n);
+  }
+  if (timeTexts.length >= 3) {
+    const setT = function (el, t, anchor) {
+      el.setAttribute('x', x(t)); el.setAttribute('y', H - 5);
+      el.setAttribute('text-anchor', anchor);
+      const txt = fmtClockShort(t);
+      if (el.textContent !== txt) el.textContent = txt;
+    };
+    setT(timeTexts[0], t0, 'start');
+    setT(timeTexts[1], (t0 + t1) / 2, 'middle');
+    setT(timeTexts[2], t1, 'end');
+  }
 
-  // Plot group clipped to the plot rect only.
-  const clipId = 'clip' + Math.random().toString(36).slice(2, 8);
-  const defs = mk('defs', {});
-  const clip = mk('clipPath', {id: clipId});
-  clip.appendChild(mk('rect', {x: PL, y: 0, width: Math.max(0, W - PL - PR), height: H - PB}));
-  defs.appendChild(clip);
-  svg.appendChild(defs);
+  // Clip rect follows the plot area.
+  B.clipRect.setAttribute('x', PL);
+  B.clipRect.setAttribute('y', 0);
+  B.clipRect.setAttribute('width', Math.max(0, W - PL - PR));
+  B.clipRect.setAttribute('height', H - PB);
 
-  const plot = mk('g', {'clip-path': 'url(#' + clipId + ')'});
-  plot.setAttribute('class', 'plot');
-  svg.appendChild(plot);
-
-  // Abnormal-reading band: from the warn threshold to the axis top.
-  if (cfg.warn != null && cfg.warn < top) {
+  // Warn band (created lazily, updated or hidden).
+  let warnRect = B.warnRect, warnLine = B.warnLine;
+  if ((cfg.warn != null && cfg.warn < top)) {
+    if (!warnRect) {
+      warnRect = mk('rect', {fill: '#ff6b7d', opacity: 0.05});
+      warnLine = mk('line', {stroke: '#ff6b7d', 'stroke-width': 1,
+                             'stroke-dasharray': '5 4', opacity: 0.45});
+      B.plot.appendChild(warnRect);
+      B.plot.appendChild(warnLine);
+      B.warnRect = warnRect; B.warnLine = warnLine;
+    }
     const wy = y(cfg.warn);
-    plot.appendChild(mk('rect', {
-      x: PL, y: PT, width: Math.max(0, W - PL - PR),
-      height: Math.max(0, wy - PT), fill: '#ff6b7d', opacity: 0.05,
-    }));
-    plot.appendChild(mk('line', {
-      x1: PL, y1: wy, x2: W - PR, y2: wy, stroke: '#ff6b7d',
-      'stroke-width': 1, 'stroke-dasharray': '5 4', opacity: 0.45,
-    }));
+    warnRect.setAttribute('x', PL); warnRect.setAttribute('y', PT);
+    warnRect.setAttribute('width', Math.max(0, W - PL - PR));
+    warnRect.setAttribute('height', Math.max(0, wy - PT));
+    warnLine.setAttribute('x1', PL); warnLine.setAttribute('y1', wy);
+    warnLine.setAttribute('x2', W - PR); warnLine.setAttribute('y2', wy);
+  } else {
+    if (warnRect) { warnRect.setAttribute('width', 0); warnLine.setAttribute('width', 0);
+                    warnLine.setAttribute('x1', 0); warnLine.setAttribute('x2', 0); }
   }
 
-  series.forEach(function (s) {
-    const pts = s.points;
-    if (pts.length < 2) return;
-    let d = 'M ' + x(pts[0].t).toFixed(1) + ' ' + y(pts[0].v).toFixed(1);
-    for (let i = 1; i < pts.length; i++) {
-      d += ' L ' + x(pts[i].t).toFixed(1) + ' ' + y(pts[i].v).toFixed(1);
+  // Series paths: one area+line pair per series, reused across draws.
+  while (B.pairs.length < series.length) {
+    const area = mk('path', {opacity: 0.07});
+    const line = mk('path', {fill: 'none', 'stroke-width': 1.7,
+                             'stroke-linejoin': 'round', 'stroke-linecap': 'round'});
+    B.plot.appendChild(area); B.plot.appendChild(line);
+    B.pairs.push({area, line});
+  }
+  for (let si = 0; si < B.pairs.length; si++) {
+    const pair = B.pairs[si];
+    if (si >= series.length) {          // extra pairs from a hidden series
+      pair.area.style.display = 'none';
+      pair.line.style.display = 'none';
+      (pair.singles || []).forEach(dot => { dot.style.display = 'none'; });
+      continue;
     }
-    if (!cfg.noArea) {
-      plot.appendChild(mk('path', {
-        d: d + ' L ' + x(pts[pts.length - 1].t).toFixed(1) + ' ' + (H - PB) +
-           ' L ' + x(pts[0].t).toFixed(1) + ' ' + (H - PB) + ' Z',
-        fill: s.color, opacity: 0.07,
-      }));
+    const ser = series[si];
+    const pts = ser.points;
+    // Build one subpath per contiguous run of valid samples: a null value
+    // ends the run and the next valid sample starts a new one, so missing
+    // data renders as a visible gap, never a bridged line.
+    const runs = [];
+    let cur = null;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.v == null || !isFinite(p.v)) { cur = null; continue; }
+      if (!cur) { cur = []; runs.push(cur); }
+      cur.push(p);
     }
-    plot.appendChild(mk('path', {d: d, fill: 'none', stroke: s.color, 'stroke-width': 1.7,
-                                  'stroke-linejoin': 'round', 'stroke-linecap': 'round'}));
-  });
+    // Isolated points: genuine samples whose neighbours are gaps. They carry
+    // real measurements, so they must be VISIBLE — rendered as dots rather
+    // than skipped. Never fabricated, never interpolated across the gap.
+    const singles = runs.filter(r => r.length === 1)
+      .map(r => r[0]);
+    if (!runs.length) {
+      pair.area.style.display = 'none'; pair.line.style.display = 'none';
+      pair.line.setAttribute('d', ''); pair.area.setAttribute('d', '');
+    } else {
+      pair.area.style.display = ''; pair.line.style.display = '';
+    }
+    let d = '';
+    runs.forEach(function (run) {
+      if (run.length < 2) return;   // single isolated point: drawn as a dot below
+      d += (d ? ' ' : '') + 'M ' + x(run[0].t).toFixed(1) + ' ' + y(run[0].v).toFixed(1);
+      for (let i = 1; i < run.length; i++) {
+        d += ' L ' + x(run[i].t).toFixed(1) + ' ' + y(run[i].v).toFixed(1);
+      }
+    });
+    pair.line.setAttribute('d', d);
+    pair.line.setAttribute('stroke', ser.color);
+    // One dot element per isolated point, reused across draws like the
+    // line/area pairs (created lazily, hidden when not needed). Kept on the
+    // pair so each series owns its own dots.
+    pair.singles = pair.singles || [];
+    while (pair.singles.length < singles.length) {
+      pair.singles.push(mk('circle', {r: 2.5, 'stroke-width': 1,
+                                      stroke: '#131722'}));
+      B.plot.appendChild(pair.singles[pair.singles.length - 1]);
+    }
+    pair.singles.forEach(function (dot, di) {
+      if (di < singles.length) {
+        const p = singles[di];
+        dot.setAttribute('cx', x(p.t).toFixed(1));
+        dot.setAttribute('cy', y(p.v).toFixed(1));
+        dot.setAttribute('fill', ser.color);
+        dot.style.display = '';
+      } else {
+        dot.style.display = 'none';
+      }
+    });
+    if (!cfg.noArea && d) {
+      // Area under the last complete run only (a gap means no continuous
+      // area — filling across it would imply data that isn't there).
+      const run = runs[runs.length - 1];
+      pair.area.setAttribute('d',
+        'M ' + x(run[0].t).toFixed(1) + ' ' + y(run[0].v).toFixed(1) +
+        run.slice(1).map(p => ' L ' + x(p.t).toFixed(1) + ' ' + y(p.v).toFixed(1)).join('') +
+        ' L ' + x(run[run.length - 1].t).toFixed(1) + ' ' + (H - PB) +
+        ' L ' + x(run[0].t).toFixed(1) + ' ' + (H - PB) + ' Z');
+      pair.area.setAttribute('fill', ser.color);
+    } else {
+      pair.area.setAttribute('d', '');
+    }
+  }
 
-  // Crosshair (hidden until hover).
-  const cross = mk('g', {style: 'display:none', 'pointer-events': 'none'});
-  const vline = mk('line', {y1: PT, y2: H - PB, stroke: '#3a465f', 'stroke-width': 1, 'stroke-dasharray': '3 3'});
-  cross.appendChild(vline);
-  const dots = series.map(function (s) {
-    const c = mk('circle', {r: 3, fill: s.color, stroke: '#0a0c10', 'stroke-width': 1.5});
-    cross.appendChild(c);
-    return c;
+  // Crosshair: keep group; sync dot count with visible series.
+  while (B.cross.childNodes.length - 1 < series.length) {
+    B.cross.appendChild(mk('circle', {r: 3, stroke: '#0a0c10', 'stroke-width': 1.5}));
+  }
+  const dots = Array.prototype.slice.call(B.cross.childNodes).slice(1);
+  dots.forEach(function (dot, i) {
+    if (i < series.length) {
+      dot.setAttribute('fill', series[i].color);
+      dot.style.display = '';
+    } else {
+      dot.style.display = 'none';
+    }
   });
-  svg.appendChild(cross);
-  svg._cross = {group: cross, vline: vline, dots: dots};
+  B.vline.setAttribute('y1', PT); B.vline.setAttribute('y2', H - PB);
+  svg._cross = {group: B.cross, vline: B.vline, dots: dots};
+}
+
+/* Compact duration for range notes: "7m", "1h 5m". */
+function fmtDur(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  return h + 'h ' + (m % 60) + 'm';
 }
 
 function fmtClockShort(ms) {
@@ -651,7 +1367,12 @@ function fmtClockShort(ms) {
   return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
 
-/* Hover crosshair + tooltip with per-series values at the nearest sample. */
+/* Hover crosshair + tooltip with per-series values at the nearest sample.
+ *
+ * Registered once per element (st.wired.hover); each move resolves the
+ * current plot geometry from st.view (refreshed by every mountChart) so the
+ * crosshair tracks the live viewport/window even after many refreshes.
+ */
 function attachHover(el, box, svg, st, g) {
   if (!st.tip) {
     st.tip = document.createElement('div');
@@ -659,8 +1380,12 @@ function attachHover(el, box, svg, st, g) {
     el.appendChild(st.tip);
   }
   const tip = st.tip;
-  const PL = g.PL, PR = g.PR, PT = g.PT, PB = g.PB, H = g.H;
-  const t0 = g.t0, t1 = g.t1, top = g.top, series = g.series, cfg = g.cfg;
+  // Latest plot description; mountChart() overwrites this every tick.
+  st.view = {PL: g.PL, PR: g.PR, PT: g.PT, PB: g.PB,
+             t0: g.t0, t1: g.t1, top: g.top, series: g.series, cfg: g.cfg};
+  if (st.wired && st.wired.hover === box) return;
+  st.wired = st.wired || {};
+  st.wired.hover = box;
 
   const hide = function () {
     tip.style.display = 'none';
@@ -668,6 +1393,14 @@ function attachHover(el, box, svg, st, g) {
   };
 
   const move = function (ev) {
+    // Resolve the CURRENT plot geometry: the window, series and pixel height
+    // all change as live samples arrive or the container resizes.
+    const v = st.view || {};
+    const PL = v.PL, PR = v.PR, PT = v.PT, PB = v.PB;
+    const t0 = v.t0, t1 = v.t1, top = v.top, series = v.series, cfg = v.cfg;
+    const H = (st.geo && st.geo.H) || Math.round(box.clientHeight);
+    if (PL == null || !series) return;
+
     const rect = box.getBoundingClientRect();
     const px = ev.clientX - rect.left;
     if (px < PL - 4 || px > rect.width - PR + 4) { hide(); return; }
@@ -725,6 +1458,26 @@ function attachHover(el, box, svg, st, g) {
   box.addEventListener('mouseleave', hide);
 }
 
+/**
+ * Drop state for charts that are no longer mounted (view switched away).
+ * Keeps the CHARTS map bounded and disconnects ResizeObservers so detached
+ * elements don't leak or keep firing.
+ */
+function pruneCharts() {
+  const live = new Set();
+  document.querySelectorAll('[data-chart]').forEach(el => {
+    live.add(el.dataset.chart);
+  });
+  Array.from(CHARTS.keys()).forEach(key => {
+    if (!live.has(key)) {
+      const st = CHARTS.get(key);
+      if (st.ro) { try { st.ro.disconnect(); } catch (e) {} }
+      if (st.tip) { try { st.tip.remove(); } catch (e) {} }
+      CHARTS.delete(key);
+    }
+  });
+}
+
 /** Mount every [data-chart] placeholder in `root` using `registry`. */
 function mountChartsIn(root, registry) {
   const nodes = (root || document).querySelectorAll('[data-chart]');
@@ -747,6 +1500,12 @@ function chartPlaceholder(key) {
    ================================================================ */
 async function jget(url) {
   const r = await fetch(url, {cache: 'no-store'});
+  // Session expired: re-authenticate, preserving this deep link.
+  if (r.status === 401) {
+    const next = encodeURIComponent(location.pathname + location.hash);
+    location.replace('/signin?next=' + next);
+    throw new Error('authentication required');
+  }
   if (!r.ok) {
     const t = await r.text().catch(() => '');
     throw new Error(r.status + ': ' + t.slice(0, 160));
@@ -754,11 +1513,51 @@ async function jget(url) {
   return r.json();
 }
 
+/* ---------- session chip (shared shell) ----------
+ * Shows the signed-in owner and offers sign-out; hidden when auth is not
+ * configured for this instance. */
+async function initSessionChip() {
+  const chip = document.getElementById('userChip');
+  if (!chip) return;
+  try {
+    const st = await fetch('/api/auth/status').then(r => r.json());
+    if (!st.signedIn) { chip.hidden = true; return; }
+    chip.hidden = false;
+    const name = String(st.identifier || 'owner');
+    document.getElementById('userName').textContent = name;
+    document.getElementById('userAvatar').textContent =
+      name.trim().charAt(0).toUpperCase() || '·';
+    const btn = document.getElementById('signOutBtn');
+    if (btn) btn.onclick = async () => {
+      btn.disabled = true;
+      try { await fetch('/api/auth/signout', { method: 'POST' }); } catch {}
+      location.replace('/signin');
+    };
+  } catch { chip.hidden = true; }
+}
+
 /* History point arrays, tolerating null values (dropped windows). */
-function histPoints(key) {
+/*
+ * History points for one series. NaN values are KEPT as nulls so charts can
+ * draw an honest gap where a metric was unavailable — dropping them would
+ * fabricate continuity across the gap.
+ *
+ * `since` (optional) clips to the visible window before any further work:
+ * with a 1-minute range over an hour of history this avoids walking ~97% of
+ * the buffer on every tick.
+ */
+function histPoints(key, since) {
   const h = S.history && S.history[key];
   if (!Array.isArray(h)) return [];
-  return h.filter(p => p && isFinite(p.v));
+  const out = [];
+  for (let i = 0; i < h.length; i++) {
+    const p = h[i];
+    if (!p) continue;
+    if (since != null && p.t < since) continue;
+    // NaN → null: an explicit "no value here" marker.
+    out.push({t: p.t, v: isFinite(p.v) ? p.v : null});
+  }
+  return out;
 }
 function histSeries() {
   return {
@@ -779,12 +1578,93 @@ function histSeries() {
       {name:'download', color:'#64a8ff', points: histPoints('netRecvPerSec')},
       {name:'upload',   color:'#4ecdc4', points: histPoints('netSentPerSec')},
     ],
+    gpu: [
+      {name:'utilization', color:'#f5b841', points: histPoints('gpuUtilPercent')},
+    ],
+    batt: [
+      {name:'charge', color:'#4ecdc4', points: histPoints('batteryChargePercent')},
+    ],
   };
 }
 
 /* ================================================================
    Refresh cycle (overlap-guarded)
    ================================================================ */
+/*
+ * Refresh with retry backoff.
+ *
+ * Consecutive failures double the effective wait (capped at 15 s) so a dead
+ * backend isn't hammered at the poll rate; any success resets it. Errors are
+ * non-blocking: existing data and chart state are kept, a banner explains,
+ * and polling continues.
+ */
+let failStreak = 0;
+function nextDelayMs() {
+  const base = Math.max(1200, (S.overview && S.overview.intervalMs) || 2000);
+  if (failStreak === 0) return base;
+  return Math.min(15000, base * Math.pow(2, Math.min(failStreak, 4)));
+}
+
+/* ================================================================
+   Staleness & system health
+   ================================================================ */
+/*
+ * Data is STALE when the newest sample we hold is meaningfully older than
+ * the sampling interval — either because refreshes are failing or because
+ * the backend sampler itself stalled. Stale values stay visible (better
+ * than a blank dashboard) but are always labeled as such, never presented
+ * as current. Threshold: 3× the expected cadence, floor 5 s.
+ */
+function stalenessMs() {
+  if (!S.overview || !S.overview.sampledAtMs) return null;
+  const age = Date.now() - S.overview.sampledAtMs;
+  const expect = Math.max((S.overview && S.overview.intervalMs) || 2000, 500);
+  const threshold = Math.max(5000, expect * 3);
+  return age > threshold ? age : null;
+}
+
+/*
+ * Honest aggregate health for the strip:
+ *   error    — refreshes are failing (data may be entirely absent)
+ *   stale    — we hold data, but it is older than the staleness threshold
+ *   warn     — live, but some core domains report unavailable metrics
+ *   ok       — live and fresh
+ * A single green dot is only shown when refreshes succeed AND the newest
+ * sample is fresh; missing/stale critical data downgrades it visibly.
+ */
+function healthState() {
+  if (S.error && !S.overview) return {cls: 'err', label: 'Connection error',
+    detail: 'metrics unreachable — ' + (S.error || '').slice(0, 120)};
+  if (S.error) return {cls: 'err', label: 'Refresh failing',
+    detail: 'showing last good data · ' + (S.error || '').slice(0, 100)};
+  const st = stalenessMs();
+  if (st != null) return {cls: 'warn', label: 'Data stale',
+    detail: 'last sample ' + ago(S.overview.sampledAtMs) + ' — values below may not be current'};
+  if (!S.overview) return {cls: 'warn', label: 'Connecting…', detail: 'waiting for first sample'};
+  // Live: mention honestly when core domains are unavailable on this machine.
+  const g = S.snapshot && S.snapshot.gpu, b = S.snapshot && S.snapshot.battery;
+  const gaps = [];
+  if (g && !(g.utilizationPercent && g.utilizationPercent.available)) gaps.push('GPU');
+  if (b && !(b.chargePercent && b.chargePercent.available)) gaps.push('battery');
+  return {cls: 'ok', label: 'Live · local',
+    detail: gaps.length ? 'no ' + gaps.join(' / ') + ' telemetry on this device' : 'all sampled domains reporting'};
+}
+
+/* The health strip markup, shown above every system view. */
+function healthStripHtml() {
+  const h = healthState();
+  const host = S.snapshot && S.snapshot.host;
+  const who = [host && host.hostName, host && host.osName, host && host.osVersion]
+    .filter(Boolean).join(' · ');
+  return '<div class="health-strip" id="healthStrip">' +
+    '<span class="health-dot ' + h.cls + '" aria-hidden="true"></span>' +
+    '<span class="health-title">' + esc(h.label) + '</span>' +
+    '<span class="health-detail">' + esc(h.detail) + '</span>' +
+    '<span class="health-spacer"></span>' +
+    (who ? '<span class="health-detail mono">' + esc(who) + '</span>' : '') +
+    '</div>';
+}
+
 async function refresh() {
   if (S.inFlight) return;
   S.inFlight = true;
@@ -801,17 +1681,21 @@ async function refresh() {
     S.demo     = !!results[0].demo;
     S.error    = null;
     S.lastFetch = Date.now();
+    failStreak = 0;
     $('footStatus').textContent = S.demo ? 'demo data' : 'live · local';
     $('liveDot').classList.remove('err');
     scheduleTimers();
   } catch (e) {
     S.error = e.message || String(e);
+    failStreak++;
     $('footStatus').textContent = 'connection error';
     $('liveDot').classList.add('err');
+    // Re-schedule with backoff; never lose the loop entirely.
+    scheduleTimers(true);
   } finally {
     S.inFlight = false;
   }
-  render();
+  updateLive();
 }
 
 async function refreshProcesses() {
@@ -827,16 +1711,18 @@ async function refreshProcesses() {
   } finally {
     S.inFlight = false;
   }
-  render();
+  render();   // process rows change structure (sorting/filtering); rebuild is correct here
 }
 
-/* Timers follow the server-side interval so a change takes effect
-   without a page reload. Re-created only when the interval changes. */
+/*
+ * The single metrics timer. Normally follows the server-side sampling
+ * interval; after failures it stretches with backoff. Exactly one interval
+ * is ever active — the guard prevents duplicates across remounts/hot reload.
+ */
 let currentIntervalMs = 0;
-function scheduleTimers() {
-  const iv = (S.overview && S.overview.intervalMs) || 2000;
-  const pollMs = Math.max(1200, iv);
-  if (pollMs === currentIntervalMs && S.timerId != null) return;
+function scheduleTimers(force) {
+  const pollMs = nextDelayMs();
+  if (!force && pollMs === currentIntervalMs && S.timerId != null) return;
   currentIntervalMs = pollMs;
   if (S.timerId != null) clearInterval(S.timerId);
   S.timerId = setInterval(refresh, pollMs);
@@ -845,6 +1731,42 @@ function scheduleTimers() {
 /* ================================================================
    Partial renderers (return HTML strings)
    ================================================================ */
+/* Tiny trend line for KPI cards. Pure function of the point list; caps the
+ * number of samples it walks so a long history stays cheap. */
+function sparklineSvg(points, color) {
+  if (!points || points.length < 2) {
+    return '<svg class="spark" aria-hidden="true"></svg>';
+  }
+  const step = Math.max(1, Math.floor(points.length / 60));
+  const pts = [];
+  for (let i = 0; i < points.length; i += step) pts.push(points[i]);
+  if (pts[pts.length - 1] !== points[points.length - 1]) pts.push(points[points.length - 1]);
+  // Gapped series (nulls from unavailable samples) must not produce NaN
+  // coordinates: keep only finite values; a sparkline with fewer than two
+  // real samples is honestly empty rather than drawn across the gap.
+  const valid = pts.filter(p => p && p.v != null && isFinite(p.v));
+  if (valid.length < 2) {
+    return '<svg class="spark" aria-hidden="true"></svg>';
+  }
+  let lo = Infinity, hi = -Infinity;
+  valid.forEach(function (p) {
+    if (!isFinite(p.v)) return;
+    if (p.v < lo) lo = p.v;
+    if (p.v > hi) hi = p.v;
+  });
+  if (!isFinite(lo) || !isFinite(hi)) return '<svg class="spark" aria-hidden="true"></svg>';
+  const span = hi - lo || 1;
+  const W = 100, H = 14;
+  let d = '';
+  valid.forEach(function (p, i) {
+    const x = (i / (valid.length - 1)) * W;
+    const y = H - 2 - ((p.v - lo) / span) * (H - 4);
+    d += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1);
+  });
+  return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
+         '<path d="' + d + '" stroke="' + (color || 'var(--ink-faint)') + '"/></svg>';
+}
+
 /* Severity color for a 0-100 percentage: normal → warm → hot. */
 function sevColor(pct) {
   if (pct == null || !isFinite(pct)) return 'var(--acc)';
@@ -853,15 +1775,27 @@ function sevColor(pct) {
   return 'var(--acc)';
 }
 
-function kpiCard(label, valueHtml, subHtml, tipText, barPct, barColor, unavail) {
+/*
+ * KPI card. `live` (optional) names the metric for incremental updates:
+ * {key, value(), sub(), bar()} — updateLive() re-invokes these each tick and
+ * patches the DOM in place instead of rebuilding the card.
+ */
+function kpiCard(label, valueHtml, subHtml, tipText, barPct, barColor, unavail, live) {
   const bar = (barPct != null)
-    ? '<div class="bar"><i style="width:' + Math.min(100, Math.max(0, barPct)) +
+    ? '<div class="bar"><i data-bar="' + (live ? live.key : '') + '" style="width:' +
+      Math.min(100, Math.max(0, barPct)) +
       '%;background:' + (barColor || sevColor(barPct)) + '"></i></div>'
     : '';
+  let extra = bar;
+  if (bar === '' && live && live.spark) {
+    // No utilization bar for this metric — draw a small trend instead.
+    extra = sparklineSvg(live.spark(), live.sparkColor);
+  }
   return '<div class="kpi' + (unavail ? ' unavail' : '') + '">' +
     '<div class="kpi-label" ' + tip(tipText || label) + '>' + esc(label) + '<span>ⓘ</span></div>' +
-    '<div class="kpi-value">' + valueHtml + '</div>' +
-    '<div class="kpi-sub">' + (subHtml || '') + '</div>' + bar + '</div>';
+    '<div class="kpi-value"' + (live ? ' data-live="' + live.key + '"' : '') + '>' + valueHtml + '</div>' +
+    '<div class="kpi-sub"' + (live && live.sub ? ' data-live="' + live.key + ':sub"' : '') + '>' +
+      (subHtml || '') + '</div>' + extra + '</div>';
 }
 
 function metricCard(label, m, fmt, subFn) {
@@ -933,6 +1867,189 @@ function metricLine(label, m, fmt) {
 /* ================================================================
    View renderers
    ================================================================ */
+/* ================================================================
+   AI System Overview (deterministic, metrics-based)
+   ----------------------------------------------------------------
+ * A compact assessment card at the top of the System Dashboard.
+ * Rules, not a model: every verdict below is computed from the same
+ * /api/sys payloads the KPI cards use, with fixed public thresholds.
+ * Nothing is invented — unavailable domains render as Unavailable with
+ * their reason, and stale data downgrades the verdict visibly.
+ * Re-evaluated on each poll by the overview live-updater; no LLM call,
+ * no new provider, no credentials.
+ * ================================================================ */
+
+/* Public thresholds (percent / bytes). Interpretations cite them so the
+ * card can explain itself without hiding the math. */
+const AI_THRESHOLDS = {
+  cpu:  { warn: 70, crit: 90 },          // sustained busy %
+  mem:  { warn: 80, crit: 92 },          // used % of physical RAM
+  gpu:  { warn: 80, crit: 95 },          // device utilization %
+  swap: { warnBytes: 512 * 1024 * 1024 },// swap in use worth mentioning
+  batt: { low: 20 },                     // charge %
+};
+
+/* Level → badge class + label. */
+const AI_LEVELS = {
+  ok:    { cls: 'ok',    label: 'Healthy' },
+  warn:  { cls: 'warn',  label: 'Warning' },
+  crit:  { cls: 'crit',  label: 'Critical' },
+  unknown: { cls: 'unknown', label: 'Unknown' },
+};
+
+/* Deterministic read of one domain. Returns {level, text} or null when the
+ * domain has no reading at all (rendered as Unavailable upstream). */
+function aiReadCpu(o) {
+  if (o.cpuPercent == null || !isFinite(o.cpuPercent)) return null;
+  const t = AI_THRESHOLDS.cpu;
+  const la = S.snapshot && S.snapshot.cpu && S.snapshot.cpu.loadAverage;
+  let level = o.cpuPercent >= t.crit ? 'crit' : o.cpuPercent >= t.warn ? 'warn' : 'ok';
+  let text = fmtPct(o.cpuPercent, 0) + ' busy';
+  if (la && la.one != null) text += ' · load ' + la.one.toFixed(2);
+  if (level === 'crit') text += ' — near saturation (' + t.crit + '%+)';
+  else if (level === 'warn') text += ' — elevated (' + t.warn + '%+)';
+  else text += ' — comfortable headroom';
+  return { level, text };
+}
+
+function aiReadMemory(o) {
+  if (!o.memoryTotalBytes || o.memoryUsedBytes == null) return null;
+  const pct = 100 * o.memoryUsedBytes / o.memoryTotalBytes;
+  const t = AI_THRESHOLDS.mem;
+  let level = pct >= t.crit ? 'crit' : pct >= t.warn ? 'warn' : 'ok';
+  let text = fmtPct(pct, 0) + ' of ' + fmtBytes(o.memoryTotalBytes, 0) + ' in use';
+  if (o.swapUsedBytes != null && o.swapUsedBytes >= AI_THRESHOLDS.swap.warnBytes) {
+    if (level === 'ok') level = 'warn';
+    text += ' · swapping ' + fmtBytes(o.swapUsedBytes, 1);
+  }
+  if (level === 'crit') text += ' — memory pressure likely (' + t.crit + '%+)';
+  else if (level === 'warn') text += ' — filling up (' + t.warn + '%+)';
+  else text += ' — healthy';
+  return { level, text };
+}
+
+function aiReadGpu(snap) {
+  const g = snap && snap.gpu;
+  if (!g) return null;
+  const u = mval(g.utilizationPercent);
+  if (u == null) return null;
+  const t = AI_THRESHOLDS.gpu;
+  const level = u >= t.crit ? 'crit' : u >= t.warn ? 'warn' : 'ok';
+  let text = fmtPct(u, 0) + ' utilization';
+  const gm = mval(g.memoryUsedBytes);
+  if (gm != null) text += ' · ' + fmtBytes(gm, 1) + ' GPU memory';
+  const temp = mval(g.temperatureCelsius);
+  if (temp != null) text += ' · ' + Math.round(temp) + '°C';
+  // Only surface thermal pressure when it actually reports pressure —
+  // nominal readings (any casing/annotation) stay quiet.
+  const tp = mval(g.thermalPressure);
+  if (tp && !/nominal|ok|normal/i.test(tp)) text += ' · thermal: ' + esc(tp);
+  if (level === 'warn') text += ' — heavy load (' + t.warn + '%+)';
+  else if (level === 'crit') text += ' — saturated (' + t.crit + '%+)';
+  return { level, text };
+}
+
+function aiReadBattery(snap) {
+  const b = snap && snap.battery;
+  if (!b) return null;
+  const charge = mval(b.chargePercent);
+  if (charge == null) return null;
+  const status = mval(b.status) || '';
+  const mins = mval(b.timeRemainingMinutes);
+  let level = 'ok', text = fmtPct(charge, 0) + (status ? ' · ' + esc(status) : '');
+  if (mins != null) text += ' · ' + mins + ' min left';
+  if (charge < AI_THRESHOLDS.batt.low && !/charg/i.test(status)) {
+    level = 'warn';
+    text += ' — low, plug in soon';
+  }
+  return { level, text };
+}
+
+/* Aggregate verdict: worst live domain wins; stale/error data is Unknown. */
+function aiVerdict(reads, stale, error) {
+  if (error && !reads.length) return AI_LEVELS.unknown;
+  if (stale != null) return AI_LEVELS.unknown;
+  let worst = 'ok';
+  for (const r of reads) {
+    if (!r) continue;
+    if (r.level === 'crit') { worst = 'crit'; break; }
+    if (r.level === 'warn') worst = 'warn';
+  }
+  return AI_LEVELS[worst];
+}
+
+/* Actionable recommendations — only from readings that actually fired. */
+function aiRecommendations(reads) {
+  const out = [];
+  const byLevel = lvl => reads.filter(r => r && r.level === lvl);
+  for (const r of byLevel('crit')) out.push({ sev: 'crit', text: r.text });
+  for (const r of byLevel('warn')) out.push({ sev: 'warn', text: r.text });
+  return out.slice(0, 4);
+}
+
+/* The card. Compact: verdict + per-domain rows + recommendations +
+ * last-updated stamp. All rows carry data-live keys so updateLive patches
+ * them in place without rebuilding the card. */
+function aiOverviewCard() {
+  const o = S.overview, snap = S.snapshot;
+  if (!o) return '';   // nothing yet: the loading message covers it
+  const stale = stalenessMs();
+  const reads = {
+    cpu: aiReadCpu(o),
+    mem: aiReadMemory(o),
+    gpu: aiReadGpu(snap),
+    batt: aiReadBattery(snap),
+  };
+  const v = aiVerdict(Object.values(reads), stale, S.error);
+
+  const row = (icon, name, r, unavailText) => {
+    const dot = r ? '<span class="ai-dot ' + r.level + '"></span>' :
+      '<span class="ai-dot na"></span>';
+    const body = r
+      ? '<span class="ai-row-text" data-live="ai:' + name + '">' + r.text + '</span>'
+      : '<span class="ai-row-text dim">Unavailable' +
+          (unavailText ? ' — ' + esc(unavailText) : '') + '</span>';
+    return '<div class="ai-row">' + dot +
+      '<span class="ai-row-name">' + icon + ' ' + name.toUpperCase() + '</span>' + body + '</div>';
+  };
+
+  const g = snap && snap.gpu, b = snap && snap.battery;
+  const gpuReason = g && g.utilizationPercent && g.utilizationPercent.unavailableReason;
+  const battReason = b && b.chargePercent && b.chargePercent.unavailableReason;
+
+  let rows = row('⚙', 'cpu', reads.cpu, 'no CPU telemetry');
+  rows += row('▤', 'memory', reads.mem, 'no memory telemetry');
+  rows += row('◫', 'gpu', reads.gpu, gpuReason || 'not supported on this device');
+  rows += row('⌁', 'battery', reads.batt, battReason || 'no battery on this device');
+
+  const recs = aiRecommendations(Object.values(reads));
+  const recHtml = recs.length
+    ? '<div class="ai-recs">' + recs.map(r =>
+        '<div class="ai-rec ' + r.sev + '">▸ ' + esc(r.text) + '</div>').join('') + '</div>'
+    : '<div class="ai-recs"><div class="ai-rec ok">▸ No action needed — all sampled domains within thresholds.</div></div>';
+
+  const stamp = o.sampledAtMs
+    ? '<span class="ai-stamp" data-live="ai:stamp">updated ' + ago(o.sampledAtMs) +
+      ' · sample #' + o.sampleCount + '</span>'
+    : '';
+
+  return '<div class="card ai-card" id="aiOverview">' +
+    '<div class="ai-head">' +
+      '<div><h3>AI System Overview</h3>' +
+      '<div class="hint">deterministic assessment from live local metrics — fixed thresholds, no model calls</div></div>' +
+      '<span class="ai-verdict ' + v.cls + '" data-live="ai:verdict">' +
+        '<span class="ai-dot ' + v.cls + '"></span>' + v.label + '</span>' +
+    '</div>' +
+    '<div class="ai-rows">' + rows + '</div>' +
+    recHtml +
+    '<div class="ai-foot">' + stamp +
+      '<span class="ai-thresholds">thresholds — cpu ' + AI_THRESHOLDS.cpu.warn + '/' + AI_THRESHOLDS.cpu.crit +
+      '% · mem ' + AI_THRESHOLDS.mem.warn + '/' + AI_THRESHOLDS.mem.crit +
+      '% · gpu ' + AI_THRESHOLDS.gpu.warn + '/' + AI_THRESHOLDS.gpu.crit + '%</span>' +
+    '</div>' +
+  '</div>';
+}
+
 function viewOverview() {
   const o = S.overview, snap = S.snapshot;
   if (!o) return '<div class="loading-msg">waiting for metrics…</div>';
@@ -946,19 +2063,29 @@ function viewOverview() {
   cards += kpiCard('CPU', fmtPct(o.cpuPercent),
     'user ' + fmtPct(o.cpuUserPercent, 0) + ' · sys ' + fmtPct(o.cpuSystemPercent, 0),
     'Aggregate busy percentage across all logical cores (Mach tick deltas)',
-    o.cpuPercent);
+    o.cpuPercent, null, false,
+    {key: 'ovCpu', sub: true});
   cards += kpiCard('MEMORY', fmtBytes(o.memoryUsedBytes, 1),
     'of ' + fmtBytes(o.memoryTotalBytes, 0) + ' · swap ' +
       (o.swapUsedBytes != null ? fmtBytes(o.swapUsedBytes, 1) : 'n/a'),
     'macOS "used" = wired + compressed + app memory; file cache is reclaimable and excluded',
-    memPct, 'var(--violet)');
+    memPct, 'var(--violet)', false,
+    {key: 'ovMem', sub: true});
+  // Headlines carry both directions so a lone number is never ambiguous.
   cards += kpiCard('DISK I/O',
-    o.diskReadPerSec != null ? fmtRate(o.diskReadPerSec) : 'pending',
-    o.diskWritePerSec != null ? 'write ' + fmtRate(o.diskWritePerSec) : 'first sample seeds counters',
-    'Read/write throughput across volumes over the last sampling window');
-  cards += kpiCard('NETWORK', fmtRate(o.netRecvPerSec),
-    'upload ' + fmtRate(o.netSentPerSec),
-    'Download/upload rate summed over physical interfaces (loopback excluded)');
+    'R ' + (o.diskReadPerSec != null ? fmtRate(o.diskReadPerSec) : '…') +
+    ' · W ' + (o.diskWritePerSec != null ? fmtRate(o.diskWritePerSec) : '…'),
+    (o.diskReadPerSec == null && o.diskWritePerSec == null)
+      ? 'first sample seeds counters' : 'across all volumes',
+    'Read/write throughput across volumes over the last sampling window',
+    null, null, false,
+    {key: 'ovDisk', spark: () => histPoints('diskWritePerSec'), sparkColor: 'var(--amber)'});
+  cards += kpiCard('NETWORK',
+    '\u2193 ' + fmtRate(o.netRecvPerSec) + ' \u00B7 \u2191 ' + fmtRate(o.netSentPerSec),
+    'physical interfaces, loopback excluded',
+    'Download/upload rate summed over physical interfaces (loopback excluded)',
+    null, null, false,
+    {key: 'ovNet', spark: () => histPoints('netRecvPerSec'), sparkColor: 'var(--blue)'});
   if (snap && snap.gpu) {
     const g = snap.gpu;
     const gu = mval(g.utilizationPercent);
@@ -966,7 +2093,7 @@ function viewOverview() {
       (g.model && g.model.available) ? esc(g.model.value) :
         esc((g.utilizationPercent && g.utilizationPercent.unavailableReason) || ''),
       'GPU device utilization from IOKit AGXAccelerator PerformanceStatistics',
-      gu != null ? gu : null, 'var(--blue)', gu == null);
+      gu != null ? gu : null, 'var(--blue)', gu == null, {key: 'ovGpu'});
   }
   if (snap && snap.battery) {
     const b = snap.battery;
@@ -976,27 +2103,48 @@ function viewOverview() {
         esc(mval(b.status) || '') +
           (mval(b.timeRemainingMinutes) != null ? ' · ' + mval(b.timeRemainingMinutes) + ' min' : ''),
         'Battery charge percentage (AppleSmartBattery)',
-        bp, bp < 20 ? 'var(--red)' : bp < 50 ? 'var(--amber)' : 'var(--acc)');
+        bp, bp < 20 ? 'var(--red)' : bp < 50 ? 'var(--amber)' : 'var(--acc)',
+        false, {key: 'ovBatt', sub: true});
     }
   }
   if (up != null) {
     cards += kpiCard('UPTIME', esc(up), 'since boot',
-      'Time since the system booted (sysinfo boot_time)');
+      'Time since the system booted (sysinfo boot_time)', null, null, false, {key: 'ovUp'});
   }
   if (la != null) {
-    cards += kpiCard('LOAD AVG',
-      la.one.toFixed(2) + ' ' + la.five.toFixed(2) + ' ' + la.fifteen.toFixed(2),
-      '1 / 5 / 15 min', 'Unix load averages');
+    // One number in the headline; the other windows in the subtitle keeps
+    // every card the same height and nothing wraps.
+    cards += kpiCard('LOAD AVG', la.one.toFixed(2),
+      '5m ' + la.five.toFixed(2) + ' \u00B7 15m ' + la.fifteen.toFixed(2),
+      'Unix load averages (1-minute value; 5- and 15-minute in sub)',
+      null, null, false,
+      {key: 'ovLoad', sub: true, spark: () => histPoints('cpuPercent'), sparkColor: 'var(--acc)'});
   }
   cards += kpiCard('PROCESSES', String(o.processCount),
-    'sample #' + o.sampleCount, 'Processes visible to this user');
+    'sample #' + o.sampleCount, 'Processes visible to this user',
+    null, null, false, {key: 'ovProc', sub: true});
 
-  return '<div class="kpis">' + cards + '</div>' +
-    '<div class="grid">' +
-      card('CPU load', 'busy % across all cores', chartPlaceholder('ovCpu')) +
-      card('Memory', 'used RAM and swap over time', chartPlaceholder('ovMem')) +
-      card('Network', 'physical interfaces, loopback excluded', chartPlaceholder('ovNet')) +
-      card('Disk', 'reads and writes per second', chartPlaceholder('ovDisk')) +
+  // Machine identity — first-position card so the dashboard names its subject.
+  {
+    const host = snap && snap.host;
+    const name = (host && host.hostName) || null;
+    const osTxt = [host && host.osName, host && host.osVersion].filter(Boolean).join(' ');
+    const kernel = host && host.kernelVersion ? 'kernel ' + host.kernelVersion : '';
+    if (name || osTxt) {
+      cards = kpiCard('MACHINE', esc(name || 'this device'),
+        esc([osTxt, kernel].filter(Boolean).join(' · ') || 'platform details unavailable'),
+        'Hostname and OS reported by sysinfo (read per sample)',
+        null, null, false) + cards;
+    }
+  }
+
+  return aiOverviewCard() +
+    '<div class="kpis">' + cards + '</div>' +
+    '<div class="grid grid-fill">' +
+      card('CPU load', 'busy % across all cores', chartPlaceholder('ovCpu'), true) +
+      card('Memory', 'used RAM and swap over time', chartPlaceholder('ovMem'), true) +
+      card('Network', 'physical interfaces, loopback excluded', chartPlaceholder('ovNet'), true) +
+      card('Disk', 'reads and writes per second', chartPlaceholder('ovDisk'), true) +
     '</div>' +
     '<script type="application/json" class="chart-registry">' + jsonSafe(JSON.stringify({
       ovCpu:  {series: hs.cpu, max: 100, fmtY: 'pctY', fmtVal: 'pctV', warn: 80},
@@ -1006,8 +2154,8 @@ function viewOverview() {
     })) + '</scr' + 'ipt>';
 }
 
-function card(title, hint, bodyHtml) {
-  return '<div class="card"><h3>' + esc(title) + '</h3>' +
+function card(title, hint, bodyHtml, fill) {
+  return '<div class="card' + (fill ? ' fill' : '') + '"><h3>' + esc(title) + '</h3>' +
     '<div class="hint">' + esc(hint) + '</div>' + bodyHtml + '</div>';
 }
 
@@ -1032,14 +2180,14 @@ function viewCpu() {
     kpiCard('CHIP', c.brand ? esc(c.brand) : '—',
       'user/system/idle from Mach counters', 'Processor brand string') +
     '</div>' +
-    '<div class="card" style="margin-bottom:14px"><h3>Per-core usage</h3>' +
+    '<div class="card"><h3>Per-core usage</h3>' +
       '<div class="hint">each cell is one logical core; brightness tracks load</div>' +
       coreGrid(c.cores) + '</div>' +
     card('History', 'user / system / total since the monitor started',
       chartPlaceholder('cpuHist') +
       '<script type="application/json" class="chart-registry">' + jsonSafe(JSON.stringify({
         cpuHist: {series: hs.cpu, max: 100, fmtY: 'pctY', fmtVal: 'pctV', warn: 80},
-      })) + '</scr' + 'ipt>');
+      })) + '</scr' + 'ipt>', true);
 }
 
 function viewMemory() {
@@ -1076,8 +2224,8 @@ function viewMemory() {
           warn: (S.snapshot && S.snapshot.memory && S.snapshot.memory.totalBytes)
             ? S.snapshot.memory.totalBytes * 0.9 : null,
         },
-      })) + '</scr' + 'ipt>') +
-    '<div class="card" style="margin-top:14px"><h3>About macOS memory semantics</h3>' +
+      })) + '</scr' + 'ipt>', true) +
+    '<div class="card"><h3>About macOS memory semantics</h3>' +
     '<div class="hint" style="line-height:1.8">A near-zero <b>free</b> value is normal and healthy: ' +
     'macOS fills RAM with reclaimable file cache. <b>Available</b> = free + reclaimable cache. ' +
     '<b>Used</b> follows Activity Monitor\'s app memory + wired + compressed.</div></div>';
@@ -1098,13 +2246,13 @@ function viewDisk() {
                : 'first sample seeds counters',
       'Cumulative counter delta across all volumes') +
     '</div>' +
-    '<div class="card" style="margin-bottom:14px"><h3>Volumes</h3>' +
+    '<div class="card"><h3>Volumes</h3>' +
       '<div class="hint">mounted filesystems and capacity</div>' + volumeRows(snap.volumes) + '</div>' +
     card('Throughput history', 'reads and writes per second since the monitor started',
       chartPlaceholder('diskHist') +
       '<script type="application/json" class="chart-registry">' + jsonSafe(JSON.stringify({
         diskHist: {series: hs.disk, fmtY: 'bytesY', fmtVal: 'rateV'},
-      })) + '</scr' + 'ipt>');
+      })) + '</scr' + 'ipt>', true);
 }
 
 function viewNetwork() {
@@ -1118,19 +2266,20 @@ function viewNetwork() {
     kpiCard('UPLOAD', fmtRate(t.transmittedPerSec), 'Σ ' + fmtBytes(t.totalTransmitted, 1),
       'Summed upload rate over physical interfaces') +
     '</div>' +
-    '<div class="card" style="margin-bottom:14px"><h3>Interfaces</h3>' +
+    '<div class="card"><h3>Interfaces</h3>' +
       '<div class="hint">live rates and lifetime totals per interface</div>' +
       ifaceRows(snap.interfaces) + '</div>' +
     card('Throughput history', 'physical interfaces aggregated, loopback excluded',
       chartPlaceholder('netHist') +
       '<script type="application/json" class="chart-registry">' + jsonSafe(JSON.stringify({
         netHist: {series: hs.net, fmtY: 'bytesY', fmtVal: 'rateV'},
-      })) + '</scr' + 'ipt>');
+      })) + '</scr' + 'ipt>', true);
 }
 
 function viewGpu() {
   const g = S.snapshot && S.snapshot.gpu;
   if (!g) return '<div class="loading-msg">waiting for metrics…</div>';
+  const hs = histSeries();
   return '<div class="kpis">' +
     metricCard('MODEL', g.model, v => v) +
     metricCard('UTILIZATION', g.utilizationPercent, v => fmtPct(v)) +
@@ -1140,6 +2289,11 @@ function viewGpu() {
     metricCard('TEMPERATURE', g.temperatureCelsius, v => v.toFixed(0) + ' °C') +
     metricCard('THERMAL PRESSURE', g.thermalPressure, v => v) +
     '</div>' +
+    card('Utilization history', 'device utilization from IOKit PerformanceStatistics',
+      chartPlaceholder('gpuHist') +
+      '<script type="application/json" class="chart-registry">' + jsonSafe(JSON.stringify({
+        gpuHist: {series: hs.gpu, max: 100, fmtY: 'pctY', fmtVal: 'pctV'},
+      })) + '</scr' + 'ipt>', true) +
     '<div class="card"><h3>Reading GPU metrics on macOS</h3>' +
     '<div class="hint" style="line-height:1.8">Utilization comes from IOKit\'s ' +
     '<span class="acc">AGXAccelerator</span> PerformanceStatistics — readable without root, ' +
@@ -1160,6 +2314,7 @@ function viewBattery() {
       '<div class="hint" style="line-height:1.8">No battery was detected on this Mac ' +
       '(desktop machines have none). Nothing is estimated.</div></div>';
   }
+  const hs = histSeries();
   return '<div class="kpis">' +
     metricCard('CHARGE', b.chargePercent, v => fmtPct(v, 0)) +
     metricCard('STATUS', b.status, v => v) +
@@ -1167,6 +2322,11 @@ function viewBattery() {
     metricCard('HEALTH', b.healthPercent, v => fmtPct(v, 1)) +
     metricCard('CYCLES', b.cycleCount, v => String(v)) +
     '</div>' +
+    card('Charge history', 'percentage over time; gaps mean not re-read this pass',
+      chartPlaceholder('battHist') +
+      '<script type="application/json" class="chart-registry">' + jsonSafe(JSON.stringify({
+        battHist: {series: hs.batt, max: 100, fmtY: 'pctY', fmtVal: 'pctV'},
+      })) + '</scr' + 'ipt>', true) +
     '<div class="card"><h3>Capacity detail</h3>' +
       '<div class="hint">from AppleSmartBattery via ioreg</div>' +
       '<div class="row-list">' +
@@ -1238,48 +2398,336 @@ const VIEW_TITLES = {
   processes: ['Processes', 'read-only process table'],
 };
 
+/* Titles for the embedded console routes (same registry shape). */
+const LOOP_TITLES = {
+  console:   ['Loop Console', 'inference playground · conversations persist locally'],
+  models:    ['Models & Providers', 'models the runtime genuinely supports'],
+  traces:    ['Traces & Requests', 'durable record of every inference execution'],
+  analytics: ['Analytics', 'computed from persisted traces'],
+  settings:  ['Settings', 'dashboard-owned configuration'],
+};
+
+/*
+ * Embedded console host. The /console SPA is mounted in an iframe pointing
+ * at the same origin with a hash route; its own router renders the view.
+ * The frame is created ONCE and reused across loop routes — only the guest's
+ * hash changes, so streaming chat, composer focus and scroll survive shell
+ * navigation. System polling continues; charts are pruned on entry/exit.
+ */
+function viewLoopHost(route) {
+  const target = LOOP_ROUTES[route] || 'chat';
+  return '<div class="loop-host" id="loopHost">' +
+    '<iframe class="embed-frame" id="loopFrame" title="Loop console" ' +
+      'src="/console#' + encodeURIComponent(target) + '"></iframe>' +
+    '</div>';
+}
+
+function mountLoopRoute(route) {
+  // Reuse the existing frame when one is already mounted: navigating the
+  // guest's hash keeps its state (conversation, filters, scroll).
+  let frame = $('loopFrame');
+  const target = '#' + encodeURIComponent(LOOP_ROUTES[route] || 'chat');
+  if (!frame) return;   // frame absent → structural render creates it
+  try {
+    if (frame.contentWindow && frame.contentWindow.location.hash !== target) {
+      frame.contentWindow.location.hash = target;
+    }
+  } catch (e) { /* cross-origin shouldn't happen (same origin); ignore */ }
+}
+
+/* ================================================================
+   Incremental rendering.
+
+   The old render() replaced .content-inner's innerHTML on every sample,
+   destroying and remounting every chart each tick — hovers died mid-gesture,
+   text selection broke, and the visible flash read like a page reload.
+
+   Now:
+     * renderView()  rebuilds structure only when the VIEW changes.
+     * updateLive()  runs each tick and patches only the values that
+                     changed (KPI numbers, bars, sub-labels) plus chart
+                     geometry — no DOM replacement.
+   Values are tagged data-live="<key>" by the view builders; updateLive
+   recomputes them from S.* through the same builder functions.
+   ================================================================ */
+
+/* True when two formatted values differ (cheap string compare). */
+function textChanged(el, next) {
+  return el.__lastText !== next;
+}
+function setText(el, next) {
+  if (el.__lastText === next) return;
+  el.__lastText = next;
+  el.textContent = next;
+}
+
+/** Patch all [data-live] nodes in `root` using `values` (key → html/text). */
+function patchLive(root, values) {
+  const nodes = root.querySelectorAll('[data-live]');
+  nodes.forEach(function (n) {
+    const key = n.dataset.live;
+    const next = values[key];
+    if (next === undefined) return;           // not provided this pass
+    if (textChanged(n, next)) {
+      n.textContent = next;
+      n.__lastText = next;
+    }
+  });
+  // Progress bars animate via width only.
+  root.querySelectorAll('[data-bar]').forEach(function (b) {
+    const key = b.dataset.bar;
+    const pct = values['bar:' + key];
+    if (pct == null || !isFinite(pct)) return;
+    const w = Math.min(100, Math.max(0, pct)) + '%';
+    if (b.__lastW !== w) { b.style.width = w; b.__lastW = w; }
+  });
+}
+
+/* Series data for a mounted chart, by its stable name. Centralises the
+ * mapping so updateLive() can refresh charts without view cooperation. */
+const CHART_SERIES_KEYS = {
+  ovCpu:   'cpu',  cpuHist: 'cpu',
+  ovMem:   'mem',  memHist: 'mem',
+  ovNet:   'net',  netHist: 'net',
+  ovDisk:  'disk', diskHist: 'disk',
+  gpuHist: 'gpu',  battHist: 'batt',
+};
+/*
+ * Series for a mounted chart, clipped to its current viewport window.
+ *
+ * The backend keeps the full bounded buffer; this reads only the slice the
+ * user can see, so a 1-minute view over an hour of history costs ~30 points
+ * per series instead of ~1800 on every tick.
+ */
+function histSeriesFor(chartName) {
+  const key = CHART_SERIES_KEYS[chartName];
+  if (!key) return null;
+  const st = CHARTS.get(chartName);
+
+  // Resolve the window from real data bounds (cheap: first/last of arrays).
+  let since = null;
+  if (st) {
+    const probe = S.history && S.history[key === 'cpu' ? 'cpuPercent'
+        : key === 'mem' ? 'memoryUsedBytes'
+        : key === 'net' ? 'netRecvPerSec'
+        : key === 'disk' ? 'diskReadPerSec'
+        : key === 'gpu' ? 'gpuUtilPercent'
+        : 'batteryChargePercent'];
+    if (Array.isArray(probe) && probe.length) {
+      const dataT1 = probe[probe.length - 1].t;
+      const span = Math.max(1, dataT1 - probe[0].t);
+      const w = st.rangeMs != null ? Math.min(st.rangeMs, span) : span;
+      const end = st.live ? dataT1 : (st.anchor != null ? st.anchor : dataT1);
+      since = end - w;
+    }
+  }
+
+  // Build only the requested family, with the clip applied.
+  const P = k => histPoints(k, since);
+  switch (key) {
+    case 'cpu': return [
+      {name:'total',  color:'#4ecdc4', points: P('cpuPercent')},
+      {name:'user',   color:'#64a8ff', points: P('cpuUserPercent')},
+      {name:'system', color:'#f5b841', points: P('cpuSystemPercent')}];
+    case 'mem': return [
+      {name:'used',      color:'#a78bfa', points: P('memoryUsedBytes')},
+      {name:'swap used', color:'#ff6b7d', points: P('swapUsedBytes')}];
+    case 'net': return [
+      {name:'download', color:'#64a8ff', points: P('netRecvPerSec')},
+      {name:'upload',   color:'#4ecdc4', points: P('netSentPerSec')}];
+    case 'disk': return [
+      {name:'read/s',  color:'#4ecdc4', points: P('diskReadPerSec')},
+      {name:'write/s', color:'#f5b841', points: P('diskWritePerSec')}];
+    case 'gpu': return [
+      {name:'utilization', color:'#f5b841', points: P('gpuUtilPercent')}];
+    case 'batt': return [
+      {name:'charge', color:'#4ecdc4', points: P('batteryChargePercent')}];
+  }
+  return null;
+}
+
+/*
+ * Per-view live value patchers. Each returns/writes the same strings the
+ * structural builder produced, but into existing nodes.
+ */
+const LIVE_UPDATERS = {
+  overview: function (inner) {
+    const o = S.overview; if (!o) return;
+    const snap = S.snapshot;
+    const values = {
+      ovCpu: fmtPct(o.cpuPercent),
+      'ovCpu:sub': 'user ' + fmtPct(o.cpuUserPercent, 0) + ' · sys ' + fmtPct(o.cpuSystemPercent, 0),
+      'bar:ovCpu': o.cpuPercent,
+      ovMem: fmtBytes(o.memoryUsedBytes, 1),
+      'ovMem:sub': 'of ' + fmtBytes(o.memoryTotalBytes, 0) + ' · swap ' +
+        (o.swapUsedBytes != null ? fmtBytes(o.swapUsedBytes, 1) : 'n/a'),
+      'bar:ovMem': o.memoryTotalBytes ? 100 * o.memoryUsedBytes / o.memoryTotalBytes : 0,
+      ovDisk: 'R ' + (o.diskReadPerSec != null ? fmtRate(o.diskReadPerSec) : '…') +
+              ' \u00B7 W ' + (o.diskWritePerSec != null ? fmtRate(o.diskWritePerSec) : '…'),
+      'ovDisk:sub': (o.diskReadPerSec == null && o.diskWritePerSec == null)
+        ? 'first sample seeds counters' : 'across all volumes',
+      ovNet: '\u2193 ' + fmtRate(o.netRecvPerSec) + ' \u00B7 \u2191 ' + fmtRate(o.netSentPerSec),
+      'ovNet:sub': 'physical interfaces, loopback excluded',
+    };
+    if (snap && snap.gpu) {
+      const g = snap.gpu;
+      const gu = mval(g.utilizationPercent);
+      values.ovGpu = gu != null ? fmtPct(gu) : 'Unavailable';
+      values['bar:ovGpu'] = gu != null ? gu : null;
+    }
+    if (snap && snap.battery) {
+      const b = snap.battery;
+      const bp = mval(b.chargePercent);
+      if (bp != null) {
+        values.ovBatt = fmtPct(bp, 0);
+        values['bar:ovBatt'] = bp;
+      }
+    }
+    if (snap && snap.uptimeSecs != null) values.ovUp = fmtUptime(snap.uptimeSecs) || '';
+    if (snap && snap.cpu && snap.cpu.loadAverage) {
+      const la = snap.cpu.loadAverage;
+      values.ovLoad = la.one.toFixed(2);
+      values['ovLoad:sub'] = '5m ' + la.five.toFixed(2) + ' \u00B7 15m ' + la.fifteen.toFixed(2);
+    }
+    if (o.processCount != null) {
+      values.ovProc = String(o.processCount);
+      values['ovProc:sub'] = 'sample #' + o.sampleCount;
+    }
+
+    // AI System Overview: re-run the deterministic analysis so verdict,
+    // rows and recommendations track the newest sample in place.
+    if (inner.querySelector('#aiOverview')) {
+      // Keys must match the data-live attributes rendered by
+      // aiOverviewCard(): ai:cpu | ai:memory | ai:gpu | ai:battery.
+      const reads = {
+        cpu: aiReadCpu(o),
+        memory: aiReadMemory(o),
+        gpu: aiReadGpu(S.snapshot),
+        battery: aiReadBattery(S.snapshot),
+      };
+      const v = aiVerdict(Object.values(reads), stalenessMs(), S.error);
+      values['ai:verdict'] = v.label;
+      for (const k of Object.keys(reads)) {
+        if (reads[k]) values['ai:' + k] = reads[k].text;
+      }
+      if (o.sampledAtMs) {
+        values['ai:stamp'] = 'updated ' + ago(o.sampledAtMs) + ' · sample #' + o.sampleCount;
+      }
+    }
+    patchLive(inner, values);
+  },
+};
+
 function renderNav() {
   const nav = $('nav');
-  const wanted = VIEWS.map(v => v[0]).join(',');
+  const wanted = 'ws|' + VIEWS.map(v => v[0]).join(',');
   if (nav.dataset.builtFor !== wanted) {
-    nav.innerHTML = VIEWS.map(v =>
-      '<div class="nav-item' + (S.view === v[0] ? ' active' : '') + '" data-view="' + v[0] + '" ' +
+    const item = (list) => list.map(v =>
+      '<div class="nav-item' + ((S.view === v[0] || (v[0] === 'overview' && !LOOP_ROUTES[S.view])) ? ' active' : '') + '" data-view="' + v[0] + '" ' +
       'title="' + esc(v[1]) + '">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
       'stroke-linecap="round" stroke-linejoin="round"><path d="' + v[2] + '"/></svg>' +
       '<span>' + esc(v[1]) + '</span></div>').join('');
+    // Primary workspaces — the same five destinations every shell offers.
+    // Real anchors for the other shells (browser history + focus), this
+    // workspace's own group rendered as items. "Loop AI Console" points at
+    // the console SPA's chat view, the workspace's front door.
+    const extItem = (href, label, path) =>
+      '<a class="nav-item" href="' + href + '" title="' + esc(label) + '">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+      'stroke-linecap="round" stroke-linejoin="round"><path d="' + path + '"/></svg>' +
+      '<span>' + esc(label) + '</span></a>';
+    const ICON_PATHS = {
+      welcome: 'M3 13a9 9 0 1 0 9-9M3 13V4M13 3v10h8',
+      loop:    'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+      sft:     'M12 3v18M5 8l7-5 7 5M5 16l7 5 7-5',
+      pretrain:'M4 6c0 1.7 3.6 3 8 3s8-1.3 8-3-3.6-3-8-3-8 1.3-8 3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6',
+    };
+    nav.innerHTML =
+      '<div class="nav-group">Workspaces</div>' +
+      extItem('/console#overview', 'Welcome', ICON_PATHS.welcome) +
+      item([['overview','System Overview','M0 3h18v6H3zM3 11h8v10H3zM13 11h8v10h-8z']]) +
+      extItem('/console#chat', 'Loop AI Console', ICON_PATHS.loop) +
+      extItem('/console#sft', 'SFT DataTrove', ICON_PATHS.sft) +
+      extItem('/console#pretrain', 'Pretraining DataTrove', ICON_PATHS.pretrain) +
+      /* This workspace's own sections: the metric views. The workspace's
+       * front door ("System Overview") is the primary item above, so the
+       * hardware/system views start here without repeating it. */
+      '<div class="nav-group">System Dashboard</div>' + item(VIEWS.slice(1));
     nav.dataset.builtFor = wanted;
-    nav.querySelectorAll('.nav-item').forEach(el => {
+    nav.querySelectorAll('.nav-item[data-view]').forEach(el => {
       el.addEventListener('click', () => {
         if (S.view === el.dataset.view) return;
         S.view = el.dataset.view;
+        // Keep the URL shareable: each view gets a history entry, and the
+        // hashchange handler above renders on back/forward.
+        if (decodeURIComponent(location.hash.replace('#','')) !== S.view)
+          location.hash = S.view;
+        // Leaving a view: drop its chart state (observers, tooltips) so
+        // nothing keeps firing against detached nodes.
+        pruneCharts();
         if (S.view === 'processes') refreshProcesses(); else render();
       });
     });
   } else {
-    nav.querySelectorAll('.nav-item').forEach(el => {
+    nav.querySelectorAll('.nav-item[data-view]').forEach(el => {
       el.classList.toggle('active', el.dataset.view === S.view);
     });
   }
 }
 
+/* Which view the currently-mounted skeleton belongs to. */
+let mountedView = null;
+
+/**
+ * Rebuild the view structure. Called on navigation and on first paint —
+ * NOT on every sample (updateLive handles ticks).
+ */
 function render() {
   renderNav();
 
-  const t = VIEW_TITLES[S.view] || VIEW_TITLES.overview;
+  const isLoop = !!LOOP_ROUTES[S.view];
+  const t = (isLoop ? LOOP_TITLES : VIEW_TITLES)[S.view] || VIEW_TITLES.overview;
   $('pageTitle').textContent = t[0];
-  $('pageSub').textContent = t[1] + (S.demo ? ' · DEMO DATA' : '');
-
-  const note = 'updated ' + ago(S.lastFetch) + ' · every ' +
-    ((S.overview && S.overview.intervalMs) || 2000) + ' ms';
-  if ($('refreshNote').textContent !== note) $('refreshNote').textContent = note;
+  $('pageSub').textContent = t[1] + (isLoop ? '' : (S.demo ? ' · DEMO DATA' : ''));
+  updateStatusLine();
   $('retryBtn').style.display = S.error ? 'inline-block' : 'none';
+
+  // Loop console routes: mount/repoint the embedded SPA and stop — the guest
+  // owns its content region; system banners/footer do not apply to it.
+  if (isLoop) {
+    const inner = $('content').querySelector('.content-inner');
+    const frame = $('loopFrame');
+    if (frame && inner.contains(frame)) {
+      // Same host, different route: keep the frame alive, just navigate.
+      mountLoopRoute(S.view);
+      mountedView = S.view;
+      return;
+    }
+    // No frame yet (or a system view was mounted): replace the column with
+    // the loop host. The iframe boots fresh with the target hash.
+    pruneCharts();
+    inner.innerHTML = viewLoopHost(S.view);
+    mountedView = S.view;
+    return;
+  }
 
   const renderer = VIEW_RENDERERS[S.view] || viewOverview;
   let html = '';
+  // Machine identity + honest aggregate status lead every system view.
+  if (!isLoop) html += healthStripHtml();
   if (S.error) {
     html += '<div class="banner error">failed to fetch metrics: ' + esc(S.error) +
       ' — retrying automatically, or press “retry now”</div>';
+    // Data older than the staleness threshold must never look current:
+    // keep the last good values but label them explicitly.
+    if (stalenessMs() != null && S.overview && S.overview.sampledAtMs) {
+      html += '<div class="banner stale">stale data — last successful sample was ' +
+        ago(S.overview.sampledAtMs) + '; values below are from then, not live</div>';
+    }
+  } else if (stalenessMs() != null && S.overview && S.overview.sampledAtMs) {
+    html += '<div class="banner stale">data stale — newest sample is ' +
+      ago(S.overview.sampledAtMs) + ' old; values below may not be current</div>';
   }
   if (S.demo) {
     html += '<div class="banner demo">DEMO MODE — synthetic metrics for offline UI testing, ' +
@@ -1307,6 +2755,7 @@ function render() {
   // Replace only the content region; sidebar/topbar keep their DOM nodes.
   const inner = $('content').querySelector('.content-inner');
   inner.innerHTML = html;
+  mountedView = S.view;
 
   // Mount interactive charts declared by this view. Each view embeds exactly
   // one registry; query all and merge so per-card registries also work.
@@ -1335,8 +2784,77 @@ function render() {
           '<div class="banner error">chart setup failed: ' + esc(e.message) + '</div>');
       }
     }
+    // Drop observers/tooltips for charts that left the DOM with the old view.
+    pruneCharts();
   }
   wireViewHandlers();
+}
+
+/*
+ * Topbar freshness line. Only "updated Xs ago" — the sampling interval is
+ * already visible in the picker, so repeating it here was redundant copy.
+ */
+function updateStatusLine() {
+  const note = S.lastFetch ? ('updated ' + ago(S.lastFetch)) : 'connecting…';
+  if ($('refreshNote').textContent !== note) $('refreshNote').textContent = note;
+}
+
+/**
+ * Per-tick update: patch live values in place. Never rebuilds structure, so
+ * hovers, drags, focus and text selection all survive incoming samples.
+ * Falls back to a full render only when the mounted view changed underneath
+ * us (e.g. first paint after an error path).
+ */
+function updateLive() {
+  if (mountedView !== S.view) { render(); return; }
+
+  // Embedded console owns its region; nothing for the live patcher to do.
+  if (LOOP_ROUTES[S.view]) return;
+
+  updateStatusLine();
+  $('retryBtn').style.display = S.error ? 'inline-block' : 'none';
+
+  const inner = $('content').querySelector('.content-inner');
+
+  // Error/demo/stale banners appear or disappear only on state transitions.
+  const hasErrBanner = !!inner.querySelector('.banner.error');
+  if (!!S.error !== hasErrBanner) { render(); return; }
+  const hasStaleBanner = !!inner.querySelector('.banner.stale');
+  if ((stalenessMs() != null) !== hasStaleBanner) { render(); return; }
+
+  // Health strip: patch label/detail/dot in place (no structural rebuild).
+  const strip = inner.querySelector('#healthStrip');
+  if (strip) {
+    const h = healthState();
+    const dot = strip.querySelector('.health-dot');
+    const title = strip.querySelector('.health-title');
+    const detail = strip.querySelector('.health-detail');
+    if (dot && title && detail) {
+      dot.className = 'health-dot ' + h.cls;
+      if (title.textContent !== h.label) title.textContent = h.label;
+      if (detail.textContent !== h.detail) detail.textContent = h.detail;
+    }
+  }
+
+  // Live value patches per view — same builders the views use, but writing
+  // into data-live nodes instead of creating new markup.
+  try {
+    LIVE_UPDATERS[S.view] && LIVE_UPDATERS[S.view](inner);
+  } catch (e) {
+    // A failing updater must not silently blank the dashboard; fall back to
+    // a structural render which has its own error banner.
+    render();
+    return;
+  }
+
+  // Charts: update geometry in place (no remount).
+  document.querySelectorAll('[data-chart]').forEach(function (el) {
+    const st = CHARTS.get(el.dataset.chart);
+    if (!st || !st.lastCfg) return;
+    // Refresh the series data on the existing config, then redraw.
+    st.lastCfg.series = histSeriesFor(el.dataset.chart);
+    mountChart(el, st.lastCfg);
+  });
 }
 
 function wireViewHandlers() {
@@ -1385,6 +2903,19 @@ $('retryBtn').addEventListener('click', () => refresh());
 /* ================================================================
    Boot
    ================================================================ */
+/* Hash routing: keeps the URL in sync with the sidebar and makes browser
+ * back/forward work for /system views. Deep links (/system#cpu, …) already
+ * read the hash at init; this covers subsequent navigation. */
+window.addEventListener('hashchange', () => {
+  const h = decodeURIComponent(location.hash.replace('#','')) || 'overview';
+  if (h === S.view) return;
+  if (VIEWS.some(v => v[0] === h) || LOOP_ROUTES[h]) {
+    S.view = h;
+    pruneCharts();
+    if (S.view === 'processes') refreshProcesses(); else render();
+  }
+});
+
 (async function boot() {
   try {
     await refresh();
@@ -1402,12 +2933,27 @@ $('retryBtn').addEventListener('click', () => refresh());
   }, 3000);
   // Keep "updated Xs ago" fresh between polls.
   setInterval(() => {
-    if (S.lastFetch) {
-      const note = 'updated ' + ago(S.lastFetch) + ' · every ' +
-        ((S.overview && S.overview.intervalMs) || 2000) + ' ms';
-      if ($('refreshNote').textContent !== note) $('refreshNote').textContent = note;
-    }
+    if (S.lastFetch) updateStatusLine();
   }, 1000);
+
+  // Shared shell: session chip + sign-out (no-op when auth is off).
+  initSessionChip();
+
+  /*
+   * Hidden tab: stop polling and stop rendering. The backend keeps sampling
+   * with real timestamps, so when the tab returns the charts show genuine
+   * history including the gap — no synthetic samples are invented for it.
+   */
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      refresh();                       // catch up immediately
+      scheduleTimers(true);
+    } else if (S.timerId != null) {
+      clearInterval(S.timerId);
+      S.timerId = null;
+      currentIntervalMs = 0;
+    }
+  });
 
   // Self-audit mode (?audit=1): measures the rendered layout and reports
   // overflow as JSON in a <pre id="AUDIT_RESULT">. Used by headless
@@ -1482,17 +3028,56 @@ function auditLayoutOnce() {
       if (r.right > kr.right + 1.5) problems.push('kpi exceeds grid by ' + (r.right - kr.right).toFixed(1) + 'px');
     });
   }
-  document.querySelectorAll('.chart-legend').forEach((lg, i) => {
+  document.querySelectorAll('.chart-legend:not(.chart-controls)').forEach((lg, i) => {
     const card = lg.closest('.card');
     if (!card) return;
     const cr = card.getBoundingClientRect(), lr = lg.getBoundingClientRect();
     if (lr.right > cr.right + 1.5) problems.push('legend[' + i + '] overflows card by ' + (lr.right - cr.right).toFixed(1) + 'px');
+  });
+
+  /*
+   * Toolbar vs. heading overlap — the regression this audit guards against.
+   * The toolbar must sit strictly BELOW the subtitle (and therefore below
+   * the title) and must never intersect the plot box or the legend.
+   */
+  document.querySelectorAll('.chart-controls').forEach((ctl, i) => {
+    const card = ctl.closest('.card');
+    if (!card) return;
+    const tr = ctl.getBoundingClientRect();
+    const h3 = card.querySelector('h3'), hint = card.querySelector('.hint');
+    [['title', h3], ['subtitle', hint]].forEach(([nm, el]) => {
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const ix = Math.max(0, Math.min(tr.right, r.right) - Math.max(tr.left, r.left));
+      const iy = Math.max(0, Math.min(tr.bottom, r.bottom) - Math.max(tr.top, r.top));
+      if (ix > 1 && iy > 1) {
+        problems.push('toolbar[' + i + '] overlaps ' + nm + ' by ' +
+                      Math.round(ix) + 'x' + Math.round(iy) + 'px on "' +
+                      (h3 ? h3.textContent.trim() : '?') + '"');
+      }
+    });
+    const box = card.querySelector('.chart-box');
+    if (box) {
+      const br = box.getBoundingClientRect();
+      const ix = Math.max(0, Math.min(tr.right, br.right) - Math.max(tr.left, br.left));
+      const iy = Math.max(0, Math.min(tr.bottom, br.bottom) - Math.max(tr.top, br.top));
+      if (ix > 1 && iy > 1) {
+        problems.push('toolbar[' + i + '] overlaps the chart plot by ' +
+                      Math.round(ix) + 'x' + Math.round(iy) + 'px');
+      }
+    }
+    // Every control must stay inside its own card.
+    if (tr.right > card.getBoundingClientRect().right + 1.5) {
+      problems.push('toolbar[' + i + '] escapes its card');
+    }
   });
   return {problems, info};
 }
 
 function runSelfAudit() {
   // Wait for the first data-driven render, then measure each view in turn.
+  // Loop console routes are skipped: their content lives in a cross-document
+  // iframe this audit cannot reach, and the guest audits itself.
   const views = VIEWS.map(v => v[0]);
   let vi = 0;
   const results = [];

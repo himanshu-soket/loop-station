@@ -63,6 +63,12 @@ pub struct DiskCollector {
     prev_counters: Option<(u64, u64)>,
 }
 
+impl Default for DiskCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DiskCollector {
     /// New collector with the current volume list.
     pub fn new() -> Self {

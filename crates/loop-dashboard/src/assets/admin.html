@@ -1,0 +1,963 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop · Account approvals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/shell.css">
+<style>
+/* Page-specific rules live here rather than shell.css so the shared sheet
+ * stays a stable base for every surface. */
+/* The admin page is a scrolling document, not a centred card. `body.sw-auth`
+ * (shell.css) centres its child with flexbox; for content taller than the
+ * viewport that overflows equally above and below, leaving the top half
+ * unreachable — a classic flexbox trap. Override it here so this page
+ * simply scrolls from the top. */
+body.sw-auth.adm-body{display:block;height:auto;min-height:100%;overflow-y:visible}
+
+.adm-wrap{width:100%;max-width:880px;margin:0 auto;padding:32px 24px 48px}
+.adm-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;
+  flex-wrap:wrap;margin-bottom:22px}
+.adm-title{font-size:21px;font-weight:700;letter-spacing:-.01em}
+.adm-sub{color:var(--ink-dim);font-size:13px;margin-top:4px}
+.adm-actions{display:flex;gap:8px;align-items:center}
+
+/* NOTE: no `overflow:hidden` here. It was added to keep children inside the
+ * rounded corners, but it also clips anything that overflows the card —
+ * which is exactly how the All Users action buttons disappeared at narrow
+ * widths. Corners are instead kept tidy by giving the inner scroll
+ * container its own border-radius; nothing that overflows is hidden. */
+.adm-card{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+}
+.adm-table-wrap{overflow-x:auto;border-radius:0 0 calc(var(--rad) - 1px) calc(var(--rad) - 1px)}
+.adm-card-head{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap;
+}
+.adm-card-title{font-size:13.5px;font-weight:700}
+.adm-count{font-size:12px;color:var(--ink-faint)}
+
+.adm-list{display:grid}
+.adm-row{
+  display:flex;align-items:center;gap:14px;padding:15px 18px;
+  border-bottom:1px solid var(--line);
+}
+.adm-row:last-child{border-bottom:0}
+.adm-row-main{flex:1;min-width:0}
+.adm-id{
+  font-family:var(--mono);font-size:13px;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.adm-meta{font-size:11.5px;color:var(--ink-faint);margin-top:3px;display:flex;
+  gap:10px;flex-wrap:wrap}
+.adm-badge{
+  font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+  padding:3px 8px;border-radius:999px;border:1px solid;flex:none;
+}
+.badge-pending{color:var(--amber);border-color:rgba(255,200,87,.35);background:rgba(255,200,87,.07)}
+.adm-btns{display:flex;gap:8px;flex:none}
+
+.btn-sm{
+  width:auto;padding:7px 13px;font-size:12.5px;border-radius:9px;
+  border:1px solid var(--line2);background:var(--panel2);color:var(--ink);
+}
+.btn-sm:hover:not(:disabled){border-color:var(--ink-faint)}
+.btn-ok{background:var(--acc);border-color:transparent;color:#04231a;font-weight:600}
+.btn-ok:hover:not(:disabled){filter:brightness(1.08);border-color:transparent}
+.btn-danger{background:rgba(255,107,129,.1);border-color:rgba(255,107,129,.35);color:#ffb3bf}
+.btn-danger:hover:not(:disabled){background:rgba(255,107,129,.18);border-color:rgba(255,107,129,.5)}
+
+.adm-empty{padding:52px 24px;text-align:center}
+.adm-empty-icon{
+  width:46px;height:46px;border-radius:50%;margin:0 auto 14px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--acc-glow);border:1px solid var(--acc-dim);color:var(--acc);
+}
+.adm-empty-title{font-size:14px;font-weight:600}
+.adm-empty-sub{font-size:12.5px;color:var(--ink-dim);margin-top:5px}
+
+.adm-note{
+  margin-top:16px;padding:12px 14px;border-radius:var(--rad-sm);
+  background:var(--bg2);border:1px solid var(--line);
+  font-size:12px;color:var(--ink-dim);line-height:1.6;
+}
+.adm-note code{font-family:var(--mono);font-size:11.5px;color:var(--ink)}
+
+/* ---------- tabs (Phase 7) ---------- */
+.adm-tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+.adm-tab{
+  appearance:none;background:none;border:0;cursor:pointer;
+  padding:9px 14px;font:inherit;font-size:13px;font-weight:600;
+  color:var(--ink-dim);border-bottom:2px solid transparent;margin-bottom:-1px;
+}
+.adm-tab:hover{color:var(--ink)}
+.adm-tab.active{color:var(--acc);border-bottom-color:var(--acc)}
+.adm-tab:focus-visible{outline:2px solid var(--acc);outline-offset:-2px}
+
+/* ---------- filters ---------- */
+.adm-filters{
+  display:flex;gap:8px;flex-wrap:wrap;padding:12px 18px;
+  border-bottom:1px solid var(--line);
+}
+.adm-search,.adm-select{
+  font:inherit;font-size:12.5px;color:var(--ink);
+  background:var(--panel2);border:1px solid var(--line2);
+  border-radius:9px;padding:7px 10px;
+}
+.adm-search{flex:1;min-width:170px}
+.adm-select{flex:none}
+.adm-search:focus-visible,.adm-select:focus-visible{
+  outline:2px solid var(--acc);outline-offset:1px;
+}
+
+/* ---------- users table ----------
+ * Responsive strategy, in order of preference:
+ *
+ * 1. Wide screens (>=880px): a normal 6-column table. It fits.
+ * 2. Narrow screens (<880px): each row becomes a compact card. The email
+ *    is the heading; role/status/registered/last-sign-in become labelled
+ *    lines; the action button sits on its own full-width line so it can
+ *    never be pushed off-screen by a long address.
+ *
+ * A horizontal-scroll table was rejected as the primary layout because the
+ * action buttons live in the LAST column: on a phone the user would have to
+ * scroll right past everything else just to discover an action exists, and
+ * at 320px the scroll window is too small to be usable. The card layout
+ * keeps every control visible without scrolling.
+ *
+ * The table markup is unchanged — only CSS re-presents it — so the DOM,
+ * the JS and the tests all keep working. */
+
+.adm-table-wrap{overflow-x:auto}
+.adm-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.adm-table th{
+  text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--ink-faint);padding:10px 14px;border-bottom:1px solid var(--line);
+  white-space:nowrap;
+}
+.adm-table td{
+  padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:middle;
+}
+.adm-table tbody tr:last-child td{border-bottom:0}
+.adm-email{
+  font-family:var(--mono);font-size:12px;color:var(--ink);max-width:230px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.badge-admin{color:var(--acc);border-color:rgba(94,242,192,.35);background:rgba(94,242,192,.07)}
+.badge-approved{color:#8ef0c0;border-color:rgba(142,240,192,.3);background:rgba(142,240,192,.06)}
+.badge-rejected{color:#ffb3bf;border-color:rgba(255,107,129,.35);background:rgba(255,107,129,.08)}
+.badge-suspended{color:var(--amber);border-color:rgba(255,200,87,.35);background:rgba(255,200,87,.07)}
+.adm-dim{color:var(--ink-faint);font-size:11.5px;white-space:nowrap}
+.adm-col-actions{text-align:right}
+.adm-cell-actions{white-space:nowrap;display:flex;gap:6px;justify-content:flex-end}
+.adm-empty-row td{
+  padding:44px 20px;text-align:center;color:var(--ink-dim);font-size:12.5px;
+}
+
+/* Labels revealed only in the stacked (narrow) presentation. They are
+ * hidden by default and switched on inside the media query, so wide
+ * screens never see them. */
+.adm-label{display:none}
+
+@media (max-width:879px){
+  /* --- the table stops being a table --- */
+  .adm-table thead{display:none}                 /* headers become labels */
+  .adm-table, .adm-table tbody,
+  .adm-table tr, .adm-table td{display:block;width:100%}
+  .adm-table tr{
+    border-bottom:1px solid var(--line);
+    padding:12px 14px 14px;
+  }
+  .adm-table tbody tr:last-child{border-bottom:0}
+  .adm-table td{border:0;padding:2px 0}
+
+  /* Email: the row heading, allowed to wrap rather than ellipsize so a
+   * long address is fully readable. */
+  .adm-table td:nth-child(1){padding-bottom:7px}
+  .adm-email{max-width:100%;white-space:normal;overflow-wrap:anywhere;
+    word-break:break-word;font-size:12.5px}
+
+  /* Role + status sit side by side on one labelled line. */
+  .adm-table td:nth-child(2),
+  .adm-table td:nth-child(3){
+    display:inline-block;width:auto;padding-right:16px;
+  }
+
+  /* Registered / last sign-in keep their dim styling but wrap safely. */
+  .adm-dim{white-space:normal}
+
+  /* Actions: their own line, full width, never clipped. */
+  .adm-cell-actions{
+    display:flex;justify-content:stretch;gap:8px;
+    padding-top:10px;white-space:normal;
+  }
+  .adm-cell-actions .btn-sm{flex:1 1 auto;min-height:38px}
+
+  /* Reveal the per-field labels. */
+  .adm-label{
+    display:inline-block;font-size:10px;text-transform:uppercase;
+    letter-spacing:.05em;color:var(--ink-faint);margin-right:7px;
+  }
+  .adm-empty-row td{padding:36px 16px}
+}
+
+/* ---------- pager ---------- */
+.adm-pager{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:12px 18px;flex-wrap:wrap;
+}
+.adm-pager-info{font-size:11.5px;color:var(--ink-faint)}
+.adm-pager-btns{display:flex;gap:6px}
+.adm-pager .btn-sm[disabled]{opacity:.45;cursor:not-allowed}
+
+.skel{height:64px;border-bottom:1px solid var(--line);
+  background:linear-gradient(90deg,var(--panel) 25%,var(--panel2) 50%,var(--panel) 75%);
+  background-size:200% 100%;animation:shimmer 1.3s infinite linear}
+@keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+
+@media (max-width:640px){
+  .adm-wrap{padding:20px 14px 36px}
+  .adm-row{flex-wrap:wrap;padding:14px}
+  .adm-btns{width:100%;justify-content:stretch}
+  .adm-btns .btn-sm{flex:1}
+  .adm-head{align-items:flex-start}
+  /* Filters stack; the table scrolls horizontally inside its wrapper. */
+  .adm-filters{flex-direction:column}
+  .adm-search,.adm-select{width:100%}
+  .adm-pager{justify-content:center}
+}
+@media (prefers-reduced-motion:reduce){.skel{animation:none}}
+</style>
+</head>
+<body class="sw-auth adm-body">
+<main class="adm-wrap">
+  <div class="sw-brand">
+    <div class="sw-mark" aria-hidden="true">L</div>
+    <div>
+      <div class="sw-name">Loop</div>
+      <div class="sw-sub">unified AI development &amp; data operations</div>
+    </div>
+  </div>
+
+  <div class="adm-head" style="margin-top:26px">
+    <div>
+      <h1 class="adm-title">Account administration</h1>
+      <p class="adm-sub">Review registrations and manage accounts.</p>
+    </div>
+    <div class="adm-actions">
+      <button class="btn btn-sm" id="refreshBtn" type="button">Refresh</button>
+      <button class="btn btn-sm" id="backBtn" type="button">Back to console</button>
+    </div>
+  </div>
+
+  <!-- Tabs: the pending queue (Phase 6) and the full user list (Phase 7).
+       Tab state is local; switching only swaps which section is visible.
+       Both load through /api/admin/*, which authorizes server-side. -->
+  <div class="adm-tabs" role="tablist" aria-label="Administration sections">
+    <button class="adm-tab active" id="tabPending" role="tab" aria-selected="true"
+            aria-controls="panelPending" type="button">Approvals</button>
+    <button class="adm-tab" id="tabUsers" role="tab" aria-selected="false"
+            aria-controls="panelUsers" type="button">All users</button>
+  </div>
+
+  <div id="alertSlot" role="status" aria-live="polite"></div>
+
+  <section class="adm-card" id="panelPending" role="tabpanel"
+           aria-labelledby="tabPending">
+    <div class="adm-card-head">
+      <span class="adm-card-title" id="queueTitle">Pending registrations</span>
+      <span class="adm-count" id="queueCount"></span>
+    </div>
+    <div id="listRoot" class="adm-list"></div>
+  </section>
+
+  <section class="adm-card" id="panelUsers" role="tabpanel" aria-labelledby="tabUsers" hidden>
+    <div class="adm-card-head">
+      <span class="adm-card-title">All registered users</span>
+      <span class="adm-count" id="usersCount"></span>
+    </div>
+
+    <!-- Search + filters. Values are sent as query parameters; the server
+         validates them and never trusts them for authorization. -->
+    <div class="adm-filters">
+      <input class="adm-search" id="userSearch" type="search"
+             placeholder="Search by email…" autocomplete="off"
+             aria-label="Search users by email">
+      <select class="adm-select" id="roleFilter" aria-label="Filter by role">
+        <option value="">All roles</option>
+        <option value="admin">Admin</option>
+        <option value="user">User</option>
+      </select>
+      <select class="adm-select" id="statusFilter" aria-label="Filter by status">
+        <option value="">All statuses</option>
+        <option value="pending">Pending</option>
+        <option value="approved">Approved</option>
+        <option value="rejected">Rejected</option>
+        <option value="suspended">Suspended</option>
+      </select>
+    </div>
+
+    <div class="adm-table-wrap">
+      <table class="adm-table">
+        <thead>
+          <tr>
+            <th scope="col">Email</th>
+            <th scope="col">Role</th>
+            <th scope="col">Status</th>
+            <th scope="col">Registered</th>
+            <th scope="col">Last sign-in</th>
+            <th scope="col" class="adm-col-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="usersBody"></tbody>
+      </table>
+    </div>
+
+    <div class="adm-pager" id="usersPager"></div>
+  </section>
+
+  <p class="adm-note">
+    Approving lets the person sign in with the credentials they registered.
+    Rejecting removes the request from this queue; the address may register
+    again later. Promoting a user grants administrator access — it never
+    changes their password or signs them in. The server enforces all of
+    this; this page only asks.
+  </p>
+</main>
+
+<script>
+'use strict';
+/* Loop administrator approval queue (Phase 6).
+ *
+ * Contracts (verified against crates/loop-dashboard/src/admin_http.rs):
+ *   GET  /api/admin/users/pending
+ *        -> 200 { users:[{id,identifier,status,createdAtMs}],
+ *                 totalCount:number, truncated:boolean }
+ *   POST /api/admin/users/{id}/approve  -> 200 {ok:true,status:"approved"}
+ *   POST /api/admin/users/{id}/reject   -> 200 {ok:true,status:"rejected"}
+ *   Errors: 401 {error:"authentication required"}  (session gone/expired)
+ *           403 {error:"administrator access required"} (not an admin)
+ *           404 {error:...} unknown account, 409 invalid transition/self
+ *           429 rate limited, 500 generic unavailable
+ *
+ * Authorization is entirely server-side: the page never decides who is an
+ * administrator. It renders whatever the guarded API returns, and treats
+ * 401/403 as "you cannot use this page" rather than trying to work around
+ * it. Every string that came from the network is inserted with
+ * textContent/createElement — never parsed as markup. */
+
+const $ = s => document.querySelector(s);
+const listRoot = $('#listRoot');
+
+let loading = false;
+
+/* ---------- alert banner (safe DOM only) ---------- */
+let noticeTimer = null;
+
+function showNotice(kind, message, actions) {
+  const slot = $('#alertSlot');
+  // Replace, never stack: an older confirmation must not bury the newest.
+  slot.replaceChildren();
+  if (noticeTimer) { clearTimeout(noticeTimer); noticeTimer = null; }
+
+  const box = document.createElement('div');
+  box.className = 'alert alert-' + (kind === 'error' ? 'error' : 'ok');
+
+  const icon = document.createElement('span');
+  icon.className = 'alert-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = kind === 'error' ? '!' : '✓';
+
+  const text = document.createElement('span');
+  text.textContent = message;          // textContent: never markup
+
+  box.append(icon, text);
+
+  if (actions && actions.length) {
+    for (const a of actions) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-sm' + (a.primary ? ' btn-ok' : '');
+      btn.style.marginLeft = '10px';
+      btn.textContent = a.label;
+      btn.addEventListener('click', a.onClick);
+      box.appendChild(btn);
+    }
+  }
+  slot.appendChild(box);
+
+  // Confirmations fade themselves out once read; errors persist until the
+  // next action or refresh so they cannot be missed.
+  if (kind !== 'error' && !(actions && actions.length)) {
+    noticeTimer = setTimeout(() => {
+      if (slot.contains(box)) slot.replaceChildren();
+    }, 6000);
+  }
+}
+function clearNotice() {
+  const slot = $('#alertSlot');
+  slot.replaceChildren();
+  if (noticeTimer) { clearTimeout(noticeTimer); noticeTimer = null; }
+}
+
+/* ---------- helpers ---------- */
+function fmtDate(ms) {
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) return 'unknown date';
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return 'unknown date';
+  return d.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+async function api(url, options) {
+  const res = await fetch(url, Object.assign({ credentials: 'same-origin' }, options));
+  let body = null;
+  try { body = await res.json(); } catch (e) { /* empty body is fine */ }
+  return { res, body };
+}
+
+/* ---------- rendering ---------- */
+function renderSkeleton() {
+  listRoot.replaceChildren();
+  for (let i = 0; i < 3; i++) {
+    const s = document.createElement('div');
+    s.className = 'skel';
+    s.setAttribute('aria-hidden', 'true');
+    listRoot.appendChild(s);
+  }
+}
+
+function renderEmpty() {
+  listRoot.replaceChildren();
+  const wrap = document.createElement('div');
+  wrap.className = 'adm-empty';
+
+  const icon = document.createElement('div');
+  icon.className = 'adm-empty-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.textContent = '✓';
+
+  const title = document.createElement('div');
+  title.className = 'adm-empty-title';
+  title.textContent = 'Nothing waiting for review';
+
+  const sub = document.createElement('div');
+  sub.className = 'adm-empty-sub';
+  sub.textContent = 'New registration requests will appear here.';
+
+  wrap.append(icon, title, sub);
+  listRoot.appendChild(wrap);
+}
+
+function renderRows(users, totalCount, truncated) {
+  listRoot.replaceChildren();
+  $('#queueCount').textContent = totalCount + ' waiting';
+
+  if (!users.length) { renderEmpty(); return; }
+
+  for (const u of users) {
+    const row = document.createElement('div');
+    row.className = 'adm-row';
+
+    const main = document.createElement('div');
+    main.className = 'adm-row-main';
+
+    const id = document.createElement('div');
+    id.className = 'adm-id';
+    id.textContent = String(u.identifier ?? 'unknown');   // safe insert
+
+    const meta = document.createElement('div');
+    meta.className = 'adm-meta';
+    const when = document.createElement('span');
+    when.textContent = 'Registered ' + fmtDate(u.createdAtMs);
+    const badge = document.createElement('span');
+    badge.className = 'adm-badge badge-pending';
+    badge.textContent = String(u.status ?? 'pending');
+    meta.append(when);
+    main.append(id, meta);
+
+    const btns = document.createElement('div');
+    btns.className = 'adm-btns';
+    btns.append(
+      actionButton(u, 'approve', 'Approve', 'btn-ok'),
+      actionButton(u, 'reject', 'Reject', 'btn-danger'),
+    );
+
+    row.append(main, badge, btns);
+    listRoot.appendChild(row);
+  }
+
+  if (truncated) {
+    const note = document.createElement('div');
+    note.className = 'adm-note';
+    note.textContent =
+      'Showing the oldest ' + users.length + ' of ' + totalCount +
+      ' pending requests. Review these first, then refresh.';
+    listRoot.appendChild(note);
+  }
+}
+
+function actionButton(user, action, label, extraClass) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-sm ' + extraClass;
+  btn.textContent = label;
+  // Reject is destructive: require a confirmation step so a stray click
+  // cannot discard a request. Approve is reversible (suspend exists), so
+  // it needs no extra prompt.
+  btn.addEventListener('click', () => {
+    if (action === 'reject') {
+      const email = String(user.identifier ?? 'this account');
+      const ok = window.confirm(
+        'Reject the registration from ' + email + '?\n\nThey will not be able ' +
+        'to sign in until they register again.');
+      if (!ok) return;
+    }
+    act(user, action, btn);
+  });
+  return btn;
+}
+
+/* ---------- actions ---------- */
+async function act(user, action, btn) {
+  const label = btn.textContent;
+  const id = Number(user.id);
+  btn.disabled = true;
+  btn.textContent = 'Working…';
+  // Disable the sibling action too: one decision per row at a time.
+  const other = btn.parentElement.querySelector('.btn-sm:not([disabled])');
+  if (other) other.disabled = true;
+
+  try {
+    const { res, body } = await api('/api/admin/users/' + id + '/' + action, { method: 'POST' });
+    if (res.ok) {
+      // Message reflects what actually happened server-side.
+      showNotice('ok', action === 'approve'
+        ? 'Approved ' + user.identifier + '. They can now sign in.'
+        : 'Rejected ' + user.identifier + '.');
+      await load(true);
+      return;
+    }
+    handleFailure(res, body, action);
+  } catch (e) {
+    showNotice('error', 'Network error — could not reach the dashboard.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+    if (other) other.disabled = false;
+  }
+}
+
+async function handleFailure(res, body, action) {
+  const msg = (body && body.error) ? String(body.error) : '';
+  if (res.status === 401) {
+    // Session expired or revoked: offer to re-authenticate. Never retry on
+    // our own — the guard is the authority.
+    showNotice('error', 'Your session has ended. Please sign in again.', [
+      { label: 'Sign in', primary: true,
+        onClick: () => { location.href = '/signin?next=' + encodeURIComponent(location.pathname); } },
+    ]);
+    return;
+  }
+  if (res.status === 403) {
+    showNotice('error',
+      'This account is not permitted to administer users. ' +
+      'Ask your administrator for help.');
+    return;
+  }
+  if (res.status === 404) {
+    showNotice('error', 'That account no longer exists. Refreshing the list.');
+    await reloadActive();
+    return;
+  }
+  if (res.status === 409) {
+    // The account's state changed underneath us (another admin acted, the
+    // row is stale, or the server refused a self/last-admin change). Show
+    // the server's reason verbatim and re-read whichever list is showing.
+    showNotice('error', msg || 'That change is not allowed for this account.');
+    await reloadActive();
+    return;
+  }
+  if (res.status === 429) {
+    showNotice('error', 'Too many requests — wait a moment and try again.');
+    return;
+  }
+  showNotice('error', msg || 'The request failed. Try again.');
+}
+
+/** Reload whichever tab is currently visible. */
+async function reloadActive() {
+  if (activeTab === 'users') await loadUsers();
+  else await load(true);
+}
+
+/* ---------- loading ---------- */
+async function load(isRefresh) {
+  if (loading) return;
+  loading = true;
+  $('#refreshBtn').disabled = true;
+  // A manual refresh starts from a clean slate: any earlier confirmation
+  // has been seen, and stacking notices from repeated decisions would bury
+  // the newest one. (Programmatic reloads after a decision keep their
+  // message — that is the point of the reload.)
+  if (isRefresh === 'manual') clearNotice();
+  renderSkeleton();
+  try {
+    const { res, body } = await api('/api/admin/users/pending');
+    if (res.status === 401) {
+      showNotice('error', 'Please sign in to review registrations.', [
+        { label: 'Sign in', primary: true,
+          onClick: () => { location.href = '/signin?next=' + encodeURIComponent(location.pathname); } },
+      ]);
+      listRoot.replaceChildren();
+      $('#queueCount').textContent = '';
+      return;
+    }
+    if (res.status === 403) {
+      showNotice('error',
+        'This account is not permitted to administer users. ' +
+        'Ask your administrator for help.');
+      listRoot.replaceChildren();
+      $('#queueCount').textContent = '';
+      return;
+    }
+    if (!res.ok) {
+      throw new Error(((body && body.error) || 'unknown').toString());
+    }
+    const users = Array.isArray(body.users) ? body.users : [];
+    renderRows(users, Number(body.totalCount) || users.length, !!body.truncated);
+  } catch (e) {
+    showNotice('error', 'Could not load the pending list. Check your connection and retry.');
+    listRoot.replaceChildren();
+    $('#queueCount').textContent = '';
+  } finally {
+    loading = false;
+    $('#refreshBtn').disabled = false;
+  }
+}
+
+/* ---------- wiring ---------- */
+$('#refreshBtn').addEventListener('click', () => {
+  // Refresh whichever tab is active; both start from a clean slate.
+  clearNotice();
+  if (activeTab === 'users') loadUsers();
+  else load('manual');
+});
+$('#backBtn').addEventListener('click', () => { location.href = '/console'; });
+
+load();
+
+/* ==================================================================
+ * Phase 7: All Users — list, search, filter, paginate, role actions.
+ * ================================================================== */
+
+const usersBody = $('#usersBody');
+const usersPager = $('#usersPager');
+const usersCount = $('#usersCount');
+
+let activeTab = 'pending';
+let usersPage = 1;
+/** Debounce handle for the search box. */
+let searchTimer = null;
+
+/* Which tab is which panel. */
+const TABS = {
+  pending: { btn: '#tabPending', panel: '#panelPending' },
+  users:   { btn: '#tabUsers',   panel: '#panelUsers' },
+};
+
+function setTab(which) {
+  activeTab = which;
+  for (const [key, t] of Object.entries(TABS)) {
+    const on = key === which;
+    $(t.btn).classList.toggle('active', on);
+    $(t.btn).setAttribute('aria-selected', on ? 'true' : 'false');
+    $(t.panel).hidden = !on;
+  }
+  // Always re-fetch on switching TO a tab: the other tab may have changed
+  // the data (an approval there changes what this list should show), so a
+  // cached render would be stale. The request-sequence guard makes this
+  // safe against overlapping responses.
+  if (which === 'users') loadUsers();
+  else load(true);
+}
+$('#tabPending').addEventListener('click', () => setTab('pending'));
+$('#tabUsers').addEventListener('click', () => setTab('users'));
+
+/* ---------- current query string from the filter controls ---------- */
+function usersQuery() {
+  const p = new URLSearchParams();
+  const q = $('#userSearch').value.trim();
+  if (q) p.set('search', q);
+  const role = $('#roleFilter').value;
+  if (role) p.set('role', role);
+  const status = $('#statusFilter').value;
+  if (status) p.set('status', status);
+  p.set('page', String(usersPage));
+  p.set('perPage', '25');
+  return p.toString();
+}
+
+/* ---------- rendering ---------- */
+function renderUsersSkeleton() {
+  usersBody.replaceChildren();
+  for (let i = 0; i < 5; i++) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 6;
+    const s = document.createElement('div');
+    s.className = 'skel';
+    s.style.height = '40px';
+    s.style.border = '0';
+    td.appendChild(s);
+    tr.appendChild(td);
+    usersBody.appendChild(tr);
+  }
+}
+
+function renderUsersEmpty(message) {
+  usersBody.replaceChildren();
+  const tr = document.createElement('tr');
+  tr.className = 'adm-empty-row';
+  const td = document.createElement('td');
+  td.colSpan = 6;
+  td.textContent = message || 'No accounts match.';
+  tr.appendChild(td);
+  usersBody.appendChild(tr);
+}
+
+/** A small uppercase field label, shown only in the stacked (narrow)
+ * presentation where the table headers are hidden. Wide screens never see
+ * it because `.adm-label` is display:none outside the media query. */
+function labelFor(text) {
+  const l = document.createElement('span');
+  l.className = 'adm-label';
+  l.textContent = text;              // static string; still textContent
+  return l;
+}
+
+function badgeFor(kind, value) {
+  const b = document.createElement('span');
+  b.className = 'adm-badge badge-' + value;
+  b.textContent = value;
+  return b;
+}
+
+function roleActionButton(user) {
+  // Exactly one primary action per row, chosen by the account's CURRENT
+  // role and status as reported by the server (never client state):
+  //   admin            -> "Demote" (the server refuses the last admin and
+  //                        self-demotion; the UI reports its 409 clearly)
+  //   user + approved  -> "Make admin"
+  //   user + other     -> disabled "Make admin", because the server only
+  //                        promotes APPROVED accounts. Approval is a
+  //                        separate action on the Pending tab; offering a
+  //                        button that cannot succeed would be misleading.
+  const isAdmin = user.role === 'admin';
+  const eligible = !isAdmin && user.status === 'approved';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-sm ' + (isAdmin ? 'btn-danger' : 'btn-ok');
+  btn.textContent = isAdmin ? 'Demote' : 'Make admin';
+
+  if (!isAdmin && !eligible) {
+    btn.disabled = true;
+    btn.title = 'Approve this account first — only approved accounts can ' +
+      'be promoted. Approval happens on the Pending tab.';
+    return btn;
+  }
+
+  btn.addEventListener('click', () => {
+    const email = String(user.identifier ?? 'this account');
+    const msg = isAdmin
+      ? 'Demote ' + email + ' to an ordinary user?\n\nThey will keep their ' +
+        'password and sign-in, but lose administrator access.'
+      : 'Make ' + email + ' an administrator?\n\nThey will be able to ' +
+        'approve registrations and manage accounts.';
+    if (!window.confirm(msg)) return;
+    changeRole(user, isAdmin ? 'user' : 'admin', btn);
+  });
+  return btn;
+}
+
+async function changeRole(user, role, btn) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Working…';
+  try {
+    const { res, body } = await api('/api/admin/users/' + Number(user.id) + '/role', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: role }),
+    });
+    if (res.ok) {
+      showNotice('ok', role === 'admin'
+        ? 'Promoted ' + user.identifier + ' to administrator.'
+        : 'Demoted ' + user.identifier + ' to ordinary user.');
+      await loadUsers();
+      return;
+    }
+    await handleFailure(res, body, 'role');
+  } catch (e) {
+    showNotice('error', 'Network error — could not reach the dashboard.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+function renderUsers(payload) {
+  usersBody.replaceChildren();
+  const users = Array.isArray(payload.users) ? payload.users : [];
+  const total = Number(payload.totalCount) || 0;
+  const page = Number(payload.page) || 1;
+  const totalPages = Number(payload.totalPages) || 1;
+
+  usersCount.textContent = total + (total === 1 ? ' account' : ' accounts');
+
+  if (!users.length) {
+    renderUsersEmpty(
+      $('#userSearch').value || $('#roleFilter').value || $('#statusFilter').value
+        ? 'No accounts match these filters.'
+        : 'No registered accounts yet.');
+    renderPager(0, 1, 1);
+    return;
+  }
+
+  for (const u of users) {
+    const tr = document.createElement('tr');
+
+    // Email
+    const tdEmail = document.createElement('td');
+    const em = document.createElement('div');
+    em.className = 'adm-email';
+    em.title = String(u.identifier ?? '');
+    em.textContent = String(u.identifier ?? 'unknown');   // safe insert
+    tdEmail.appendChild(em);
+
+    // Role badge
+    const tdRole = document.createElement('td');
+    tdRole.appendChild(labelFor('Role'));
+    tdRole.appendChild(badgeFor('role', String(u.role ?? 'user')));
+
+    // Status badge
+    const tdStatus = document.createElement('td');
+    tdStatus.appendChild(labelFor('Status'));
+    tdStatus.appendChild(badgeFor('status', String(u.status ?? 'pending')));
+
+    // Registered
+    const tdCreated = document.createElement('td');
+    tdCreated.className = 'adm-dim';
+    tdCreated.appendChild(labelFor('Registered'));
+    tdCreated.appendChild(document.createTextNode(fmtDate(u.createdAtMs)));
+
+    // Last sign-in — only when the server actually recorded one.
+    const tdSeen = document.createElement('td');
+    tdSeen.className = 'adm-dim';
+    tdSeen.appendChild(labelFor('Last sign-in'));
+    tdSeen.appendChild(document.createTextNode(
+      (u.lastSignInAtMs === null || u.lastSignInAtMs === undefined)
+        ? 'Never'
+        : fmtDate(u.lastSignInAtMs)));
+
+    // Actions
+    const tdAct = document.createElement('td');
+    tdAct.className = 'adm-cell-actions';
+    tdAct.appendChild(roleActionButton(u));
+
+    tr.append(tdEmail, tdRole, tdStatus, tdCreated, tdSeen, tdAct);
+    usersBody.appendChild(tr);
+  }
+
+  renderPager(total, page, totalPages);
+}
+
+function renderPager(total, page, totalPages) {
+  usersPager.replaceChildren();
+  if (total <= 0) return;
+
+  const info = document.createElement('span');
+  info.className = 'adm-pager-info';
+  info.textContent = 'Page ' + page + ' of ' + totalPages +
+    ' · ' + total + (total === 1 ? ' account' : ' accounts');
+
+  const btns = document.createElement('div');
+  btns.className = 'adm-pager-btns';
+
+  const prev = document.createElement('button');
+  prev.type = 'button';
+  prev.className = 'btn btn-sm';
+  prev.textContent = '← Prev';
+  prev.disabled = page <= 1;
+  prev.addEventListener('click', () => { usersPage = Math.max(1, usersPage - 1); loadUsers(); });
+
+  const next = document.createElement('button');
+  next.type = 'button';
+  next.className = 'btn btn-sm';
+  next.textContent = 'Next →';
+  next.disabled = page >= totalPages;
+  next.addEventListener('click', () => { usersPage += 1; loadUsers(); });
+
+  btns.append(prev, next);
+  usersPager.append(info, btns);
+}
+
+/* ---------- loading ---------- */
+/** Monotonic request counter: only the NEWEST request may render. This
+ * prevents a slow earlier response from overwriting a later one when the
+ * user types or switches filters quickly. */
+let usersRequestSeq = 0;
+
+async function loadUsers() {
+  const seq = ++usersRequestSeq;
+  // Only flash the skeleton when there is nothing on screen yet. Re-fetches
+  // (filter changes, tab switches, refreshes) keep the current rows so the
+  // table does not blink and buttons are not detached mid-click.
+  if (!usersBody.children.length) renderUsersSkeleton();
+  try {
+    const { res, body } = await api('/api/admin/users?' + usersQuery());
+    // A newer request has started; this response is stale. Drop it.
+    if (seq !== usersRequestSeq) return;
+    if (res.status === 401) {
+      showNotice('error', 'Please sign in to manage accounts.', [
+        { label: 'Sign in', primary: true,
+          onClick: () => { location.href = '/signin?next=' + encodeURIComponent(location.pathname); } },
+      ]);
+      renderUsersEmpty('Sign in to view accounts.');
+      return;
+    }
+    if (res.status === 403) {
+      showNotice('error',
+        'This account is not permitted to administer users. ' +
+        'Ask your administrator for help.');
+      renderUsersEmpty('Not permitted.');
+      return;
+    }
+    if (!res.ok) {
+      throw new Error(((body && body.error) || 'unknown').toString());
+    }
+    renderUsers(body);
+  } catch (e) {
+    if (seq !== usersRequestSeq) return;
+    showNotice('error', 'Could not load the account list. Check your connection and retry.');
+    renderUsersEmpty('Could not load accounts.');
+  }
+}
+
+/* ---------- filter wiring (debounced search) ---------- */
+$('#userSearch').addEventListener('input', () => {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { usersPage = 1; loadUsers(); }, 300);
+});
+$('#roleFilter').addEventListener('change', () => { usersPage = 1; loadUsers(); });
+$('#statusFilter').addEventListener('change', () => { usersPage = 1; loadUsers(); });
+
+</script>
+</body>
+</html>

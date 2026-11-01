@@ -58,6 +58,12 @@ pub struct NetworkCollector {
     networks: Networks,
 }
 
+impl Default for NetworkCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NetworkCollector {
     /// New collector; call [`Self::sample`] twice before rates are meaningful.
     pub fn new() -> Self {

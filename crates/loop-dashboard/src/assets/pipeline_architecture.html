@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EKA Pretraining Data Pipeline — Live Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<style>
+:root{
+  --bg:#f6f5f2;--surface-1:#f1efe8;--surface-2:#ffffff;
+  --border:rgba(0,0,0,.08);--border-strong:rgba(0,0,0,.16);--border-stronger:rgba(0,0,0,.32);
+  --text-primary:#1f1e1c;--text-secondary:#5f5e5a;--text-muted:#888780;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --ok:#0F6E56;--ok-bg:#E1F5EE;--warn:#854F0B;--warn-bg:#FAEEDA;--err:#A32D2D;--err-bg:#FCEBEB;
+  --accent:#378ADD;--flow:#D85A30;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#1b1a18;--surface-1:#252421;--surface-2:#2c2b28;
+  --border:rgba(255,255,255,.08);--border-strong:rgba(255,255,255,.16);--border-stronger:rgba(255,255,255,.32);
+  --text-primary:#f1efe8;--text-secondary:#b4b2a9;--text-muted:#888780;
+}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text-primary);font-size:14px}
+button{font:inherit;color:inherit}
+.btn{display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:8px;padding:7px 12px;font-size:13px;cursor:pointer}
+.btn:hover{background:var(--surface-1)}
+.btn.primary{background:var(--text-primary);color:var(--bg);border-color:var(--text-primary)}
+.wrap{padding:22px 26px 60px;max-width:2300px}
+header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+header.top h1{margin:0;font-size:22px;font-weight:500}
+header.top p{margin:4px 0 0;color:var(--text-secondary);font-size:13px}
+
+/* phase rail */
+.rail{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.ph{text-align:left;border-radius:12px;padding:10px 12px;cursor:pointer;border:1px solid}
+.ph .n{font-size:11px;font-weight:500;opacity:.8}.ph .t{font-size:14px;font-weight:500;display:block}.ph .f{font-size:11px;display:block;margin-top:2px;opacity:.85}
+
+/* controls */
+.ctl{display:flex;align-items:center;gap:10px;margin:14px 0 4px;flex-wrap:wrap}
+.pbar{flex:1;min-width:160px;height:6px;border-radius:3px;background:var(--surface-1);border:1px solid var(--border);overflow:hidden}
+.pbar div{height:100%;width:0;background:#1D9E75;transition:width .3s}
+#stat{font-size:12px;color:var(--text-secondary);min-width:240px}
+
+/* board */
+.vp{overflow-x:auto;padding-bottom:10px}
+#cv{position:relative;display:grid;grid-template-columns:repeat(6,262px);column-gap:90px;row-gap:22px;padding:16px 40px 24px 10px;width:max-content}
+.stg{align-self:start}
+.card{position:relative;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:14px}
+.hd{display:flex;align-items:center;gap:10px;width:100%;border:0;padding:11px 12px;cursor:pointer;border-radius:14px 14px 0 0;text-align:left;background:var(--pb);color:var(--pf);border-bottom:1px solid var(--pd)}
+.hd .num{font-size:11px;font-weight:500;border:1px solid currentColor;border-radius:999px;padding:1px 7px}
+.hd .tt{font-size:13px;font-weight:500;line-height:1.25}.hd .mm{display:block;font-size:11px;opacity:.8;font-weight:400}
+.live{width:8px;height:8px;border-radius:50%;background:var(--pf);margin-left:auto;flex:none}
+.bd{padding:12px}
+.row{display:grid;gap:6px}
+.cn{height:16px;display:flex;justify-content:center}
+.cn i{width:2px;height:100%;background:repeating-linear-gradient(to bottom,var(--pd) 0 4px,transparent 4px 8px)}
+.nd{display:flex;align-items:center;gap:8px;width:100%;padding:7px 8px;border-radius:10px;text-align:left;cursor:pointer;background:var(--surface-2);border:1px solid var(--border-strong);transition:background .35s,border-color .35s}
+.nd:hover{border-color:var(--pd)}
+.nd .ic{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex:none;background:var(--pb);color:var(--pf);transition:transform .3s}
+.nd .l{font-size:12px;font-weight:500;display:block;line-height:1.25}
+.nd .s{font-size:11px;color:var(--text-secondary);display:block;line-height:1.3}
+.nd .mt{display:block;font-size:10.5px;font-family:var(--mono);line-height:1.3;margin-top:2px}
+.nd.cp{flex-direction:column;gap:4px;padding:8px 4px;text-align:center}
+.k-input{border-color:#EF9F27}.k-input .ic{background:#FAC775;color:#633806}
+.k-shard,.k-file{border-color:#AFA9EC}.k-shard .ic,.k-file .ic{background:#CECBF6;color:#3C3489}
+.k-decision{border-style:dashed;border-color:var(--border-stronger)}
+.badge{margin-left:auto;font-size:11px;padding:1px 7px;border-radius:999px;background:var(--pb);color:var(--pf);flex:none}
+.nd.on{outline:2px solid var(--accent);outline-offset:3px}
+.nd.lit{background:var(--pb);border-color:var(--pd)}
+.nd.lit .l,.nd.lit .s,.nd.lit .mt{color:var(--pf)}
+.nd.lit .ic{background:var(--pf);color:var(--pb)}
+.ft{display:block;width:100%;text-align:left;border:1px solid var(--border);background:var(--surface-1);color:var(--text-secondary);padding:8px 10px;margin-top:14px;font-size:11px;cursor:pointer;border-radius:10px}
+.ft ol{margin:3px 0 0;padding-left:15px}.ft b{font-weight:500;color:var(--text-primary)}
+.ot{font-family:var(--mono);font-size:11px;color:var(--text-secondary);text-align:center;padding:6px;margin-top:8px;border:1px dashed var(--border-strong);border-radius:8px}
+#ln{position:absolute;top:0;left:0;pointer-events:none;z-index:5;overflow:visible}
+#ln path.w{fill:none;stroke:var(--flow);stroke-width:1.6;stroke-dasharray:6 5;opacity:.85}
+#ln path.hot{stroke-width:3;opacity:1}
+#ln.fx path.w:not(.hot){opacity:.15}#ln.fx circle{opacity:.25}
+
+/* popover */
+#pop{position:absolute;z-index:10;width:340px;background:var(--surface-2);border:1px solid var(--border-stronger);border-radius:14px;padding:16px 18px;font-size:13px;line-height:1.6;box-shadow:0 10px 30px rgba(0,0,0,.12)}
+#pop h4{margin:0 0 2px;font-size:16px;font-weight:500}
+#pop .ey{font-size:11px;color:var(--text-secondary);padding-right:30px}
+#pop .lb{font-size:11px;font-weight:500;color:var(--text-secondary);margin:12px 0 2px}
+#pop p{margin:0}
+#pop .tip{background:#FAEEDA;color:#633806;padding:8px 10px;margin-top:12px;border-radius:8px}
+#pop .x{position:absolute;top:10px;right:10px;width:28px;height:28px;padding:0;border-radius:50%;border:1px solid var(--border-strong);background:var(--surface-2);cursor:pointer}
+#pop .nv{display:flex;justify-content:space-between;gap:6px;margin-top:14px}
+#pop .nv button{font-size:12px;padding:4px 10px}
+#pop .kv{display:grid;grid-template-columns:1fr auto;gap:2px 12px;font-size:12px}
+#pop .kv b{font-weight:500;font-family:var(--mono)}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+.chips span{background:var(--surface-1);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:12px;cursor:pointer}
+.lg{display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--text-secondary);margin:4px 2px 0;align-items:center}
+.lg span{display:inline-flex;align-items:center;gap:6px}
+.lg i.s{width:14px;height:14px;border-radius:4px;display:inline-block}
+
+/* results */
+.results{margin-top:28px;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:16px;padding:22px}
+.results.empty{text-align:center;color:var(--text-secondary);padding:34px}
+.results.empty i{font-size:28px;display:block;margin-bottom:8px;color:var(--text-muted)}
+.rh{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.rh h2{margin:0;font-size:20px;font-weight:500}
+.rh .sub{font-size:12px;color:var(--text-secondary);margin-top:4px;line-height:1.6}
+.st{font-size:12px;font-weight:500;padding:3px 10px;border-radius:999px;display:inline-flex;align-items:center;gap:5px}
+.st-success{background:var(--ok-bg);color:var(--ok)}.st-failed{background:var(--err-bg);color:var(--err)}
+.st-running,.st-warning{background:var(--warn-bg);color:var(--warn)}.st-skipped{background:var(--surface-1);color:var(--text-secondary)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:18px 0}
+.kpi{background:var(--surface-1);border-radius:10px;padding:14px}
+.kpi .k{font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px}
+.kpi .v{font-size:24px;font-weight:500;margin-top:4px}
+.kpi .d{font-size:12px;color:var(--text-secondary);margin-top:2px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;margin-bottom:12px}
+.panel{border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+.panel h3{margin:0 0 12px;font-size:14px;font-weight:500}
+.bar{display:grid;grid-template-columns:110px 1fr 70px;gap:10px;align-items:center;font-size:12px;margin-bottom:8px}
+.bar .tr{height:10px;border-radius:5px;background:var(--surface-1);overflow:hidden}
+.bar .fi{height:100%;border-radius:5px;transition:width .8s ease}
+.bar .vl{text-align:right;font-family:var(--mono);font-size:11.5px}
+.ph3{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.ph3 h3{margin:0}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px;min-width:980px}
+th{text-align:left;font-weight:500;color:var(--text-secondary);padding:8px;border-bottom:1px solid var(--border-strong);white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px solid var(--border);white-space:nowrap}
+td.n{text-align:right;font-family:var(--mono)}th.n{text-align:right}
+.pdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.rm{display:inline-flex;align-items:center;gap:6px}
+.rm .tr{width:60px;height:6px;border-radius:3px;background:var(--surface-1);overflow:hidden;display:inline-block}
+.rm .fi{height:100%;background:#E24B4A;display:block}
+@media (prefers-reduced-motion:no-preference){
+  .cn i{animation:fl .7s linear infinite}@keyframes fl{to{background-position:0 8px}}
+  #ln path.w{animation:da 1s linear infinite}@keyframes da{to{stroke-dashoffset:-22}}
+  .live{animation:pu 1.6s ease-in-out infinite}@keyframes pu{0%,100%{opacity:1}50%{opacity:.25}}
+  .nd.cur .ic{transform:scale(1.12)}
+}
+@media (max-width:760px){.rail{grid-template-columns:repeat(2,minmax(0,1fr))}.wrap{padding:16px 12px 40px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>EKA pretraining data pipeline</h1>
+      <p>Raw sources → filtered, deduplicated, classified corpus → Megatron token shards. Tap any box for details.</p>
+    </div>
+  </header>
+
+  <div class="rail" id="rail"></div>
+
+  <div class="ctl">
+    <button class="btn primary" id="runBtn"><i class="ti ti-player-play" id="runIc"></i><span id="runTx">Run pipeline</span></button>
+    <button class="btn" id="rstBtn"><i class="ti ti-refresh"></i>Reset</button>
+    <div class="pbar"><div id="pb"></div></div>
+    <span id="stat">Ready · 4 sources → Megatron shards</span>
+  </div>
+
+  <div class="vp" id="vp"><div id="cv"><svg id="ln"></svg><div id="pop" style="display:none"></div></div></div>
+
+  <div class="lg">
+    <span><i class="s" style="background:#FAC775"></i>Input data</span>
+    <span><i class="s" style="border:1px solid var(--border-stronger)"></i>Processing step</span>
+    <span><i class="s" style="border:1px dashed var(--border-stronger)"></i>Router</span>
+    <span><i class="s" style="background:#CECBF6"></i>Sharded output</span>
+    <span><i class="s" style="height:0;width:18px;border-top:2px dashed #D85A30;border-radius:0"></i>Live cross-stage flow</span>
+  </div>
+
+  <section id="results" class="results empty">
+    <i class="ti ti-report-analytics"></i>
+    Run the pipeline to generate the run report: row counts, removals, timings and final token count.
+  </section>
+</div>
+
+<script>
+/* =====================================================================
+   1) CONFIG  — the only place you need to touch for real data later
+   ---------------------------------------------------------------------
+   reportUrl : path/URL of your real run report JSON (schema below).
+               If it can't be loaded, dummy data is generated instead.
+   ---------------------------------------------------------------------
+   REPORT SCHEMA (pipeline_report.json)
+   {
+     "run_id": "run-2026-10-28-01",
+     "started_at": "2026-10-27T08:00:00Z",
+     "finished_at": "2026-10-28T03:00:00Z",
+     "status": "success",                       // success | failed | running
+     "steps": {
+       "<node id>": {                           // ids = keys of IC below (w_seed, f_lang, p6a ...)
+         "rows_in": 1000, "rows_out": 900,
+         "status": "success",                   // success | failed | skipped | warning
+         "started_at": "...", "finished_at": "...",
+         "notes": "optional"
+       }
+     },
+     "tokens": {
+       "total": 63000000000, "train": ..., "validation": ...,
+       "avg_per_doc": 1050, "shards": 63, "format": "Megatron .bin/.idx",
+       "by_language": { "Hindi": 1.5e10, "English": 2e10 },
+       "by_domain":   { "Science": 7e9, "News": 6e9 }
+     }
+   }
+   ===================================================================== */
+const CONFIG = {
+  reportUrl: "pipeline_report.json",
+  stepDelayMs: 420,
+  locale: "en-IN"
+};
+
+/* =====================================================================
+   2) PIPELINE DEFINITION
+   ===================================================================== */
+const PH={
+ ing:{n:"01",t:"Ingest",f:"→ .warc",bg:"#E1F5EE",fg:"#085041",bd:"#5DCAA5",bar:"#1D9E75",ov:"Four sources (web crawl, compiled datasets, documents, audio) are normalised into WARC shards, so later stages see one format and new sources never change downstream code."},
+ flt:{n:"02",t:"Filter",f:".warc → .parquet",bg:"#FAECE7",fg:"#712B13",bd:"#F0997B",bar:"#D85A30",ov:"The quality gate. Cheapest filters run first (URL, extraction, language, then heuristics) so bad data is dropped before expensive compute."},
+ ddp:{n:"03",t:"Dedup and clean",f:".parquet → .parquet",bg:"#FBEAF0",fg:"#72243E",bd:"#ED93B1",bar:"#D4537E",ov:"Removes exact and near-duplicates, masks personal data and strips benchmark contamination. Usually the biggest quality win per token."},
+ cls:{n:"04",t:"Classify",f:"+ quality, domain",bg:"#E6F1FB",fg:"#0C447C",bd:"#85B7EB",bar:"#378ADD",ov:"Model-based scoring ranks clean data by quality and tags its domain, so the final mixture is designed, not inherited from the web."},
+ tok:{n:"05",t:"Tokenize",f:"→ .bin / .idx",bg:"#EAF3DE",fg:"#27500A",bd:"#97C459",bar:"#639922",ov:"Turns the scored corpus into shuffled, mixture-weighted token shards in Megatron's memory-mapped format, ready for pretraining."}};
+
+const IC={w_seed:"world-www",w_c1:"spider",w_c2:"spider",w_cn:"spider",w_type:"arrows-split",w_warc:"archive",w_url:"list-details",c_src:"database",c_type:"arrows-split",c_warc:"archive",c_url:"list-details",d_in:"file-text",d_ocr:"scan",d_pdf:"file-type-pdf",d_rd:"file-code",d_out:"archive",a_in:"microphone",a_asr:"wave-sine",a_llm:"sparkles",a_out:"archive",f_in:"archive",f_url:"link-off",f_type:"arrows-split",f_trf:"code",f_lang:"language",f_rep:"repeat",f_gq:"adjustments",f_c4:"filter",f_fw:"filter-check",f_out:"table",p_in:"table",p1:"link",p2:"copy",p3:"fingerprint",p4:"bucket",p5:"chart-bubble",p6a:"filter-minus",p6b:"shield-lock",p7:"flask",p_out:"table",k_in:"table",k_q:"award",k_d:"category",k_out:"table",t_in:"table",t_tok:"cut",t_shuf:"arrows-shuffle",t_spl:"layout-columns",t_meg:"binary"};
+
+const N=(id,label,sub,type,i={})=>({id,label,sub,type,...i});
+const CW={what:"One of many parallel crawler processes. Each pulls URLs from a shared queue, fetches through rotating proxies and renders JS-heavy pages with headless Playwright.",why:"Horizontal scaling: throughput grows with worker count, and one blocked worker never stops the crawl.",tip:"Enforce per-domain rate limits and robots.txt centrally, or adding workers multiplies load on the same site."};
+const TS={what:"Routes each item by MIME type. HTML goes to WARC shards; PDFs, DOCX and notebooks go to URL lists for the Document Processor.",why:"Each format needs its own extractor, and heavy document work scales separately.",tip:"Detect type from magic bytes or Content-Type headers, not file extensions."};
+
+const S=[
+{id:"web",ph:"ing",header:"Distributed web scrapping",module:"EKACrawler",col:"1",row:"1",overview:"Turns seed URLs into raw, archivable captures at scale and separates document links for the Document Processor.",rows:[
+ [N("w_seed","Seed URLs","Curated start list","input",{what:"Starting list of domains and pages the crawler expands from.",why:"Seed quality decides crawl quality. Curated, in-language seeds focus compute on valuable sites.",tip:"Normalise, dedupe and tag each seed with source and priority."})],
+ [N("w_c1","Worker 1","","process",CW),N("w_c2","Worker 2","","process",CW),N("w_cn","Worker n","","process",CW)],
+ [N("w_type","Type selector","Route by MIME type","decision",TS)],
+ [N("w_warc","WARC shards",".warc","shard",{what:"Raw HTTP responses packed into WARC (ISO 28500), the format Common Crawl uses.",why:"Keeping raw captures lets you re-extract later with better tools without re-crawling.",tip:"About 1 GB per shard, named by hash or sequence, keeps runs resumable."}),
+  N("w_url","URL lists","{TYPE}/URL.txt","file",{what:"Document URLs grouped by type.",why:"Decouples discovery from heavy processing; these feed the Document Processor.",tip:"Store the referring page with each URL for provenance."})]],
+ features:["Proxy support","Playwright browser extraction","Resumable","URL hash as ID"],output:"<ROOT>/raw/crawl/"},
+{id:"cmp",ph:"ing",header:"Compiled sources",module:"EKAProcessor",col:"1",row:"2",overview:"Brings in existing datasets with no crawling and normalises them into the same WARC and URL-list formats.",rows:[
+ [N("c_src","Open datasets","CC, HF, arXiv, PubMed…","input",{what:"Common Crawl, Hugging Face, archive.org, PubMed, arXiv, USPTO, Shodhganga, BookCorpus, FineWeb, The Pile.",why:"Instant scale and diversity, covering science, law and books the open web under-represents.",tip:"Record licence and version of every source in a manifest at ingestion."})],
+ [N("c_type","Type selector","Route by format","decision",TS)],
+ [N("c_warc","WARC shards",".warc","shard",{what:"Text sources converted to WARC.",why:"One format means one Filtering code path and uniform metrics."}),
+  N("c_url","URL lists","{TYPE}/URL.txt","file",{what:"Binary documents found inside compiled sources.",why:"Routed to the Document Processor, so extraction logic isn't duplicated."})]],
+ features:["No crawling required","Licence tracked per source"],output:"<ROOT>/raw/<SOURCE>/"},
+{id:"doc",ph:"ing",header:"Document extraction",module:"EKAProcessor · Document Processor",col:"2",row:"1",overview:"Extracts text from PDFs, Office files, notebooks, code and scans, which often hold the highest-quality knowledge.",rows:[
+ [N("d_in","Documents",".pdf .docx .ipynb","input",{what:"Binary documents from URL lists made by the Crawler and Compiled Sources.",why:"Long-form edited documents are far higher quality than average web pages."})],
+ [N("d_ocr","OCR","","process",{what:"OCR for scans and images (Tesseract, Surya, or a vision LLM).",why:"Much government, legal and historical text exists only as scans.",tip:"Run OCR only when there's no usable text layer; it's 10–100× costlier."}),
+  N("d_pdf","PDF reader","","process",{what:"Reads the embedded text layer of digital PDFs in reading order.",why:"Fast and cheap for most born-digital PDFs.",tip:"Detect broken Indic font encodings and fall back to OCR."}),
+  N("d_rd","Doc reader","","process",{what:"Parses .docx, .tex, code and notebooks, keeping code, math and tables.",why:"Preserved structure matters for reasoning and coding ability."})],
+ [N("d_out","WARC shards",".warc","shard",{what:"Extracted text as WARC.",why:"Feeds Filtering in the shared format."})]],
+ features:["OCR for scanned content","LLM-based correction","Code, TeX, notebook readers"],output:"<ROOT>/doc_extractor/<SOURCE>"},
+{id:"aud",ph:"ing",header:"Audio extraction",module:"EKAProcessor · Document Processor",col:"2",row:"2",overview:"Converts speech into clean text, valuable for Indic languages where far more content exists as speech than web text.",rows:[
+ [N("a_in","Audio",".mp3 .wav","input",{what:"Lectures, podcasts, broadcasts, interviews.",why:"Adds a source text-only pipelines ignore.",tip:"Resample to 16 kHz mono and keep language and licence metadata."})],
+ [N("a_asr","ASR extractor","Speech to text","process",{what:"Speech recognition (Whisper, IndicConformer) converts audio to text.",why:"Makes audio trainable automatically at scale.",tip:"Chunk with VAD (~30 s) and keep per-segment confidence."})],
+ [N("a_llm","LLM corrector","Fix ASR errors","process",{what:"An LLM fixes punctuation, casing, misheard words and code-mixed spellings.",why:"Raw ASR is noisy and teaches bad writing habits.",tip:"Reject outputs with large edit distance from the input to catch hallucinated rewrites."})],
+ [N("a_out","WARC shards",".warc","shard",{what:"Corrected transcripts as WARC.",why:"Gets the same quality filtering as web data."})]],
+ features:["VAD chunking + ASR","LLM post-correction"],output:"<ROOT>/raw/audio/"},
+{id:"flt",ph:"flt",header:"Filtering stage",module:"EKAProcessor · PreProcessor",col:"3",row:"1 / span 2",overview:PH.flt.ov,rows:[
+ [N("f_in","WebArchive shards","All sources converge","input",{what:"Where all four ingestion paths converge.",why:"Every byte passes the same quality bar regardless of origin."})],
+ [N("f_url","URL filter","Domain blocklists","process",{what:"Drops blocklisted domains (adult, malware, spam, SEO farms).",why:"Cheapest filter, URL only, so it runs first and saves compute downstream."})],
+ [N("f_type","Type selector","HTML vs plain text","decision",{what:"HTML goes to Trafilatura; plain text from documents and audio skips ahead.",why:"Running an HTML extractor on plain text would corrupt it."})],
+ [N("f_trf","Trafilatura","Strip boilerplate","process",{what:"Extracts main text from HTML, removing nav, ads, footers and cookie banners.",why:"Boilerplate repeats across pages and wastes tokens.",tip:"Spot-check top domains; extractors sometimes drop real tables."})],
+ [N("f_lang","Language filter","LID + confidence","process",{what:"Language ID (fastText, IndicLID) with a confidence threshold.",why:"Correct labels are the foundation of multilingual balance.",tip:"Use a model that handles romanised and code-mixed text such as Hinglish."})],
+ [N("f_rep","Gopher repetition","Duplicate n-grams","process",{what:"Removes documents with many duplicate lines, paragraphs or n-grams.",why:"Repetitive text causes looping, degenerate generations."})],
+ [N("f_gq","Gopher quality","Doc heuristics","process",{what:"Word count, mean word length, symbol ratio, stop-word presence.",why:"Cheap rules that remove much machine-generated junk.",tip:"Re-tune for agglutinative scripts like Tamil and Malayalam."})],
+ [N("f_c4","C4 quality","Line-level rules","process",{what:"Keep punctuation-ended lines; drop 'javascript', 'lorem ipsum', cookie lines.",why:"Cleans boilerplate that slipped past extraction."})],
+ [N("f_fw","FineWeb quality","Extra heuristics","process",{what:"Punctuation-line ratio, duplicated-line characters, short-line share.",why:"Shown in FineWeb ablations to lift benchmark scores further."})],
+ [N("f_out","Parquet shards",".parquet","shard",{what:"Clean text in columnar, compressed Parquet with metadata columns.",why:"Fast to scan, easy to query, extensible with score columns.",tip:"Log documents removed per filter per source. It's your best debugging table."})]],
+ features:["Cheapest-first ordering","Gopher, C4, FineWeb heuristics"],output:"<ROOT>/filtered/<SOURCE>/"},
+{id:"pre",ph:"ddp",header:"Preprocessing stages",module:"EKAProcessor · PreProcessor",col:"4",row:"1 / span 2",overview:PH.ddp.ov,rows:[
+ [N("p_in","Parquet shards","Filtered text","input",{what:"Filtered Parquet shards.",why:"Dedup compute is spent only on data that passed quality checks."})],
+ [N("p1","URL dedup","Same URL, many sources","process",{tag:"S1",what:"Keeps one copy when a URL arrives from several sources.",why:"Cheapest dedup; removes cross-source overlap first."})],
+ [N("p2","Exact dedup","Hash of text","process",{tag:"S2",what:"Hashes normalised text and keeps one per hash.",why:"Removes mirrors and syndicated copies before fuzzy matching."})],
+ [N("p3","MinHash signatures","5-gram shingles","process",{tag:"S3",what:"MinHash signatures over word 5-gram shingles (~112 hashes).",why:"A tiny fingerprint estimates similarity without full-text comparison."})],
+ [N("p4","LSH buckets","Candidate pairs","process",{tag:"S4",what:"LSH banding groups similar signatures into candidate pairs.",why:"Turns O(n²) comparison into near-linear work.",tip:"About 14 bands × 8 rows targets ~0.75 Jaccard."})],
+ [N("p5","Cluster documents","Union-find","process",{tag:"S5",what:"Union-find over pairs forms near-duplicate clusters.",why:"Handles transitive duplicates (A≈B, B≈C)."})],
+ [N("p6a","MinHash filter","Keep 1 per cluster","process",{tag:"S6",what:"Keeps one document per cluster.",why:"Less memorisation, less wasted compute, better quality per token."})],
+ [N("p6b","PII formatter","Mask personal data","process",{tag:"S6",what:"Masks emails, phones, IPs, Aadhaar and PAN numbers.",why:"Privacy, DPDP Act and GDPR compliance, and no leaking of personal data.",tip:"Use typed placeholders like <EMAIL> so sentences stay natural."})],
+ [N("p7","Decontaminator","Remove eval overlap","process",{tag:"S7",what:"Removes n-gram overlap with MMLU, GSM8K, HumanEval and Indic benchmarks.",why:"Keeps evaluation scores honest.",tip:"Keep the removed list as evidence of eval integrity."})],
+ [N("p_out","Parquet shards","Unique, clean","shard",{what:"Unique, PII-safe, decontaminated corpus.",why:"Ready for model-based classification."})]],
+ features:["URL, exact, MinHash dedup","PII masking","Decontamination"],output:"<ROOT>/preprocessed/<SOURCE>/"},
+{id:"cls",ph:"cls",header:"Classification stages",module:"EKAClassifier",col:"5",row:"1 / span 2",overview:PH.cls.ov,rows:[
+ [N("k_in","Parquet shards","Deduplicated","input",{what:"Deduplicated shards.",why:"No GPU cost spent on duplicates."})],
+ [N("k_q","Quality classifier","Educational score","process",{what:"A small model (fastText or BERT trained on LLM labels, like FineWeb-Edu) scores quality.",why:"Top-quality data reaches the same benchmarks with far fewer tokens.",tip:"Store scores rather than hard-filtering so thresholds can be tuned in ablations."})],
+ [N("k_d","Domain classifier","Topic labels","process",{what:"Tags science, law, health, code, news, literature and more.",why:"Lets you design the data mixture deliberately."})],
+ [N("k_out","Scored shards",".parquet + scores","shard",{what:"Shards with quality and domain columns.",why:"Tokenization samples by score and domain without re-running models."})]],
+ features:["Quality score per doc","Domain label per doc","Scores kept as columns"],output:"<ROOT>/classified/<SOURCE>/"},
+{id:"tok",ph:"tok",header:"Tokenization stage",module:"EKATokenizer",col:"6",row:"1 / span 2",overview:PH.tok.ov,rows:[
+ [N("t_in","Scored shards","Quality + domain","input",{what:"Scored, labelled shards.",why:"Quality and domain columns set sampling weights."})],
+ [N("t_tok","Apply tokenizer","Token IDs + EOS","process",{what:"Text to token IDs with an end-of-document token.",why:"Done offline so GPUs never wait on tokenization.",tip:"Measure tokens-per-word per language; high fertility in Indic scripts raises cost and shortens effective context."})],
+ [N("t_shuf","Sample and shuffle","Mixture weights","process",{what:"Applies mixture weights by source, domain and quality, then shuffles globally.",why:"Prevents single-source runs that cause loss spikes and forgetting.",tip:"Track final token share per language and domain; that table is your data mixture."})],
+ [N("t_spl","Split shards","Train / validation","process",{what:"Train/validation split and shard sizing per data-parallel rank.",why:"A held-out set monitors overfitting; balanced shards keep GPUs busy."})],
+ [N("t_meg","Megatron shards",".bin / .idx","shard",{what:"Megatron indexed dataset: flat token binary plus a document-offset index.",why:"Memory-mapped zero-copy reads stream trillions of tokens with negligible overhead."})]],
+ features:["Offline tokenization","Mixture-weighted sampling","Megatron output"],output:"<ROOT>/tokenized/megatron/"}];
+
+const L=[["a_out","f_in"],["w_warc","f_in"],["d_out","f_in"],["c_warc","f_in"],["w_url","d_in"],["c_url","d_in"],["f_out","p_in"],["p_out","k_in"],["k_out","t_in"]];
+const TN={input:"Input data",process:"Processing step",decision:"Router",shard:"Sharded output",file:"Manifest file"};
+
+/* =====================================================================
+   3) REPORT LOADING  (real JSON first, dummy fallback)
+   ===================================================================== */
+let REPORT=null;
+
+async function loadReport(){
+  try{
+    const r=await fetch(CONFIG.reportUrl,{cache:"no-store"});
+    if(r.ok){const j=await r.json();j._source=CONFIG.reportUrl;return j;}
+  }catch(_){}
+  const d=dummyReport();d._source="Dummy data (demo)";return d;
+}
+
+function dummyReport(){
+  const R=(a,b)=>a+Math.random()*(b-a), J=x=>x*R(.97,1.03);
+  let clock=Date.now()-36e5*R(20,26);
+  const start=new Date(clock).toISOString(), steps={};
+  const rec=(id,inn,out,min)=>{const s=clock;clock+=min*6e4*R(.8,1.2);
+    steps[id]={rows_in:Math.round(inn),rows_out:Math.round(out),status:"success",started_at:new Date(s).toISOString(),finished_at:new Date(clock).toISOString()};
+    return Math.round(out);};
+  const seeds=J(1.2e6);rec("w_seed",seeds,seeds,4);
+  const disc=J(54e6);let fetched=0;
+  ["w_c1","w_c2","w_cn"].forEach(id=>{const i=disc/3;fetched+=rec(id,i,i*R(.9,.95),90);});
+  rec("w_type",fetched,fetched,6);
+  const wWarc=rec("w_warc",fetched*.91,fetched*.91,12), wUrl=rec("w_url",fetched*.09,fetched*.09,1);
+  const src=J(140e6);rec("c_src",src,src,20);rec("c_type",src,src,15);
+  const cWarc=rec("c_warc",src*.97,src*.97,40), cUrl=rec("c_url",src*.03,src*.03,2);
+  const dIn=rec("d_in",wUrl+cUrl,(wUrl+cUrl)*R(.95,.98),5);let dOut=0;
+  [["d_ocr",.25,R(.85,.9),120],["d_pdf",.55,R(.95,.98),60],["d_rd",.2,R(.97,.99),30]].forEach(([id,sh,ok,m])=>{dOut+=rec(id,dIn*sh,dIn*sh*ok,m);});
+  rec("d_out",dOut,dOut,8);
+  const aIn=J(350e3);rec("a_in",aIn,aIn,3);
+  const asr=rec("a_asr",aIn,aIn*R(.94,.97),180), llm=rec("a_llm",asr,asr*R(.98,.995),150);rec("a_out",llm,llm,2);
+  let x=wWarc+cWarc+dOut+llm;rec("f_in",x,x,5);
+  const chain=a=>a.forEach(([id,k,m])=>{x=rec(id,x,x*(k===1?1:Math.min(1,J(k))),m);});
+  chain([["f_url",.94,10],["f_type",1,5],["f_trf",.93,95],["f_lang",.72,40],["f_rep",.89,30],["f_gq",.82,25],["f_c4",.92,25],["f_fw",.94,20],["f_out",1,15]]);
+  chain([["p_in",1,3],["p1",.91,12],["p2",.86,25],["p3",1,140],["p4",1,60],["p5",1,45],["p6a",.78,30],["p6b",1,70],["p7",.9993,40],["p_out",1,10]]);
+  steps.p6b.notes=`PII masked in ${fmt(Math.round(x*R(.04,.06)))} docs`;
+  chain([["k_in",1,3],["k_q",1,110],["k_d",1,90],["k_out",1,8]]);
+  steps.k_q.notes=`High-quality share ${Math.round(R(28,36))}%`;
+  const avg=Math.round(R(980,1120)), tokens=Math.round(x*avg);
+  chain([["t_in",1,3],["t_tok",1,160],["t_shuf",1,45],["t_spl",1,10],["t_meg",1,25]]);
+  steps.t_tok.notes=`${fmt(tokens)} tokens produced`;
+  const share=(o)=>{const t=Object.values(o).reduce((a,b)=>a+b,0);const r={};for(const k in o)r[k]=Math.round(tokens*o[k]/t);return r;};
+  const train=Math.round(tokens*.995);
+  return {run_id:"run-"+new Date(start).toISOString().slice(0,10)+"-"+Math.floor(R(100,999)),pipeline:"EKA pretraining",
+    started_at:start,finished_at:new Date(clock).toISOString(),status:"success",steps,
+    tokens:{total:tokens,train,validation:tokens-train,avg_per_doc:avg,shards:Math.ceil(tokens/1e9),format:"Megatron .bin / .idx",
+      by_language:share({Hindi:24*R(.9,1.1),English:31*R(.9,1.1),Bengali:9,Tamil:7,Telugu:7,Marathi:6,Gujarati:4,Kannada:4,Malayalam:4,Other:4}),
+      by_domain:share({"Web general":38,Science:12,News:11,Education:10,"Law and govt":8,Literature:8,Health:6,Code:4,Other:3})}};
+}
+
+/* =====================================================================
+   4) HELPERS
+   ===================================================================== */
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function fmt(n){if(n==null||isNaN(n))return "—";const a=Math.abs(n);
+  if(a>=1e12)return (n/1e12).toFixed(2)+"T";if(a>=1e9)return (n/1e9).toFixed(2)+"B";
+  if(a>=1e6)return (n/1e6).toFixed(2)+"M";if(a>=1e3)return (n/1e3).toFixed(1)+"K";return String(Math.round(n));}
+const full=n=>n==null?"—":Math.round(n).toLocaleString(CONFIG.locale);
+const dt=s=>s?new Date(s).toLocaleString(CONFIG.locale,{dateStyle:"medium",timeStyle:"short"}):"—";
+function dur(ms){if(!(ms>=0))return "—";const m=Math.round(ms/6e4),h=Math.floor(m/60);return h?`${h}h ${m%60}m`:`${m}m`;}
+function stepMetrics(id){const m=REPORT?.steps?.[id];if(!m)return null;
+  const removed=Math.max(0,(m.rows_in||0)-(m.rows_out||0));
+  return {...m,removed,pct:m.rows_in?removed/m.rows_in:0,ms:new Date(m.finished_at)-new Date(m.started_at)};}
+const stBadge=s=>`<span class="st st-${esc(s||"success")}"><i class="ti ti-${s==="failed"?"x":s==="running"?"loader":s==="skipped"?"minus":"check"}"></i>${esc((s||"success").replace(/^./,c=>c.toUpperCase()))}</span>`;
+
+/* =====================================================================
+   5) RENDER BOARD
+   ===================================================================== */
+const RM=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const cv=document.getElementById("cv"),pop=document.getElementById("pop"),ln=document.getElementById("ln"),vp=document.getElementById("vp");
+const NO={},OR=[];let cur=null;
+
+document.getElementById("rail").innerHTML=Object.entries(PH).map(([k,p])=>`<button class="ph" data-phase="${k}" style="background:${p.bg};color:${p.fg};border-color:${p.bd}"><span class="n">${p.n}</span><span class="t">${p.t}</span><span class="f">${esc(p.f)}</span></button>`).join("");
+
+const nh=(n,cp)=>`<button class="nd k-${n.type}${cp?" cp":""}" data-id="${n.id}"><span class="ic"><i class="ti ti-${IC[n.id]||"point"}"></i></span><span><span class="l">${esc(n.label)}</span>${n.sub&&!cp?`<span class="s">${esc(n.sub)}</span>`:""}<span class="mt"></span></span>${n.tag?`<span class="badge">${esc(n.tag)}</span>`:""}</button>`;
+
+S.forEach(s=>{const p=PH[s.ph];let f="";
+  s.rows.forEach((r,i)=>{if(i)f+=`<div class="cn"><i></i></div>`;const cp=r.length>2;
+    f+=`<div class="row" style="grid-template-columns:repeat(${r.length},minmax(0,1fr))">${r.map(n=>nh(n,cp)).join("")}</div>`;});
+  cv.insertAdjacentHTML("beforeend",`<section class="stg" style="grid-column:${s.col};grid-row:${s.row}"><div class="card" style="--pb:${p.bg};--pf:${p.fg};--pd:${p.bd}"><button class="hd" data-stage="${s.id}"><span class="num">${p.n}</span><span class="tt">${esc(s.header)}<span class="mm">${esc(s.module)}</span></span><span class="live"></span></button><div class="bd">${f}<button class="ft" data-stage="${s.id}"><b>Features</b><ol>${s.features.map(x=>`<li>${esc(x)}</li>`).join("")}</ol></button><div class="ot">${esc(s.output)}</div></div></div></section>`);
+  s.rows.flat().forEach(n=>{NO[n.id]={...n,st:s};OR.push(n.id);});});
+
+function draw(){const c=cv.getBoundingClientRect();ln.setAttribute("width",cv.scrollWidth);ln.setAttribute("height",cv.scrollHeight);
+  let d=`<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#D85A30"/></marker></defs>`;
+  L.forEach(([a,b],k)=>{const A=cv.querySelector(`[data-id="${a}"]`),B=cv.querySelector(`[data-id="${b}"]`);if(!A||!B)return;
+    const ra=A.getBoundingClientRect(),ca=A.closest(".card").getBoundingClientRect(),rb=B.getBoundingClientRect(),cb=B.closest(".card").getBoundingClientRect();
+    const bx=cb.left-c.left-(a==="w_url"?44:a==="c_url"?34:30);
+    const pd=`M${ca.right-c.left},${ra.top+ra.height/2-c.top} H${bx} V${rb.top+rb.height/2-c.top} H${rb.left-c.left-3}`;
+    d+=`<path class="w" data-a="${a}" data-b="${b}" marker-end="url(#ar)" d="${pd}"/>`;
+    if(!RM)d+=`<circle r="4" fill="#D85A30"><animateMotion dur="${2.2+(k%3)*.4}s" repeatCount="indefinite" path="${pd}"/></circle>`;});
+  ln.innerHTML=d;if(cur)hl(cur);}
+function hl(id){ln.querySelectorAll("path.w").forEach(p=>p.classList.toggle("hot",p.dataset.a===id||p.dataset.b===id));ln.classList.toggle("fx",!!ln.querySelector("path.hot"));}
+function clr(){cur=null;cv.querySelectorAll(".nd.on").forEach(x=>x.classList.remove("on"));ln.classList.remove("fx");ln.querySelectorAll(".hot").forEach(p=>p.classList.remove("hot"));}
+function seen(el){const v=vp.getBoundingClientRect(),r=el.getBoundingClientRect();
+  if(r.right>v.right-20)vp.scrollTo({left:vp.scrollLeft+r.right-v.right+80,behavior:"smooth"});
+  else if(r.left<v.left+10)vp.scrollTo({left:vp.scrollLeft-(v.left-r.left)-80,behavior:"smooth"});}
+
+/* =====================================================================
+   6) POPOVER (explanations + last-run metrics)
+   ===================================================================== */
+function show(html,anchor){pop.innerHTML=`<button class="x" aria-label="Close" data-close="1"><i class="ti ti-x"></i></button>`+html;pop.style.display="block";
+  const c=cv.getBoundingClientRect(),r=anchor.getBoundingClientRect(),cd=anchor.closest(".card").getBoundingClientRect();
+  let x=cd.right-c.left+14;if(x+350>cv.scrollWidth)x=cd.left-c.left-354;
+  pop.style.left=x+"px";pop.style.top=Math.max(0,r.top-c.top-30)+"px";seen(pop);}
+function node(id){const n=NO[id];clr();cur=id;const el=cv.querySelector(`[data-id="${id}"]`);el.classList.add("on");hl(id);
+  const i=OR.indexOf(id),p=PH[n.st.ph],m=stepMetrics(id);
+  const rel=[...L.filter(l=>l[1]===id).map(l=>"From "+NO[l[0]].st.header),...L.filter(l=>l[0]===id).map(l=>"Feeds "+NO[l[1]].st.header)];
+  const mh=m?`<div class="lb">Last run ${stBadge(m.status)}</div><div class="kv"><span>Rows in</span><b>${full(m.rows_in)}</b><span>Rows out</span><b>${full(m.rows_out)}</b><span>Removed</span><b>${full(m.removed)} (${(m.pct*100).toFixed(1)}%)</b><span>Started</span><b>${dt(m.started_at)}</b><span>Duration</span><b>${dur(m.ms)}</b></div>${m.notes?`<p style="font-size:12px;color:var(--text-secondary);margin-top:4px">${esc(m.notes)}</p>`:""}`:"";
+  show(`<div class="ey">Phase ${p.n} · ${esc(n.st.header)} · ${TN[n.type]}</div><h4>${esc(n.label)}</h4>${n.sub?`<div style="font-size:12px;color:var(--text-secondary)">${esc(n.sub)}</div>`:""}<div class="lb">What it does</div><p>${esc(n.what)}</p><div class="lb">Why it's helpful</div><p>${esc(n.why)}</p>${n.tip?`<div class="tip"><b style="font-weight:500">Pro tip:</b> ${esc(n.tip)}</div>`:""}${mh}${rel.length?`<div class="lb">Cross-stage links</div><p>${rel.map(esc).join("<br>")}</p>`:""}<div class="nv"><button class="btn" data-go="${OR[i-1]||""}">Previous</button><button class="btn" data-stage="${n.st.id}">Stage</button><button class="btn" data-go="${OR[i+1]||""}">Next</button></div>`,el);}
+function stage(sid){const s=S.find(x=>x.id===sid);clr();const el=cv.querySelector(`.hd[data-stage="${sid}"]`);
+  show(`<div class="ey">Phase ${PH[s.ph].n} · ${esc(s.module)}</div><h4>${esc(s.header)}</h4><div class="lb">Why this stage exists</div><p>${esc(s.overview)}</p><div class="lb">Steps</div><div class="chips">${s.rows.flat().map(n=>`<span data-go="${n.id}">${esc(n.label)}</span>`).join("")}</div><div class="lb">Output</div><p style="font-family:var(--mono);font-size:12px">${esc(s.output)}</p>`,el);}
+function phase(k){const p=PH[k];clr();const ss=S.filter(s=>s.ph===k);const el=cv.querySelector(`.hd[data-stage="${ss[0].id}"]`);
+  show(`<div class="ey">Phase ${p.n} · ${esc(p.f)}</div><h4>${esc(p.t)}</h4><p style="margin-top:6px">${esc(p.ov)}</p><div class="lb">Stages in this phase</div><div class="chips">${ss.map(s=>`<span data-stage="${s.id}">${esc(s.header)}</span>`).join("")}</div>`,el);}
+
+/* =====================================================================
+   7) RUN ANIMATION
+   ===================================================================== */
+let tm=null,step=0;
+const ri=document.getElementById("runIc"),rt=document.getElementById("runTx"),st=document.getElementById("stat"),pb=document.getElementById("pb"),res=document.getElementById("results");
+function setRun(on){ri.className="ti "+(on?"ti-player-pause":"ti-player-play");rt.textContent=on?"Pause":(step>0&&step<OR.length?"Resume":"Run pipeline");}
+function tick(){
+  cv.querySelectorAll(".nd.cur").forEach(x=>x.classList.remove("cur"));
+  if(step>=OR.length){clearInterval(tm);tm=null;setRun(false);rt.textContent="Run again";
+    st.textContent=`Complete · ${fmt(REPORT.tokens?.total)} tokens in ${REPORT.tokens?.shards??"—"} Megatron shards`;
+    renderResults();setTimeout(()=>res.scrollIntoView({behavior:"smooth",block:"start"}),300);return;}
+  const id=OR[step],n=NO[id],el=cv.querySelector(`[data-id="${id}"]`),m=stepMetrics(id);
+  el.classList.add("lit","cur");
+  if(m)el.querySelector(".mt").textContent=`${fmt(m.rows_out)} rows${m.removed?` · −${fmt(m.removed)}`:""}`;
+  seen(el);step++;pb.style.width=Math.round(step/OR.length*100)+"%";
+  st.textContent=`Phase ${PH[n.st.ph].n} · ${n.st.header} · ${n.label}`;
+}
+function reset(){clearInterval(tm);tm=null;step=0;
+  cv.querySelectorAll(".nd.lit,.nd.cur").forEach(x=>x.classList.remove("lit","cur"));
+  cv.querySelectorAll(".mt").forEach(x=>x.textContent="");
+  pb.style.width="0";st.textContent="Ready · 4 sources → Megatron shards";setRun(false);
+  vp.scrollTo({left:0,behavior:"smooth"});REPORT=null;
+  res.className="results empty";res.innerHTML=`<i class="ti ti-report-analytics"></i>Run the pipeline to generate the run report: row counts, removals, timings and final token count.`;}
+document.getElementById("runBtn").addEventListener("click",async()=>{
+  if(tm){clearInterval(tm);tm=null;setRun(false);return;}
+  if(step>=OR.length)reset();
+  if(!REPORT){st.textContent="Loading run report…";REPORT=await loadReport();}
+  tm=setInterval(tick,RM?150:CONFIG.stepDelayMs);setRun(true);});
+document.getElementById("rstBtn").addEventListener("click",reset);
+
+/* =====================================================================
+   8) RESULTS REPORT
+   ===================================================================== */
+function bars(obj,color){const e=Object.entries(obj||{}).sort((a,b)=>b[1]-a[1]);const mx=Math.max(...e.map(x=>x[1]),1);const tot=e.reduce((a,b)=>a+b[1],0);
+  return e.map(([k,v])=>`<div class="bar" title="${esc(k)}: ${full(v)}"><span>${esc(k)}</span><div class="tr"><div class="fi" style="width:${(v/mx*100).toFixed(1)}%;background:${color}"></div></div><span class="vl">${fmt(v)} · ${(v/tot*100).toFixed(0)}%</span></div>`).join("");}
+
+function renderResults(){
+  const s=REPORT.steps||{},T=REPORT.tokens||{};
+  const ingested=s.f_in?.rows_in, finalDocs=s.k_out?.rows_out??s.t_in?.rows_in;
+  const removed=ingested!=null&&finalDocs!=null?ingested-finalDocs:null;
+  const ms=new Date(REPORT.finished_at)-new Date(REPORT.started_at);
+  const ok=Object.values(s).filter(x=>x.status==="success").length,tot=Object.keys(s).length;
+  const funnel={"01 Ingested":ingested,"02 After filter":s.f_out?.rows_out,"03 After dedup":s.p_out?.rows_out,"04 Classified":s.k_out?.rows_out,"05 Tokenized":s.t_meg?.rows_out};
+  const fcols=[PH.ing.bar,PH.flt.bar,PH.ddp.bar,PH.cls.bar,PH.tok.bar];
+  const fmax=Math.max(...Object.values(funnel).filter(Boolean),1);
+  const funnelHTML=Object.entries(funnel).map(([k,v],i)=>`<div class="bar" title="${full(v)}"><span>${k}</span><div class="tr"><div class="fi" style="width:${((v||0)/fmax*100).toFixed(1)}%;background:${fcols[i]}"></div></div><span class="vl">${fmt(v)}</span></div>`).join("");
+  const rows=OR.filter(id=>s[id]).map(id=>{const n=NO[id],m=stepMetrics(id),p=PH[n.st.ph];
+    return `<tr><td><span class="pdot" style="background:${p.bar}"></span>${p.n} ${esc(p.t)}</td><td>${esc(n.st.header)}</td><td>${esc(n.label)}${n.tag?` <span style="color:var(--text-muted)">${n.tag}</span>`:""}</td><td class="n">${full(m.rows_in)}</td><td class="n">${full(m.rows_out)}</td><td class="n">${full(m.removed)}</td><td><span class="rm"><span class="tr"><span class="fi" style="width:${(m.pct*100).toFixed(1)}%"></span></span>${(m.pct*100).toFixed(1)}%</span></td><td>${stBadge(m.status)}</td><td>${dt(m.started_at)}</td><td class="n">${dur(m.ms)}</td><td style="color:var(--text-secondary)">${esc(m.notes||"")}</td></tr>`;}).join("");
+
+  res.className="results";
+  res.innerHTML=`
+  <div class="rh">
+    <div><h2>Run report</h2>
+      <div class="sub">${esc(REPORT.run_id||"")} · ${esc(REPORT.pipeline||"EKA pretraining")} · Source: ${esc(REPORT._source)}<br>
+      Started ${dt(REPORT.started_at)} · Finished ${dt(REPORT.finished_at)} · Total ${dur(ms)}</div></div>
+    ${stBadge(REPORT.status)}
+  </div>
+  <div class="kpis">
+    <div class="kpi"><div class="k"><i class="ti ti-database-import"></i>Documents ingested</div><div class="v" title="${full(ingested)}">${fmt(ingested)}</div><div class="d">All 4 sources combined</div></div>
+    <div class="kpi"><div class="k"><i class="ti ti-file-check"></i>Final documents</div><div class="v" title="${full(finalDocs)}">${fmt(finalDocs)}</div><div class="d">${ingested?((finalDocs/ingested)*100).toFixed(1):"—"}% retained</div></div>
+    <div class="kpi"><div class="k"><i class="ti ti-trash"></i>Removed</div><div class="v" title="${full(removed)}">${fmt(removed)}</div><div class="d">${ingested?((removed/ingested)*100).toFixed(1):"—"}% of ingested</div></div>
+    <div class="kpi"><div class="k"><i class="ti ti-coins"></i>Total tokens</div><div class="v" title="${full(T.total)}">${fmt(T.total)}</div><div class="d">${T.avg_per_doc?full(T.avg_per_doc)+" avg per doc":""}</div></div>
+    <div class="kpi"><div class="k"><i class="ti ti-binary"></i>Output shards</div><div class="v">${T.shards??"—"}</div><div class="d">${esc(T.format||"")}</div></div>
+    <div class="kpi"><div class="k"><i class="ti ti-circle-check"></i>Steps succeeded</div><div class="v">${ok} / ${tot}</div><div class="d">Run time ${dur(ms)}</div></div>
+  </div>
+  <div class="grid3">
+    <div class="panel"><h3>Document funnel by phase</h3>${funnelHTML}
+      <div class="bar"><span>Train / val tokens</span><div class="tr"><div class="fi" style="width:${T.total?(T.train/T.total*100).toFixed(1):0}%;background:#639922"></div></div><span class="vl">${fmt(T.train)} / ${fmt(T.validation)}</span></div></div>
+    <div class="panel"><h3>Tokens by language</h3>${bars(T.by_language,"#1D9E75")}</div>
+    <div class="panel"><h3>Tokens by domain</h3>${bars(T.by_domain,"#378ADD")}</div>
+  </div>
+  <div class="panel">
+    <div class="ph3"><h3>Step-by-step log</h3>
+      <div style="display:flex;gap:8px"><button class="btn" id="csvBtn"><i class="ti ti-file-spreadsheet"></i>Export CSV</button><button class="btn" id="jsonBtn"><i class="ti ti-braces"></i>Export JSON</button></div></div>
+    <div class="tw"><table><thead><tr><th>Phase</th><th>Stage</th><th>Step</th><th class="n">Rows in</th><th class="n">Rows out</th><th class="n">Removed</th><th>Removed %</th><th>Status</th><th>Started</th><th class="n">Duration</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table></div>
+  </div>`;
+  document.getElementById("csvBtn").onclick=exportCSV;
+  document.getElementById("jsonBtn").onclick=()=>download(JSON.stringify(REPORT,null,2),`${REPORT.run_id||"report"}.json`,"application/json");
+}
+function download(text,name,type){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+function exportCSV(){const h=["phase","stage","step_id","step","rows_in","rows_out","removed","removed_pct","status","started_at","finished_at","notes"];
+  const q=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+  const lines=OR.filter(id=>REPORT.steps[id]).map(id=>{const n=NO[id],m=stepMetrics(id);
+    return [PH[n.st.ph].t,n.st.header,id,n.label,m.rows_in,m.rows_out,m.removed,(m.pct*100).toFixed(2),m.status,m.started_at,m.finished_at,m.notes||""].map(q).join(",");});
+  download([h.join(","),...lines].join("\n"),`${REPORT.run_id||"report"}.csv`,"text/csv");}
+
+/* =====================================================================
+   9) EVENTS + INIT
+   ===================================================================== */
+document.addEventListener("click",ev=>{
+  const t=ev.target.closest("#cv [data-id],#cv [data-stage],[data-go],[data-close],[data-phase]");if(!t)return;
+  if(t.dataset.close){pop.style.display="none";clr();return;}
+  if(t.dataset.phase)return phase(t.dataset.phase);
+  if(t.dataset.go!==undefined){if(t.dataset.go)node(t.dataset.go);return;}
+  if(t.dataset.id)return node(t.dataset.id);
+  if(t.dataset.stage)stage(t.dataset.stage);});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){pop.style.display="none";clr();}});
+new ResizeObserver(draw).observe(cv);window.addEventListener("resize",draw);
+(document.fonts?.ready||Promise.resolve()).then(draw);draw();
+</script>
+</body>
+</html>
