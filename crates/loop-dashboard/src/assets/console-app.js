@@ -411,13 +411,13 @@ function wsBadge(text, kind) {
 
 async function renderOverview() {
   const root = $('#viewRoot');
-  $('#pageTitle').textContent = 'Loop';
+  $('#pageTitle').textContent = 'Loop Station';
   $('#pageSub').textContent = 'unified AI development & data operations workspace';
 
   root.innerHTML = `<div class="content"><div class="content-inner">
     <div class="portal-hero">
       <div>
-        <h1 class="portal-h1">Welcome to Loop</h1>
+        <h1 class="portal-h1">Welcome to Loop Station</h1>
         <div class="portal-tag">Your unified AI development and data operations workspace</div>
         <p class="portal-sub">One place to monitor the machine your models run on, work with
           the Loop model, and prepare the data that trains it.</p>
