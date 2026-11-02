@@ -29,144 +29,211 @@
   const st = document.createElement('style');
   st.id = 'tm-style';
   st.textContent = `
-.tm-wide{max-width:900px}
-.tm-hud{display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding:0 22px}
-.tm-stat{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line2);border-radius:10px;
-  padding:7px 14px;background:rgba(0,0,0,.32);font:600 12px Sora;color:#aab6c8}
-.tm-stat .k{text-transform:uppercase;letter-spacing:.12em;font-size:10px;color:#7f8ca1}
-.tm-stat .v{font:800 17px "JetBrains Mono",monospace;color:#eaf2ff;min-width:2ch;text-align:right}
-.tm-stat.time .v{color:var(--acc)}
+.tm-wide{max-width:980px}
+/* ============ STAGE: the playfield owns the panel =====================
+   PHASE 1/2 · The stage is a self-contained arcade screen: canvas fills
+   it (letterboxed by tmResize at the correct aspect ratio), and the HUD
+   lives INSIDE it as compact translucent overlays — no rows above or
+   below, no permanent bottom control panel. */
+.tm-stage{position:relative;flex:1;min-height:300px;width:100%;margin:0;
+  border-radius:14px;overflow:hidden;border:1px solid var(--line2);
+  background:linear-gradient(180deg,#08101f 0%,#0d1a2e 45%,#12233b 80%,#15283f 100%);
+  user-select:none;-webkit-user-select:none;
+  touch-action:none;display:flex;align-items:center;justify-content:center}
+#tmCanvas{display:block;touch-action:none}
+/* Inline (non-fullscreen) play: the panel gets a real viewport-derived
+   height budget so tmResize() can fit the canvas without page scroll. */
+body.ft-playing #tmPanel{margin:0 auto;width:100%;max-width:min(980px,100%);
+  height:calc(100vh - 16px);padding:clamp(8px,1.6vh,16px) clamp(10px,2vw,22px);gap:0}
+/* Fullscreen / immersive: the panel IS the screen. */
+body.tm-fs #tmPanel,body.ft-playing.ft-immersive #tmPanel{
+  max-width:none;width:100vw;height:100vh;margin:0;border-radius:0;border:none;
+  overflow:hidden;justify-content:flex-start;box-sizing:border-box;
+  padding:clamp(8px,1.8vh,18px) clamp(10px,2.5vw,26px);
+  padding-left:max(clamp(10px,2.5vw,26px),env(safe-area-inset-left,0));
+  padding-right:max(clamp(10px,2.5vw,26px),env(safe-area-inset-right,0));
+  padding-top:max(clamp(8px,1.8vh,18px),env(safe-area-inset-top,0));
+  padding-bottom:max(clamp(8px,1.8vh,18px),env(safe-area-inset-bottom,0));
+  background:var(--bg,#0a0d13)}
+body.tm-fs #tmPanel .ft-panel-h,
+body.ft-playing.ft-immersive #tmPanel .ft-panel-h{display:none}
+
+/* ============ PHASE 2 · OVERLAY HUD ===================================
+   Compact translucent panels pinned to the stage edges. Three clusters:
+   top-left score · top-center time+level · top-right best + icons. */
+.tm-hud{position:absolute;inset:0;z-index:3;pointer-events:none;
+  display:grid;grid-template-columns:1fr auto 1fr;grid-template-rows:auto 1fr;
+  align-items:start;padding:clamp(8px,1.6vh,14px) clamp(10px,1.8vw,18px);
+  gap:8px;font-family:Sora,sans-serif}
+.tm-hud>*{pointer-events:none}
+/* Interactive HUD children (icon buttons) re-enable pointer events so
+   they stay clickable above the stage's chop zones. */
+.tm-hud .tm-ibtn,.tm-hud button{pointer-events:auto}
+.tm-stat{display:inline-flex;align-items:center;gap:8px;
+  border:1px solid rgba(140,160,190,.22);border-radius:11px;
+  padding:6px 12px;background:rgba(8,13,22,.58);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  font:600 10px Sora;color:#93a3ba;letter-spacing:.12em;text-transform:uppercase;
+  box-shadow:0 2px 12px rgba(0,0,0,.28)}
+.tm-stat .v{font:800 17px "JetBrains Mono",monospace;color:#eaf2ff;
+  min-width:2ch;text-align:right;font-variant-numeric:tabular-nums;
+  transition:transform .12s ease}
+.tm-stat.bump .v{transform:scale(1.22);color:#fff}
+.tm-hud-l{grid-column:1;justify-self:start;display:flex;gap:8px}
+.tm-hud-c{grid-column:2;justify-self:center;display:flex;flex-direction:column;
+  align-items:center;gap:6px}
+.tm-hud-r{grid-column:3;justify-self:end;display:flex;gap:8px;align-items:center}
+.tm-stat.score .v{color:var(--acc)}
 .tm-stat.best .v{color:#ffd166}
-#tmTimeBar{position:relative;height:10px;margin:0 22px;border-radius:99px;background:rgba(0,0,0,.45);
-  border:1px solid var(--line2);overflow:hidden}
-#tmTimeFill{position:absolute;inset:0;width:100%;border-radius:99px;
-  background:linear-gradient(90deg,#5ef2c0,#3ecf9a);transition:width .12s linear}
-#tmTimeFill.warn{background:linear-gradient(90deg,#ff8fa3,#ff4d6d)}
-#tmTimeFill.crit{background:linear-gradient(90deg,#ff4d6d,#c9184a);animation:tmpulse .5s ease-in-out infinite alternate}
-@keyframes tmpulse{to{opacity:.55}}
-.tm-stage{position:relative;margin:8px 22px;border:1px solid var(--line2);border-radius:14px;overflow:hidden;
-  background:linear-gradient(180deg,#0b1322 0%,#0e1a2e 60%,#12233b 100%);user-select:none;-webkit-user-select:none;touch-action:manipulation}
-#tmCanvas{display:block;width:100%;height:auto}
-.tm-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  background:radial-gradient(ellipse at center,rgba(6,10,18,.62) 0%,rgba(6,10,18,.88) 100%);
-  backdrop-filter:blur(3px);z-index:5;text-align:center;padding:18px}
+.tm-stat.time .v{color:var(--acc);min-width:4.2ch}
+.tm-stat.time.warn .v{color:#ff8fa3}
+.tm-stat.time.crit .v{color:#ff4d6d;animation:tmblink .5s ease-in-out infinite alternate}
+@keyframes tmblink{to{opacity:.4}}
+.tm-time-bar{width:110px;height:4px;border-radius:99px;background:rgba(0,0,0,.5);
+  border:1px solid rgba(140,160,190,.2);overflow:hidden}
+.tm-time-bar i{display:block;height:100%;width:100%;border-radius:99px;
+  background:linear-gradient(90deg,#5ef2c0,#3ecf9a);transition:width .15s linear}
+.tm-time-bar.warn i{background:linear-gradient(90deg,#ff8fa3,#ff4d6d)}
+.tm-time-bar.crit i{background:linear-gradient(90deg,#ff4d6d,#c9184a)}
+.tm-lvl-chip{font:700 9.5px Sora;letter-spacing:.16em;color:#8ecdf5;
+  text-transform:uppercase;text-shadow:0 1px 6px rgba(0,0,0,.7)}
+/* compact icon buttons (fullscreen + settings gear) */
+.tm-ibtn{appearance:none;border:1px solid rgba(140,160,190,.25);border-radius:10px;
+  width:34px;height:32px;display:inline-flex;align-items:center;justify-content:center;
+  background:rgba(8,13,22,.58);backdrop-filter:blur(6px);cursor:pointer;color:#aab6c8;
+  transition:color .12s,border-color .12s,background .12s;padding:0}
+.tm-ibtn:hover{color:#eaf2ff;border-color:rgba(94,242,192,.5)}
+.tm-ibtn svg{width:16px;height:16px;display:block}
+@media (max-width:560px){
+  .tm-hud{padding:8px 10px;gap:6px}
+  .tm-stat{padding:4px 9px;font-size:8.5px;gap:6px}
+  .tm-stat .v{font-size:14px}
+  .tm-stat.time .v{font-size:14px}
+  .tm-time-bar{width:86px}
+  .tm-ibtn{width:30px;height:28px}
+}
+@media (max-height:520px) and (orientation:landscape){
+  .tm-hud{padding:6px 10px;gap:5px}
+  .tm-stat{padding:3px 8px;font-size:8px}
+  .tm-stat .v{font-size:12.5px}
+  .tm-time-bar{width:76px;height:3px}
+  .tm-ibtn{width:28px;height:26px}
+}
+
+/* ============ touch zone hints (mobile, ready state only) ============= */
+.tm-zones{position:absolute;inset:auto 0 0 0;z-index:2;display:none;
+  justify-content:space-between;padding:0 6% 14px;pointer-events:none}
+.tm-zones span{font:800 11px Sora;letter-spacing:.14em;color:rgba(234,242,255,.5);
+  text-transform:uppercase;text-shadow:0 2px 8px rgba(0,0,0,.8)}
+@media (pointer:coarse){.tm-stage[data-zones="1"] .tm-zones{display:flex}}
+
+/* ============ overlays: ready / paused / over ========================= */
+.tm-overlay{position:absolute;inset:0;z-index:6;display:flex;align-items:center;
+  justify-content:center;background:radial-gradient(ellipse at center,
+    rgba(6,10,18,.6) 0%,rgba(6,10,18,.88) 100%);
+  backdrop-filter:blur(4px);text-align:center;padding:18px}
 .tm-overlay.hidden{display:none}
-.tm-ov-inner{max-width:520px;width:100%}
-.tm-ov-title{font:800 clamp(26px,4vw,40px) Sora;letter-spacing:-.02em;color:#f2f7ff;margin-bottom:8px;
-  text-shadow:0 0 30px rgba(94,242,192,.25)}
-.tm-ov-sub{font:500 14px Sora;color:#9fb0c7;line-height:1.65;margin-bottom:18px}
+.tm-ov-inner{max-width:480px;width:100%}
+.tm-ov-title{font:800 clamp(24px,4vw,38px) Sora;letter-spacing:-.02em;color:#f2f7ff;
+  margin-bottom:8px;text-shadow:0 0 30px rgba(94,242,192,.25)}
+.tm-ov-sub{font:500 13.5px Sora;color:#9fb0c7;line-height:1.65;margin-bottom:16px}
 .tm-ov-sub b{color:#e5edf9}
 .tm-ov-keys{display:inline-flex;gap:8px;margin:0 0 16px;flex-wrap:wrap;justify-content:center}
-.tm-key{border:1px solid var(--line2);border-bottom-width:3px;border-radius:8px;padding:6px 12px;
-  font:700 12px "JetBrains Mono",monospace;color:#cdd9ea;background:rgba(0,0,0,.35)}
-.tm-ov-stats{display:flex;gap:14px;justify-content:center;margin-bottom:16px;flex-wrap:wrap}
-.tm-ov-stat{border:1px solid var(--line2);border-radius:12px;padding:10px 18px;background:rgba(0,0,0,.4)}
-.tm-ov-stat .k{display:block;font:700 10px Sora;letter-spacing:.14em;text-transform:uppercase;color:#7f8ca1;margin-bottom:4px}
+.tm-key{border:1px solid var(--line2);border-bottom-width:3px;border-radius:8px;
+  padding:5px 11px;font:700 11px "JetBrains Mono",monospace;color:#cdd9ea;
+  background:rgba(0,0,0,.35)}
+.tm-ov-stats{display:flex;gap:12px;justify-content:center;margin-bottom:16px;flex-wrap:wrap}
+.tm-ov-stat{border:1px solid var(--line2);border-radius:12px;padding:9px 18px;
+  background:rgba(0,0,0,.4)}
+.tm-ov-stat .k{display:block;font:700 9.5px Sora;letter-spacing:.14em;
+  text-transform:uppercase;color:#7f8ca1;margin-bottom:4px}
 .tm-ov-stat .v{font:800 22px "JetBrains Mono",monospace;color:#fff}
 .tm-ov-stat.hl .v{color:var(--acc)}
-.tm-ov-btn{appearance:none;border:0;border-radius:12px;padding:13px 34px;cursor:pointer;
-  font:800 15px Sora;letter-spacing:.02em;color:#06251b;background:linear-gradient(135deg,#5ef2c0,#37c493);
+.tm-ov-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.tm-ov-btn{appearance:none;border:0;border-radius:12px;padding:13px 30px;cursor:pointer;
+  font:800 15px Sora;letter-spacing:.02em;color:#06251b;
+  background:linear-gradient(135deg,#5ef2c0,#37c493);
   box-shadow:0 8px 26px rgba(94,242,192,.28);transition:transform .12s,box-shadow .12s}
 .tm-ov-btn:hover{transform:translateY(-2px);box-shadow:0 12px 32px rgba(94,242,192,.38)}
 .tm-ov-btn:active{transform:translateY(0)}
+.tm-ov-btn.ghost{background:transparent;color:#cdd9ea;border:1px solid var(--line2);
+  box-shadow:none}
+.tm-ov-btn.ghost:hover{color:#fff;border-color:rgba(94,242,192,.5)}
 .tm-ov-best{margin-top:14px;font:700 12px Sora;color:#ffd166;letter-spacing:.06em}
-.tm-float{position:absolute;font:800 15px "JetBrains Mono",monospace;color:var(--acc);pointer-events:none;
-  text-shadow:0 2px 8px rgba(0,0,0,.6);animation:tmfloat .8s ease-out forwards;z-index:4}
+/* score popup near the lumberjack */
+.tm-float{position:absolute;font:800 15px "JetBrains Mono",monospace;color:var(--acc);
+  pointer-events:none;text-shadow:0 2px 8px rgba(0,0,0,.6);
+  animation:tmfloat .8s ease-out forwards;z-index:4}
 @keyframes tmfloat{to{transform:translateY(-46px);opacity:0}}
-.tm-shake{animation:tmshake .3s}
-@keyframes tmshake{0%,100%{transform:translateX(0)}25%{transform:translateX(-7px)}75%{transform:translateX(7px)}}
-.tm-controls{display:flex;gap:10px;flex-wrap:wrap;padding:0 22px}
-/* ---- audio settings popover (same surface language as .sn-audio-pop) -- */
-#tmPanel{position:relative}
-.tm-audio-pop{position:absolute;top:64px;right:18px;z-index:6;width:280px;
-  padding:12px 14px;display:flex;flex-direction:column;gap:9px;
-  background:rgba(10,16,28,.96);border:1px solid var(--line2);border-radius:12px;
-  box-shadow:0 12px 34px rgba(0,0,0,.45);backdrop-filter:blur(4px)}
-.tm-audio-pop.hidden{display:none}
+/* level-up toast */
+.tm-toast{position:absolute;left:50%;top:18%;transform:translateX(-50%);z-index:5;
+  pointer-events:none;text-align:center;animation:tmtoast 1.4s ease-out forwards}
+.tm-toast .t1{font:800 clamp(20px,3vw,30px) Sora;letter-spacing:.04em;color:#8ecdf5;
+  text-shadow:0 0 24px rgba(110,168,255,.55)}
+.tm-toast .t2{font:700 11px Sora;letter-spacing:.22em;color:#9fb0c7;
+  text-transform:uppercase;margin-top:2px}
+@keyframes tmtoast{0%{opacity:0;transform:translateX(-50%) translateY(14px) scale(.92)}
+  12%{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}
+  78%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-22px) scale(1.03)}}
+
+/* ============ PHASE 6 · SETTINGS OVERLAY ============================== */
+.tm-settings{position:absolute;inset:0;z-index:8;display:flex;align-items:center;
+  justify-content:center;background:rgba(6,10,18,.72);backdrop-filter:blur(5px);padding:16px}
+.tm-settings.hidden{display:none}
+.tm-set-card{width:min(320px,94%);border:1px solid var(--line2);border-radius:16px;
+  background:rgba(11,17,28,.96);box-shadow:0 18px 48px rgba(0,0,0,.5);
+  padding:16px 16px 14px;display:flex;flex-direction:column;gap:11px;
+  max-height:100%;overflow-y:auto}
+.tm-set-head{display:flex;align-items:center;justify-content:space-between}
+.tm-set-title{font:800 13px Sora;letter-spacing:.14em;color:#eaf2ff;text-transform:uppercase}
+.tm-set-x{border:none;background:transparent;color:#7f8ca1;cursor:pointer;
+  font-size:14px;line-height:1;padding:5px 7px;border-radius:6px}
+.tm-set-x:hover{color:var(--ink);background:rgba(255,255,255,.07)}
+.tm-set-btn{appearance:none;border:1px solid var(--line2);border-radius:11px;
+  padding:11px 14px;background:rgba(255,255,255,.03);color:#dbe4f0;
+  font:700 13px Sora;cursor:pointer;text-align:center;
+  transition:color .12s,border-color .12s,background .12s}
+.tm-set-btn:hover{color:#fff;border-color:rgba(94,242,192,.45)}
+.tm-set-btn.primary{background:linear-gradient(135deg,#5ef2c0,#37c493);
+  color:#06251b;border:none;font-weight:800}
+.tm-set-btn.danger{color:#ff8fa3}
+.tm-set-btn.danger:hover{border-color:rgba(255,143,171,.5)}
+.tm-set-sep{height:1px;background:var(--line2);margin:2px 0}
 .tm-au-row{display:flex;align-items:center;gap:10px}
-.tm-au-head{justify-content:space-between;margin-bottom:2px}
-.tm-au-title{font:700 11px Sora;letter-spacing:.14em;color:#aab6c8}
-.tm-au-x{border:none;background:transparent;color:#7f8ca1;cursor:pointer;
-  font-size:13px;line-height:1;padding:4px 6px;border-radius:6px}
-.tm-au-x:hover{color:var(--ink);background:rgba(255,255,255,.06)}
-.tm-au-l{flex:0 0 74px;font:600 11.5px Sora;color:#9fb0c7}
+.tm-au-l{flex:0 0 64px;font:600 10.5px Sora;color:#9fb0c7;letter-spacing:.08em;
+  text-transform:uppercase}
 .tm-au-slider{flex:1;min-width:0;accent-color:var(--acc);height:18px}
-.tm-au-val{flex:0 0 34px;text-align:right;font:700 11px "JetBrains Mono",monospace;color:#e5edf9}
-.tm-au-toggles{gap:8px;margin-top:2px}
+.tm-au-val{flex:0 0 34px;text-align:right;font:700 11px "JetBrains Mono",monospace;
+  color:#e5edf9}
+.tm-au-toggles{display:flex;gap:8px}
 .tm-au-toggle{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;
-  border:1px solid var(--line2);border-radius:9px;padding:7px 10px;background:transparent;
-  color:#9fb0c7;font:700 11.5px Sora;cursor:pointer;
+  border:1px solid var(--line2);border-radius:9px;padding:8px 10px;background:transparent;
+  color:#9fb0c7;font:700 11px Sora;cursor:pointer;
   transition:color .12s,border-color .12s,background .12s}
 .tm-au-toggle:hover{color:var(--ink);border-color:var(--acc)}
 .tm-au-dot{width:8px;height:8px;border-radius:50%;background:#4a5568;transition:background .12s}
 .tm-au-toggle[aria-pressed="true"]{color:var(--acc);
   background:rgba(94,242,192,.09);border-color:rgba(94,242,192,.45)}
 .tm-au-toggle[aria-pressed="true"] .tm-au-dot{background:var(--acc)}
-@media (max-width:520px){.tm-audio-pop{top:auto;bottom:14px;right:12px;left:12px;width:auto}}
-/* ---- level chip + progress -------------------------------------------- */
-.tm-stat.lvl .v{color:#8ecdf5}
-#tmLvlRow{display:flex;align-items:center;gap:10px;margin:6px 22px 0;
-  font:700 10px Sora;letter-spacing:.12em;color:#7f8ca1;text-transform:uppercase}
-#tmLvlName{color:#8ecdf5;flex:0 0 auto}
-#tmLvlBar{flex:1;height:5px;border-radius:99px;background:rgba(0,0,0,.45);
-  border:1px solid var(--line2);overflow:hidden;position:relative}
-#tmLvlFill{position:absolute;inset:0;width:0%;border-radius:99px;
-  background:linear-gradient(90deg,#6ea8ff,#8ecdf5);transition:width .25s ease}
-#tmLvlNext{flex:0 0 auto;font:700 10px "JetBrains Mono",monospace;letter-spacing:0;color:#7f8ca1}
-/* ---- low-time urgency -------------------------------------------------- */
-.tm-stat.time.low .v{color:#ff8fa3;animation:tmblink .5s ease-in-out infinite alternate}
-@keyframes tmblink{to{opacity:.45}}
-/* ---- level-up toast ---------------------------------------------------- */
-.tm-toast{position:absolute;left:50%;top:18%;transform:translateX(-50%);z-index:4;
-  pointer-events:none;text-align:center;animation:tmtoast 1.4s ease-out forwards}
-.tm-toast .t1{font:800 clamp(20px,3vw,30px) Sora;letter-spacing:.04em;color:#8ecdf5;
-  text-shadow:0 0 24px rgba(110,168,255,.55)}
-.tm-toast .t2{font:700 11px Sora;letter-spacing:.22em;color:#9fb0c7;text-transform:uppercase;margin-top:2px}
-@keyframes tmtoast{0%{opacity:0;transform:translateX(-50%) translateY(14px) scale(.92)}
-  12%{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}
-  78%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-22px) scale(1.03)}}
-.tm-help{display:flex;gap:16px;flex-wrap:wrap;padding:2px 24px 6px;font:500 11.5px Sora;color:#7f8ca1}
-.tm-touch{display:none;grid-template-columns:1fr 1fr;gap:12px;padding:0 22px 20px}
-.tm-pad{appearance:none;border:1px solid var(--line2);border-radius:14px;background:rgba(0,0,0,.4);
-  color:#dbe4f0;font:800 20px Sora;padding:22px 0;cursor:pointer;touch-action:none}
-.tm-pad:active{background:rgba(94,242,192,.14);border-color:var(--acc)}
-@media (pointer:coarse){.tm-touch{display:grid}.tm-help{display:none}}
-/* Fullscreen / immersive layout: the stage owns the viewport. */
-body.tm-fs #tmPanel,body.ft-playing.ft-immersive #tmPanel{
-  max-width:none;width:100vw;height:100vh;margin:0;border-radius:0;border:none;overflow:hidden;
-  padding:clamp(10px,2vh,22px) clamp(12px,3vw,36px);box-sizing:border-box;justify-content:flex-start;
-  background:var(--bg,#0a0d13)}
-body.tm-fs #tmPanel .ft-panel-h,body.ft-playing.ft-immersive #tmPanel .ft-panel-h{display:none}
-body.tm-fs #tmStageWrap,body.ft-playing.ft-immersive #tmStageWrap{flex:1;display:flex;flex-direction:column;min-height:0}
-body.tm-fs #tmCanvas,body.ft-playing.ft-immersive #tmCanvas{flex:1;width:100%;height:100%;object-fit:contain}
-body.tm-fs .tm-hud,body.ft-playing.ft-immersive .tm-hud{padding:0}
-body.tm-fs #tmTimeBar,body.ft-playing.ft-immersive #tmTimeBar{margin:0 2px}
-body.tm-fs .tm-controls,body.ft-playing.ft-immersive .tm-controls{padding:0 2px}
-body.tm-fs .tm-touch,body.ft-playing.ft-immersive .tm-touch{padding:0 2px 10px}
-/* Inline (non-FS) play: centred panel within the main column. */
-body.ft-playing #tmPanel{margin:0 auto;width:100%;max-width:min(900px,100%)}
+.tm-set-hint{font:500 10px Sora;color:#7f8ca1;text-align:center;letter-spacing:.04em}
+
 /* Fun Time selector card art (namespaced tm-card-*). */
 .ft-card-art.tm{
   background:
     radial-gradient(circle at 30% 20%,rgba(94,242,192,.12),transparent 55%),
     linear-gradient(180deg,rgba(166,124,82,.10),rgba(7,9,13,.6));
 }
-.tm-card-scene{position:relative;width:min(250px,80%);height:clamp(96px,15vw,132px);display:block;overflow:hidden}
-.tm-card-trunk{
-  position:absolute;left:50%;bottom:0;transform:translateX(-50%);
+.tm-card-scene{position:relative;width:min(250px,80%);height:clamp(96px,15vw,132px);
+  display:block;overflow:hidden}
+.tm-card-trunk{position:absolute;left:50%;bottom:0;transform:translateX(-50%);
   width:34px;height:88%;
   background:linear-gradient(90deg,#7a5230 0%,#a06b3c 45%,#6b4526 100%);
-  border-radius:6px 6px 0 0;
-}
-.tm-card-branch{
-  position:absolute;width:58px;height:12px;border-radius:8px;background:#8a5c33;
-}
+  border-radius:6px 6px 0 0}
+.tm-card-branch{position:absolute;width:58px;height:12px;border-radius:8px;background:#8a5c33}
 .tm-card-branch.l{left:calc(50% - 62px);top:34%;transform:rotate(-8deg)}
 .tm-card-branch.r{left:calc(50% + 4px);top:56%;transform:rotate(8deg)}
-.tm-card-man{
-  position:absolute;right:16%;bottom:6px;width:30px;height:34px;
-  filter:drop-shadow(0 0 8px rgba(94,242,192,.35));
-}
+.tm-card-man{position:absolute;right:16%;bottom:6px;width:30px;height:34px;
+  filter:drop-shadow(0 0 8px rgba(94,242,192,.35))}
 `;
   document.head.appendChild(st);
 })();
@@ -183,7 +250,7 @@ const TMG = {
   level: 0,                 // index into TM_LEVELS (0..4)
   side: 'left',             // lumberjack's current side ('left'|'right')
   trunk: [],                // stack of segments: {branch:'left'|'right'|null}
-  trunkCount: 7,            // visible trunk height
+  trunkCount: 6,            // visible trunk height
   chopAnim: 0,              // ms since last chop (drives axe swing)
   lastChopAt: 0,
   slideT: 1,                // 0→1 progress of the trunk slide-down anim
@@ -588,20 +655,14 @@ function tmBgmSchedule() {
 }
 
 /* ---- audio UI sync ---------------------------------------------------------
-   tmSoundButton paints the master button from settings; tmAudioSyncUi
-   additionally refreshes the popover controls via the view's bound
-   sync closure (TMG._auSync). Both are safe pre-mount (no DOM → no-op). */
-function tmSoundButton() {
-  const btn = document.getElementById('tmSoundBtn');
-  if (!btn) return;
-  const anyOn = TMA.settings.mu || TMA.settings.sx;
-  btn.setAttribute('aria-pressed', String(anyOn));
-  btn.classList.toggle('on', anyOn);
-  const lbl = document.getElementById('tmSoundLbl');
-  if (lbl) lbl.textContent = anyOn ? 'sound on' : 'muted';
-}
+   Paints the persisted audio prefs (TMA.settings) into the settings card
+   (sliders + toggles) via the view's bound sync closure, TMG._auSync —
+   which renderTmView() creates at mount. Safe pre-mount (no DOM → no-op).
+   tmSoundButton() is a legacy alias kept for the console shell / older
+   callers: the standalone sound button became the settings overlay in
+   PHASE 6, so it now just repaints the same card. */
+function tmSoundButton() { tmAudioSyncUi(); }
 function tmAudioSyncUi() {
-  tmSoundButton();
   if (typeof TMG !== 'undefined' && TMG._auSync) TMG._auSync();
 }
 
@@ -704,6 +765,7 @@ function tmNewTrunk() {
  *  (the "+1" float timers) are already safe: each removes only its own
  *  detached-on-remount element. */
 function tmReset() {
+  if (TMG.holdTimer) { clearInterval(TMG.holdTimer); TMG.holdTimer = 0; }
   TMG.state = 'ready';
   TMG.score = 0;
   TMG.timeMs = TMG.startTimeMs;
@@ -724,6 +786,12 @@ function tmReset() {
 /** Attempt a chop on `side`. Returns true when the chop was applied. */
 function tmChop(side) {
   if (TMG.state !== 'playing') return false;
+  // PHASE 4 · smooth slide when the lumberjack switches sides.
+  if (side !== TMG.side) {
+    TMG.sideAnim.from = TMG.side;
+    TMG.sideAnim.t = 0;
+    tmSfx('move');
+  }
   TMG.side = side;
   TMG.chopAnim = performance.now();
   TMG.lastChopAt = TMG.chopAnim;
@@ -732,6 +800,22 @@ function tmChop(side) {
   // — index 0 is the stump below) must not hold a branch on his side.
   const headSeg = TMG.trunk[1];
   if (headSeg && headSeg.branch === side) {
+    // PHASE 4 · collision feedback: wood-burst at the impact point.
+    if (!TMG.reducedMotion) {
+      const dir = side === 'left' ? -1 : 1;
+      for (let i = 0; i < 10; i++) {
+        TMG.particles.push({
+          x: TM_VW / 2 + dir * 44,
+          y: TM_VH * 0.60 + (Math.random() - 0.5) * 30,
+          vx: dir * (0.6 + Math.random() * 2.2),
+          vy: -(1.5 + Math.random() * 2.8),
+          rot: Math.random() * Math.PI,
+          vr: (Math.random() - 0.5) * 0.35,
+          life: 1,
+          size: 4 + Math.random() * 7,
+        });
+      }
+    }
     tmGameOver('branch');
     return false;
   }
@@ -760,7 +844,7 @@ function tmChop(side) {
 
   // Feedback: chips, micro-shake, sounds.
   TMG.chopShake = 120;
-  tmSpawnChips(side);
+  tmSpawnChips();
   tmFloatScore();
   tmSfx('chop');
   if (TMG.score % 2 === 0) tmSfx('thud');           // periodic deep impact
@@ -812,8 +896,6 @@ function tmTogglePause() {
     tmOverlay(null);
     if (TMG.timerStarted) tmBgmStart();   // resume the groove
   }
-  const pb = tm$('tmPauseBtn');
-  if (pb) pb.textContent = TMG.state === 'paused' ? 'Resume' : 'Pause';
   tmSfx('ui');
 }
 
@@ -838,34 +920,43 @@ function tmGameOver(reason) {
 function tmOverlay(kind, reason, newBest) {
   const ov = tm$('tmOverlay');
   if (!ov) return;
+  const stage = tm$('tmStageWrap');
+  if (stage) stage.dataset.zones = kind === 'ready' ? '1' : '0';
   if (!kind) { ov.classList.add('hidden'); return; }
   ov.classList.remove('hidden');
   const title = tm$('tmOvTitle'), sub = tm$('tmOvSub'),
-        stats = tm$('tmOvStats'), btn = tm$('tmOvBtn'),
-        sc = tm$('tmRsScore'), best = tm$('tmOvBest');
+        keys = tm$('tmOvKeys'), stats = tm$('tmOvStats'), btn = tm$('tmOvBtn'),
+        exit = tm$('tmOvExit'), sc = tm$('tmRsScore'), rsb = tm$('tmRsBest'),
+        best = tm$('tmOvBest');
   if (kind === 'ready') {
     title.textContent = 'Timber Man Ultra';
-    sub.innerHTML = 'Chop the tree. Dodge the branches.<br><b>← / A</b> chop left · <b>→ / D</b> chop right · <b>P</b> pause<br>The 60-second clock starts on your first chop.';
+    sub.innerHTML = 'Chop the tree. Dodge the branches.<br>The 60-second clock starts on your first chop.';
+    keys.classList.remove('hidden');
+    keys.innerHTML = '<span class="tm-key">← / A</span><span class="tm-key">→ / D</span>'
+      + '<span class="tm-key">P pause</span><span class="tm-key">R restart</span>';
     stats.classList.add('hidden');
     btn.textContent = 'Start Chopping';
     btn.dataset.kind = 'start';
+    if (exit) exit.classList.add('hidden');
     if (best) best.textContent = TMG.best > 0 ? `★ best ${TMG.best}` : '';
   } else if (kind === 'paused') {
     title.textContent = 'Paused';
     sub.innerHTML = 'Take a breath.';
+    keys.classList.add('hidden');
     stats.classList.add('hidden');
     btn.textContent = 'Resume';
     btn.dataset.kind = 'resume';
+    if (exit) exit.classList.add('hidden');
   } else if (kind === 'over') {
     title.textContent = newBest ? 'New Best!' : 'Timber Down!';
-    sub.innerHTML = reason === 'time'
-      ? 'The clock ran out.'
-      : 'A branch got you.';
-
+    sub.innerHTML = reason === 'time' ? 'The clock ran out.' : 'A branch got you.';
+    keys.classList.add('hidden');
     stats.classList.remove('hidden');
     if (sc) sc.textContent = String(TMG.score);
+    if (rsb) rsb.textContent = String(TMG.best);
     btn.textContent = 'Chop Again';
     btn.dataset.kind = 'again';
+    if (exit) exit.classList.remove('hidden');
     if (best) best.textContent = newBest
       ? `★ new best ${TMG.best}!`
       : (TMG.best > 0 ? `★ best ${TMG.best}` : '');
@@ -873,38 +964,36 @@ function tmOverlay(kind, reason, newBest) {
 }
 
 function tmHud() {
-  const s = tm$('tmScore'); if (s) s.textContent = String(TMG.score);
+  const s = tm$('tmScore');
+  if (s && s.textContent !== String(TMG.score)) {
+    // PHASE 2 · smooth score update: brief scale pulse on change.
+    s.textContent = String(TMG.score);
+    const st = s.closest('.tm-stat');
+    if (st && !TMG.reducedMotion) {
+      st.classList.remove('bump');
+      void st.offsetWidth;                          // restart the animation
+      st.classList.add('bump');
+    }
+  }
   const b = tm$('tmBestV'); if (b) b.textContent = String(TMG.best);
   const t = tm$('tmTime'); if (t) t.textContent = tmTimeText();
-  const fill = tm$('tmTimeFill');
-  if (fill) {
+  const bar = tm$('tmTimeBar'), fill = tm$('tmTimeFill');
+  if (fill && bar) {
     const pct = Math.max(0, Math.min(100, TMG.timeMs / TMG.startTimeMs * 100));
     fill.style.width = pct + '%';
-    fill.classList.toggle('warn', pct <= 40 && pct > 18);
-    fill.classList.toggle('crit', pct <= 18);
+    bar.classList.toggle('warn', pct <= 40 && pct > 18);
+    bar.classList.toggle('crit', pct <= 18);
   }
   // Low-time urgency on the time stat itself.
   const ts = tm$('tmTimeStat');
-  if (ts) ts.classList.toggle('low', TMG.timerStarted && TMG.state === 'playing' && TMG.timeMs <= 10000);
-  // Level chip + progress toward the next level.
-  const lv = tm$('tmLvlV');
-  if (lv) lv.textContent = String(TMG.level + 1);
-  const ln = tm$('tmLvlName');
-  if (ln) ln.textContent = tmLevelCfg().name;
-  const lf = tm$('tmLvlFill');
-  if (lf) {
-    const cur = TM_LEVELS[TMG.level];
-    const nxt = TM_LEVELS[TMG.level + 1];
-    let pct = 100;
-    if (nxt) pct = Math.max(0, Math.min(100,
-      (TMG.score - cur.at) / (nxt.at - cur.at) * 100));
-    lf.style.width = pct + '%';
+  if (ts) {
+    const low = TMG.timerStarted && TMG.state === 'playing' && TMG.timeMs <= 10000;
+    ts.classList.toggle('warn', low && TMG.timeMs > 5000);
+    ts.classList.toggle('crit', low && TMG.timeMs <= 5000);
   }
-  const nx = tm$('tmLvlNext');
-  if (nx) {
-    const nxt = TM_LEVELS[TMG.level + 1];
-    nx.textContent = nxt ? `${nxt.at - TMG.score} to ${nxt.name}` : 'MAX';
-  }
+  // Level chip: "NAME · LV n" (compact, top-center under the timer).
+  const chip = tm$('tmLvlChip');
+  if (chip) chip.textContent = `${tmLevelCfg().name} · LV ${TMG.level + 1}`;
 }
 function tmTimeText() {
   const s = Math.max(0, TMG.timeMs) / 1000;
@@ -927,14 +1016,15 @@ function tmFloatScore() {
 }
 
 /* ---- Particles ----------------------------------------------------------- */
-function tmSpawnChips(side) {
+function tmSpawnChips() {
   if (TMG.reducedMotion) return;
-  const cx = TMG.w / 2, cy = TMG.h * 0.52;
-  const dir = side === 'left' ? 1 : -1;
+  // Logical coordinates: the trunk face beside the lumberjack.
+  const cx = TM_VW / 2, cy = TM_VH * 0.60;
+  const dir = TMG.side === 'left' ? 1 : -1;
   for (let i = 0; i < 7; i++) {
     TMG.particles.push({
-      x: cx + dir * (TMG.w * 0.13),
-      y: cy + (Math.random() - 0.5) * TMG.h * 0.08,
+      x: cx + dir * 30,
+      y: cy + (Math.random() - 0.5) * 26,
       vx: dir * (1.4 + Math.random() * 2.6),
       vy: -(1 + Math.random() * 2.4),
       rot: Math.random() * Math.PI,
@@ -959,14 +1049,30 @@ function tmResize() {
   // The stage can measure 0 while hidden (display:none ancestor, tab
   // restore, mid-fullscreen relayout). Never adopt a zero-size backing
   // store: keep the last valid metrics and repaint into them.
-  const rect = c.getBoundingClientRect();
-  if (rect.width < 1 || rect.height < 1) { tmDraw(performance.now()); return; }
+  const wrap = c.parentElement;                    // .tm-stage
+  const availW = wrap ? wrap.clientWidth : c.clientWidth;
+  const availH = wrap ? wrap.clientHeight : c.clientHeight;
+  if (availW < 40 || availH < 40) { tmDraw(performance.now()); return; }
+
+  // PHASE 1 · Letterbox the fixed logical playfield (TM_VW x TM_VH)
+  // into the available stage box: largest scale that fits BOTH axes,
+  // centred — no distortion, no cropping, identical gameplay at every
+  // viewport / orientation / fullscreen state.
+  const pad = 8;                                   // breathing room inside the stage
+  const fitW = Math.max(60, availW - pad * 2);
+  const fitH = Math.max(60, availH - pad * 2);
+  const k = Math.min(fitW / TM_VW, fitH / TM_VH);
+  const cssW = Math.round(TM_VW * k), cssH = Math.round(TM_VH * k);
+
   TMG.dpr = Math.min(window.devicePixelRatio || 1, 2);
-  TMG.w = Math.max(200, rect.width);
-  TMG.h = Math.max(200, rect.height);
-  c.width = Math.round(TMG.w * TMG.dpr);
-  c.height = Math.round(TMG.h * TMG.dpr);
-  TMG.ctx.setTransform(TMG.dpr, 0, 0, TMG.dpr, 0, 0);
+  TMG.w = cssW; TMG.h = cssH;                      // CSS px of the canvas box
+  c.style.width = cssW + 'px';
+  c.style.height = cssH + 'px';
+  c.width = Math.round(cssW * TMG.dpr);
+  c.height = Math.round(cssH * TMG.dpr);
+  // One transform: all drawing stays in logical units; gameplay math is
+  // untouched by any later resize.
+  TMG.ctx.setTransform(cssW * TMG.dpr / TM_VW, 0, 0, cssH * TMG.dpr / TM_VH, 0, 0);
   // Resizing wipes the bitmap. When the loop is idle (ready/paused/over)
   // nothing will repaint it, so draw one frame synchronously here.
   if (TMG.state !== 'playing') tmDraw(performance.now());
@@ -1007,9 +1113,15 @@ function tmFrame(now) {
 function tmDraw(now) {
   const ctx = TMG.ctx;
   if (!ctx) return;
-  const W = TMG.w, H = TMG.h;
+  // Fixed logical playfield: tmResize() installed one scale transform, so
+  // every layer below draws in stable TM_VW x TM_VH units regardless of
+  // the physical canvas size (no distortion at any aspect ratio).
+  const W = TM_VW, H = TM_VH;
 
   ctx.clearRect(0, 0, W, H);
+
+  // Death animation clock (drives the tumble in tmDrawMan).
+  if (TMG.state === 'over') TMG.deathT += 16; else TMG.deathT = 0;
 
   // Camera shake: strong on game over, subtle micro-pulse on every chop.
   ctx.save();
@@ -1017,23 +1129,20 @@ function tmDraw(now) {
   if (TMG.shake > 0) shakeK = Math.max(shakeK, TMG.shake / 340);
   if (TMG.chopShake > 0) shakeK = Math.max(shakeK, (TMG.chopShake / 120) * 0.28);
   if (shakeK > 0) {
-    ctx.translate((Math.random() - 0.5) * 10 * shakeK,
-                  (Math.random() - 0.5) * 10 * shakeK);
+    ctx.translate((Math.random() - 0.5) * 12 * shakeK,
+                  (Math.random() - 0.5) * 12 * shakeK);
   }
 
-  // --- sky + parallax hills ---
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, '#0b1322');
-  sky.addColorStop(1, '#12233b');
-  ctx.fillStyle = sky;
-  ctx.fillRect(-20, -20, W + 40, H + 40);
-
-  tmDrawHills(ctx, W, H);
-  tmDrawGround(ctx, W, H);
+  // --- environment layers (back → front) ---
+  tmDrawSky(ctx, W, H);            // gradient sky, moon, stars
+  tmDrawHills(ctx, W, H);          // distant ridges
+  tmDrawBgForest(ctx, W, H, now);  // background silhouettes + fog
+  tmDrawMotes(ctx, W, H, now);     // restrained drifting motes
+  tmDrawGround(ctx, W, H, now);    // grass field, tufts, stump shadow
 
   // --- tree ---
-  const segH = tmSegH(H);
-  const trunkW = Math.max(46, Math.min(86, W * 0.11));
+  const segH = tmSegH();
+  const trunkW = 64;
   const cx = W / 2;
   const baseY = H * 0.86;
   tmDrawTree(ctx, cx, baseY, trunkW, segH, now);
@@ -1041,7 +1150,7 @@ function tmDraw(now) {
   // --- lumberjack ---
   tmDrawMan(ctx, cx, baseY, trunkW, segH, now);
 
-  // --- particles ---
+  // --- wood chip particles ---
   for (let i = TMG.particles.length - 1; i >= 0; i--) {
     const p = TMG.particles[i];
     p.x += p.vx; p.y += p.vy; p.vy += 0.18; p.rot += p.vr; p.life -= 0.025;
@@ -1050,12 +1159,22 @@ function tmDraw(now) {
     ctx.globalAlpha = Math.max(0, p.life);
     ctx.translate(p.x, p.y);
     ctx.rotate(p.rot);
-    ctx.fillStyle = '#c99a5b';
+    // two-tone chip: bark outside, pale cut face
+    ctx.fillStyle = '#8a5a32';
     ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+    ctx.fillStyle = '#e9c98f';
+    ctx.fillRect(-p.size / 2 + 1, -p.size / 4 + 1, p.size - 2, p.size / 4);
     ctx.restore();
   }
 
   ctx.restore();
+
+  // Vignette — gentle focus falloff, never touches the HUD zone.
+  const vg = ctx.createRadialGradient(W / 2, H * 0.45, H * 0.34, W / 2, H * 0.5, H * 0.78);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,.30)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
 
   // Red hit-flash (drawn unshaken, over everything).
   if (TMG.flashRed > 0) {
@@ -1064,30 +1183,174 @@ function tmDraw(now) {
   }
 }
 
-function tmSegH(H) { return Math.max(44, Math.min(84, H * 0.105)); }
+/* ============================================================
+   PHASE 3/4 · RENDERING
+   The playfield has a FIXED logical coordinate system (TM_VW x TM_VH)
+   exactly like Space Invaders' SI.W/SI.H: tmResize() letterboxes the
+   canvas at the correct aspect ratio and installs one scale transform,
+   so every draw call below works in stable logical units and gameplay
+   math is untouched by any viewport, orientation or fullscreen change.
+   ============================================================ */
+const TM_VW = 480, TM_VH = 640;      // logical viewport (portrait arcade)
 
+/** Deterministic pseudo-random for stable background detail. */
+function tmHash(n) {
+  const s = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+/** Segment height in logical units (trunk slice). */
+function tmSegH() { return 62; }
+
+/* ---- sky, distant hills, background forest --------------------------- */
+function tmDrawSky(ctx, W, H) {
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#08101f');
+  sky.addColorStop(0.45, '#0d1a2e');
+  sky.addColorStop(0.8, '#12233b');
+  sky.addColorStop(1, '#15283f');
+  ctx.fillStyle = sky;
+  ctx.fillRect(-20, -20, W + 40, H + 40);
+
+  // Moon glow — quiet anchor in the upper right.
+  const mx = W * 0.78, my = H * 0.14;
+  const g = ctx.createRadialGradient(mx, my, 4, mx, my, 90);
+  g.addColorStop(0, 'rgba(214,232,255,.30)');
+  g.addColorStop(0.35, 'rgba(160,190,230,.10)');
+  g.addColorStop(1, 'rgba(160,190,230,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(mx, my, 90, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(226,238,255,.75)';
+  ctx.beginPath(); ctx.arc(mx, my, 17, 0, Math.PI * 2); ctx.fill();
+
+  // Stars — sparse, deterministic, dim enough to ignore while playing.
+  ctx.fillStyle = 'rgba(220,235,255,.5)';
+  for (let i = 0; i < 26; i++) {
+    const x = tmHash(i * 3.1) * W;
+    const y = tmHash(i * 7.7) * H * 0.42;
+    const tw = 0.55 + 0.45 * Math.sin(performance.now() / 1400 + i * 2.4);
+    ctx.globalAlpha = 0.16 + 0.2 * tw;
+    ctx.fillRect(x, y, 1.6, 1.6);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/** Distant hill layers (parallax bands, static — depth without noise). */
 function tmDrawHills(ctx, W, H) {
-  ctx.fillStyle = 'rgba(20,40,66,.85)';
+  const horizon = H * 0.66;
+  // far ridge
+  ctx.fillStyle = 'rgba(24,48,74,.55)';
   ctx.beginPath();
-  ctx.moveTo(0, H * 0.8);
-  ctx.quadraticCurveTo(W * 0.2, H * 0.62, W * 0.45, H * 0.78);
-  ctx.quadraticCurveTo(W * 0.7, H * 0.9, W, H * 0.68);
+  ctx.moveTo(0, horizon);
+  for (let i = 0; i <= 8; i++) {
+    const x = (i / 8) * W;
+    ctx.quadraticCurveTo(x - W / 16, horizon - 30 - tmHash(i * 5.3) * 44, x, horizon - 6 - tmHash(i * 9.1) * 18);
+  }
   ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = 'rgba(16,32,54,.9)';
+  // near ridge
+  ctx.fillStyle = 'rgba(17,38,60,.75)';
   ctx.beginPath();
-  ctx.moveTo(0, H * 0.88);
-  ctx.quadraticCurveTo(W * 0.3, H * 0.74, W * 0.6, H * 0.86);
-  ctx.quadraticCurveTo(W * 0.85, H * 0.94, W, H * 0.82);
+  ctx.moveTo(0, horizon + 34);
+  for (let i = 0; i <= 6; i++) {
+    const x = (i / 6) * W;
+    ctx.quadraticCurveTo(x - W / 12, horizon + 10 - tmHash(i * 3.7 + 40) * 36, x, horizon + 30 - tmHash(i * 6.1 + 40) * 14);
+  }
   ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
 }
 
-function tmDrawGround(ctx, W, H) {
-  ctx.fillStyle = '#16321f';
-  ctx.fillRect(-20, H * 0.86, W + 40, H * 0.14 + 20);
-  ctx.fillStyle = '#1d4229';
-  ctx.fillRect(-20, H * 0.86, W + 40, 6);
+/** Background tree line: dark silhouettes flanking the play column.
+ *  Drawn once per frame but cheap (simple triangles + ellipse crowns),
+ *  deterministic positions, well outside the trunk's collision lane. */
+function tmDrawBgForest(ctx, W, H, now) {
+  const groundY = H * 0.86;
+  // left cluster
+  const clusters = [
+    { x: -14, s: 1.00 }, { x: 52, s: 0.82 }, { x: 116, s: 0.66 },
+    { x: W + 14, s: 1.04 }, { x: W - 54, s: 0.84 }, { x: W - 118, s: 0.64 },
+  ];
+  for (const c of clusters) {
+    const hgt = 150 * c.s, wdt = 46 * c.s;
+    // trunk silhouette
+    ctx.fillStyle = 'rgba(13,26,38,.85)';
+    ctx.fillRect(c.x - 5 * c.s, groundY - hgt, 10 * c.s, hgt);
+    // crown (two stacked triangles)
+    ctx.fillStyle = 'rgba(15,42,44,.8)';
+    ctx.beginPath();
+    ctx.moveTo(c.x, groundY - hgt - 34 * c.s);
+    ctx.lineTo(c.x - wdt * 0.6, groundY - hgt * 0.62);
+    ctx.lineTo(c.x + wdt * 0.6, groundY - hgt * 0.62);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(c.x, groundY - hgt * 0.80);
+    ctx.lineTo(c.x - wdt * 0.75, groundY - hgt * 0.30);
+    ctx.lineTo(c.x + wdt * 0.75, groundY - hgt * 0.30);
+    ctx.closePath(); ctx.fill();
+  }
+  // soft fog band over the forest base — depth cue
+  const fog = ctx.createLinearGradient(0, groundY - 70, 0, groundY + 10);
+  fog.addColorStop(0, 'rgba(120,160,190,0)');
+  fog.addColorStop(1, 'rgba(120,160,190,.10)');
+  ctx.fillStyle = fog;
+  ctx.fillRect(0, groundY - 70, W, 80);
 }
 
+/** Restrained atmospheric particles: drifting motes/fireflies.
+ *  Persistent pool, ~14 items, gentle sine drift — never near the HUD. */
+const TM_MOTES = [];
+function tmDrawMotes(ctx, W, H, now) {
+  if (TMG.reducedMotion) return;
+  if (TM_MOTES.length === 0) {
+    for (let i = 0; i < 14; i++) {
+      TM_MOTES.push({
+        x: tmHash(i * 13.3) * W, y: tmHash(i * 29.7) * H,
+        r: 1 + tmHash(i * 7.1) * 1.6,
+        ph: tmHash(i * 3.3) * Math.PI * 2,
+        sp: 0.02 + tmHash(i * 11.9) * 0.05,
+      });
+    }
+  }
+  for (const m of TM_MOTES) {
+    const y = (m.y - now * m.sp * 0.06) % H;
+    const yy = y < 0 ? y + H : y;
+    const x = m.x + Math.sin(now / 2600 + m.ph) * 14;
+    const a = 0.10 + 0.13 * (0.5 + 0.5 * Math.sin(now / 900 + m.ph * 2));
+    ctx.fillStyle = `rgba(180,230,200,${a})`;
+    ctx.beginPath(); ctx.arc(x, yy, m.r, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/* ---- ground ----------------------------------------------------------- */
+function tmDrawGround(ctx, W, H, now) {
+  const gy = H * 0.86;
+  // grass field with subtle vertical gradient
+  const g = ctx.createLinearGradient(0, gy, 0, H);
+  g.addColorStop(0, '#1c4229');
+  g.addColorStop(0.25, '#173a23');
+  g.addColorStop(1, '#102a19');
+  ctx.fillStyle = g;
+  ctx.fillRect(-20, gy, W + 40, H - gy + 20);
+  // lit top edge
+  ctx.fillStyle = 'rgba(94,242,192,.14)';
+  ctx.fillRect(-20, gy, W + 40, 3);
+  // grass tufts — deterministic, tiny, no motion
+  ctx.strokeStyle = 'rgba(94,242,192,.16)';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 22; i++) {
+    const x = 8 + tmHash(i * 17.3) * (W - 16);
+    const y = gy + 8 + tmHash(i * 31.1) * (H - gy - 18);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (tmHash(i * 5.5) - 0.5) * 4, y - 5);
+    ctx.stroke();
+  }
+  // stump shadow under the tree
+  ctx.fillStyle = 'rgba(0,0,0,.28)';
+  ctx.beginPath();
+  ctx.ellipse(W / 2, gy + 6, 78, 12, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/* ---- tree ------------------------------------------------------------- */
 function tmDrawTree(ctx, cx, baseY, trunkW, segH, now) {
   // Trunk slide-down: after a chop the whole stack eases from one segment
   // higher to its resting position (slideT 0 → 1). Reduced-motion skips it.
@@ -1095,114 +1358,236 @@ function tmDrawTree(ctx, cx, baseY, trunkW, segH, now) {
   const ease = 1 - Math.pow(1 - slide, 3);            // ease-out cubic
   const offY = (1 - ease) * segH;                     // px still to travel
 
-  // Segments: index 0 sits on the ground; the lumberjack stands beside it.
+  const barkLight = '#a87243', barkMid = '#8a5a32', barkDark = '#6b4526';
+
   for (let i = 0; i < TMG.trunk.length; i++) {
     const seg = TMG.trunk[i];
     const y = baseY - i * segH + offY;
-    // Trunk slice with rounded bark texture.
+
+    // --- trunk slice with vertical bark gradient ---
     const g = ctx.createLinearGradient(cx - trunkW / 2, 0, cx + trunkW / 2, 0);
-    g.addColorStop(0, '#7a5230');
-    g.addColorStop(0.45, '#a06b3c');
-    g.addColorStop(1, '#6b4526');
+    g.addColorStop(0, barkDark);
+    g.addColorStop(0.28, barkMid);
+    g.addColorStop(0.5, barkLight);
+    g.addColorStop(0.72, barkMid);
+    g.addColorStop(1, '#5a3a1e');
     ctx.fillStyle = g;
-    tmRoundRect(ctx, cx - trunkW / 2, y - segH, trunkW, segH - 2, 6);
+    tmRoundRect(ctx, cx - trunkW / 2, y - segH, trunkW, segH - 2, 7);
     ctx.fill();
-    // Bark line.
-    ctx.strokeStyle = 'rgba(0,0,0,.22)';
+
+    // Bark texture: deterministic vertical fissures + cut chevron on the
+    // bottom face of the topmost (just-chopped) segment.
+    ctx.strokeStyle = 'rgba(40,22,8,.38)';
+    ctx.lineWidth = 2;
+    for (let k = 0; k < 3; k++) {
+      const fx = cx + (k - 1) * trunkW * 0.26 + (tmHash(i * 9 + k * 3) - 0.5) * 5;
+      ctx.beginPath();
+      ctx.moveTo(fx, y - segH + 6);
+      ctx.lineTo(fx + (tmHash(i * 4 + k) - 0.5) * 4, y - 6);
+      ctx.stroke();
+    }
+    // lighter highlight stripe
+    ctx.strokeStyle = 'rgba(255,220,170,.14)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(cx - trunkW * 0.18, y - segH + 4);
-    ctx.lineTo(cx - trunkW * 0.18, y - 6);
+    ctx.moveTo(cx - trunkW * 0.3, y - segH + 5);
+    ctx.lineTo(cx - trunkW * 0.3, y - 5);
     ctx.stroke();
 
-    // Branch on this segment.
+    // segment seam
+    ctx.fillStyle = 'rgba(30,16,6,.5)';
+    ctx.fillRect(cx - trunkW / 2 + 3, y - 3, trunkW - 6, 2);
+
+    // --- branch: tapered arm + layered leaf clusters ---
     if (seg.branch) {
       const dir = seg.branch === 'left' ? -1 : 1;
-      const by = y - segH * 0.72;
-      const len = trunkW * 1.55;
+      const by = y - segH * 0.68;
+      const len = trunkW * 1.62;
       ctx.save();
       ctx.translate(cx + dir * trunkW / 2, by);
-      // Branch arm.
+      // arm: two tapering rects read as a chunky pixel branch
       const bg = ctx.createLinearGradient(0, 0, dir * len, 0);
-      bg.addColorStop(0, '#8a5c33');
+      bg.addColorStop(0, barkMid);
       bg.addColorStop(1, '#5f3d1f');
       ctx.fillStyle = bg;
-      tmRoundRect(ctx, dir < 0 ? -len : 0, -7, len, 14, 7);
+      tmRoundRect(ctx, dir < 0 ? -len : 0, -8, len, 16, 8);
       ctx.fill();
-      // Leaves cluster.
-      ctx.fillStyle = '#2e7d4f';
-      ctx.beginPath();
-      ctx.ellipse(dir * len * 0.92, -4, 20, 13, dir * 0.3, 0, Math.PI * 2);
+      // underside shading
+      ctx.fillStyle = 'rgba(0,0,0,.22)';
+      tmRoundRect(ctx, dir < 0 ? -len : 0, 1, len, 7, 5);
       ctx.fill();
-      ctx.fillStyle = '#3b9e63';
+      // knot
+      ctx.fillStyle = 'rgba(50,28,10,.55)';
       ctx.beginPath();
-      ctx.ellipse(dir * len * 0.8, -12, 14, 9, dir * 0.25, 0, Math.PI * 2);
+      ctx.arc(dir * len * 0.3, -1, 3.4, 0, Math.PI * 2);
+      ctx.fill();
+      // leaves: three overlapping ellipses, dark→light for volume
+      ctx.fillStyle = '#256b43';
+      ctx.beginPath();
+      ctx.ellipse(dir * len * 0.95, -3, 22, 14, dir * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#2f8a56';
+      ctx.beginPath();
+      ctx.ellipse(dir * len * 0.86, -11, 15, 9.5, dir * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#3fa86a';
+      ctx.beginPath();
+      ctx.ellipse(dir * len * 1.02, -8, 9, 6, dir * 0.3, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
   }
-  // Canopy at the very top.
+
+  // --- canopy at the very top ---
   const topY = baseY - TMG.trunk.length * segH + offY;
+  const sway = TMG.reducedMotion ? 0 : Math.sin(now / 1900) * 3;
+  ctx.save();
+  ctx.translate(sway, 0);
+  ctx.fillStyle = '#1f5c3a';
+  ctx.beginPath();
+  ctx.ellipse(cx, topY + 8, trunkW * 1.62, trunkW * 1.02, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.fillStyle = '#256b43';
   ctx.beginPath();
-  ctx.ellipse(cx, topY + 6, trunkW * 1.5, trunkW * 0.95, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx - trunkW * 0.55, topY - 3, trunkW * 0.95, trunkW * 0.62, -0.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + trunkW * 0.58, topY - 1, trunkW * 0.9, trunkW * 0.58, 0.25, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#2f8a56';
   ctx.beginPath();
-  ctx.ellipse(cx - trunkW * 0.5, topY - 4, trunkW * 0.9, trunkW * 0.6, -0.2, 0, Math.PI * 2);
+  ctx.ellipse(cx + trunkW * 0.1, topY - 12, trunkW * 0.7, trunkW * 0.5, 0.05, 0, Math.PI * 2);
   ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(cx + trunkW * 0.55, topY - 2, trunkW * 0.85, trunkW * 0.55, 0.25, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.restore();
 }
 
+/* ---- lumberjack ------------------------------------------------------- */
+/** Lumberjack render state (side-slide easing + death animation). */
+TMG.sideAnim = { from: 'left', t: 1 };
+TMG.deathT = 0;
+
 function tmDrawMan(ctx, cx, baseY, trunkW, segH, now) {
+  const dead = TMG.state === 'over';
   const dir = TMG.side === 'left' ? -1 : 1;
-  const x = cx + dir * (trunkW / 2 + 26);
+
+  // Smooth side transition: ease between the previous and current side.
+  if (TMG.sideAnim.t < 1) {
+    TMG.sideAnim.t = Math.min(1, TMG.sideAnim.t + 0.28);
+  }
+  const fromDir = TMG.sideAnim.from === 'left' ? -1 : 1;
+  const mix = 1 - Math.pow(1 - TMG.sideAnim.t, 2);
+  const pos = fromDir + (dir - fromDir) * mix;        // -1 .. 1 continuous
+  const x = cx + pos * (trunkW / 2 + 30);
+
   const feetY = baseY + 4;
-  const scale = Math.max(0.8, Math.min(1.15, TMG.h / 560));
 
-  // Axe swing: 0..1 progress since the last chop.
+  // Axe swing: 0..1 progress since the last chop (wind-up → strike).
   const since = now - TMG.lastChopAt;
-  const swing = TMG.state === 'playing' && since < 220
-    ? Math.sin((since / 220) * Math.PI) : 0;
+  let swing = 0;
+  if (TMG.state === 'playing' && since < 230) {
+    swing = Math.sin((since / 230) * Math.PI);
+  }
+
+  // Death: tumble away from the fatal branch + fade to ground.
+  let deathK = 0, deathRot = 0, deathDy = 0;
+  if (dead) {
+    deathK = Math.min(1, TMG.deathT / 700);
+    deathRot = dir * deathK * 1.9;                    // fall backwards
+    deathDy = deathK * 26;
+  }
+
+  // Idle bob when waiting (ready screen) — keeps the scene alive.
+  const bob = (!dead && TMG.state === 'ready' && !TMG.reducedMotion)
+    ? Math.sin(now / 520) * 2 : 0;
 
   ctx.save();
-  ctx.translate(x, feetY);
-  ctx.scale(scale * (dir < 0 ? -1 : 1), scale);
+  ctx.translate(x, feetY + deathDy);
+  ctx.rotate(deathRot);
+  ctx.scale(dir < 0 ? -1 : 1, 1);
 
-  // Legs.
-  ctx.strokeStyle = '#2c3a55'; ctx.lineWidth = 7; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(0, -26); ctx.lineTo(-7, 0); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, -26); ctx.lineTo(8, 0); ctx.stroke();
+  // shadow (drawn before body, unrotated feel)
+  if (!dead) {
+    ctx.fillStyle = 'rgba(0,0,0,.3)';
+    ctx.beginPath(); ctx.ellipse(0, 2, 15, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+  }
 
-  // Body (plaid-ish shirt).
+  // ---- legs (blue jeans) ----
+  ctx.strokeStyle = '#2c3a55'; ctx.lineWidth = 7.5; ctx.lineCap = 'round';
+  const stride = swing > 0.4 ? (swing - 0.4) * 8 : 0;   // brace during strike
+  ctx.beginPath(); ctx.moveTo(-1, -27); ctx.lineTo(-8 - stride, -1); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(1, -27); ctx.lineTo(9 + stride, -1); ctx.stroke();
+  // boots
+  ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 5.5;
+  ctx.beginPath(); ctx.moveTo(-8 - stride, -2); ctx.lineTo(-10 - stride, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(9 + stride, -2); ctx.lineTo(11 + stride, 0); ctx.stroke();
+
+  // ---- torso: red plaid shirt ----
   ctx.fillStyle = '#d64545';
-  tmRoundRect(ctx, -11, -58, 22, 34, 8); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,.18)';
-  ctx.fillRect(-11, -50, 22, 3); ctx.fillRect(-11, -41, 22, 3);
+  tmRoundRect(ctx, -12, -60, 24, 35, 8); ctx.fill();
+  // plaid weave
+  ctx.fillStyle = 'rgba(255,255,255,.16)';
+  ctx.fillRect(-12, -53, 24, 3); ctx.fillRect(-12, -44, 24, 3); ctx.fillRect(-12, -35, 24, 3);
+  ctx.fillStyle = 'rgba(120,20,20,.28)';
+  ctx.fillRect(-4, -60, 3, 35); ctx.fillRect(4, -60, 3, 35);
+  // belt
+  ctx.fillStyle = '#3a2a1a';
+  ctx.fillRect(-12, -28, 24, 5);
+  ctx.fillStyle = '#ffd166';
+  ctx.fillRect(-2, -27.5, 5, 4);
 
-  // Head + helmet.
+  // ---- head + helmet ----
   ctx.fillStyle = '#f2c19a';
-  ctx.beginPath(); ctx.arc(0, -68, 10, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(0, -70, 10.5, 0, Math.PI * 2); ctx.fill();
+  // ear
+  ctx.beginPath(); ctx.arc(-4, -69, 2.2, 0, Math.PI * 2); ctx.fillStyle = '#e0a87e'; ctx.fill();
+  // eye + smile (hidden when dead — X eyes)
+  if (dead) {
+    ctx.strokeStyle = '#5a3a2a'; ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.moveTo(2, -73); ctx.lineTo(7, -68); ctx.moveTo(7, -73); ctx.lineTo(2, -68); ctx.stroke();
+  } else {
+    ctx.fillStyle = '#2b2b2b';
+    ctx.fillRect(3, -73, 2.4, 2.8);
+    ctx.strokeStyle = '#a3704d'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(4, -66, 3, 0.15, Math.PI - 0.5); ctx.stroke();
+  }
+  // beard
+  ctx.fillStyle = '#8a5a3a';
+  ctx.beginPath(); ctx.arc(1, -63, 6.5, 0, Math.PI); ctx.fill();
+  // helmet (yellow hard hat with brim)
   ctx.fillStyle = '#ffb703';
-  ctx.beginPath(); ctx.arc(0, -70, 10.5, Math.PI, 0); ctx.fill();
-  ctx.fillRect(-11, -71, 22, 4);
+  ctx.beginPath(); ctx.arc(0, -72, 11, Math.PI, 0); ctx.fill();
+  ctx.fillRect(-13, -73, 26, 4.5);
+  ctx.fillStyle = 'rgba(255,255,255,.25)';
+  ctx.fillRect(-6, -79, 4, 3);
 
-  // Arms + axe (swings toward the trunk).
-  const ax = 14 + swing * 10;
-  const ay = -52 + swing * 16;
-  ctx.strokeStyle = '#f2c19a'; ctx.lineWidth = 6;
-  ctx.beginPath(); ctx.moveTo(4, -52); ctx.lineTo(ax, ay); ctx.stroke();
-  // Axe handle.
+  // ---- arms + axe ----
+  // rear arm (static grip)
+  ctx.strokeStyle = '#d64545'; ctx.lineWidth = 6.5;
+  ctx.beginPath(); ctx.moveTo(-3, -55); ctx.lineTo(6, -47); ctx.stroke();
+  ctx.strokeStyle = '#f2c19a'; ctx.lineWidth = 5.5;
+  ctx.beginPath(); ctx.moveTo(6, -47); ctx.lineTo(13, -42); ctx.stroke();
+
+  // front arm + axe: wind-up raised, strike sweeps into the trunk.
+  const ax = 12 + swing * 13;
+  const ay = -50 + swing * 17;
+  ctx.strokeStyle = '#d64545'; ctx.lineWidth = 6.5;
+  ctx.beginPath(); ctx.moveTo(3, -53); ctx.lineTo(ax, ay); ctx.stroke();
+  ctx.strokeStyle = '#f2c19a'; ctx.lineWidth = 5.5;
+  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + 8, ay + 3); ctx.stroke();
+  // axe handle (wood, two-tone)
   ctx.strokeStyle = '#8a5c33'; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + 16, ay - 14); ctx.stroke();
-  // Axe head.
-  ctx.fillStyle = '#cfd8e3';
+  ctx.beginPath(); ctx.moveTo(ax + 2, ay + 1); ctx.lineTo(ax + 21, ay - 13); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,220,170,.3)'; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(ax + 4, ay); ctx.lineTo(ax + 19, ay - 11); ctx.stroke();
+  // axe head: steel blade + bright edge
   ctx.save();
-  ctx.translate(ax + 16, ay - 14);
-  ctx.rotate(0.6 - swing * 0.9);
-  tmRoundRect(ctx, -4, -9, 14, 18, 3); ctx.fill();
+  ctx.translate(ax + 21, ay - 13);
+  ctx.rotate(0.62 - swing * 0.95);
+  ctx.fillStyle = '#9fb0c4';
+  tmRoundRect(ctx, -5, -10, 16, 20, 3); ctx.fill();
+  ctx.fillStyle = '#e6eef8';
+  ctx.beginPath();
+  ctx.moveTo(11, -9); ctx.quadraticCurveTo(19, 0, 11, 9); ctx.closePath(); ctx.fill();
   ctx.restore();
 
   ctx.restore();
@@ -1223,11 +1608,6 @@ function tmRoundRect(ctx, x, y, w, h, r) {
 function renderTmView() {
   document.getElementById('viewRoot').innerHTML = `
   <div class="content"><div class="content-inner">
-    <div class="ft-game-top">
-      <a class="ft-back" href="#funtime" title="Back to the games">← back to games</a>
-      <div class="ft-game-title">Timber Man Ultra</div>
-    </div>
-
     <section class="ft-panel ft-game tm-wide" id="tmPanel" aria-label="Timber Man Ultra arcade game">
       <header class="ft-panel-h">
         <div class="ws-ico ft-ico">${(typeof ICONS !== 'undefined' && ICONS.funtime) || ''}</div>
@@ -1237,85 +1617,96 @@ function renderTmView() {
         </div>
       </header>
 
-      <div class="tm-hud" role="status" aria-live="off">
-        <span class="tm-stat"><span class="k">score</span><span class="v" id="tmScore">0</span></span>
-        <span class="tm-stat time" id="tmTimeStat"><span class="k">time</span><span class="v" id="tmTime">60.0</span></span>
-        <span class="tm-stat lvl"><span class="k">level</span><span class="v" id="tmLvlV">1</span></span>
-        <span class="tm-stat best"><span class="k">best</span><span class="v" id="tmBestV">0</span></span>
-      </div>
-
-      <div id="tmTimeBar" aria-hidden="true"><span id="tmTimeFill"></span></div>
-      <div id="tmLvlRow" aria-hidden="true">
-        <span id="tmLvlName">EASY</span>
-        <span id="tmLvlBar"><span id="tmLvlFill"></span></span>
-        <span id="tmLvlNext"></span>
-      </div>
-
-      <div class="tm-stage" id="tmStageWrap">
+      <!-- PHASE 1/2 · The stage IS the screen: canvas letterboxed inside,
+           compact translucent HUD overlaid on top. No bottom control bar. -->
+      <div class="tm-stage" id="tmStageWrap" data-zones="0">
         <canvas id="tmCanvas" aria-label="Timber Man play field"
                 role="img">Your browser does not support the canvas element.</canvas>
+
+        <!-- overlay HUD -->
+        <div class="tm-hud" role="status" aria-live="off">
+          <div class="tm-hud-l">
+            <span class="tm-stat score"><span class="k">score</span><span class="v" id="tmScore">0</span></span>
+          </div>
+          <div class="tm-hud-c">
+            <span class="tm-stat time" id="tmTimeStat"><span class="k">time</span><span class="v" id="tmTime">60.0</span></span>
+            <span class="tm-time-bar" id="tmTimeBar" aria-hidden="true"><i id="tmTimeFill"></i></span>
+            <span class="tm-lvl-chip" id="tmLvlChip">EASY · LV 1</span>
+          </div>
+          <div class="tm-hud-r">
+            <span class="tm-stat best"><span class="k">best</span><span class="v" id="tmBestV">0</span></span>
+            <button type="button" class="tm-ibtn" id="tmFsBtn" aria-label="Toggle fullscreen" title="Fullscreen (F)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/>
+                <path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
+              </svg>
+            </button>
+            <button type="button" class="tm-ibtn" id="tmGearBtn" aria-label="Settings" title="Settings">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- mobile touch-zone hints (ready state only) -->
+        <div class="tm-zones" aria-hidden="true"><span>◀ tap left</span><span>tap right ▶</span></div>
+
+        <!-- status overlay: ready / paused / game over -->
         <div class="tm-overlay" id="tmOverlay" role="dialog" aria-modal="false" aria-label="Game status">
           <div class="tm-ov-inner">
             <div class="tm-ov-title" id="tmOvTitle">Timber Man Ultra</div>
             <div class="tm-ov-sub" id="tmOvSub"></div>
+            <div class="tm-ov-keys hidden" id="tmOvKeys"></div>
             <div class="tm-ov-stats hidden" id="tmOvStats">
               <div class="tm-ov-stat hl"><span class="k">score</span><span class="v" id="tmRsScore">0</span></div>
+              <div class="tm-ov-stat"><span class="k">best</span><span class="v" id="tmRsBest">0</span></div>
             </div>
-            <button type="button" class="tm-ov-btn" id="tmOvBtn" data-kind="start">Start Chopping</button>
+            <div class="tm-ov-row">
+              <button type="button" class="tm-ov-btn" id="tmOvBtn" data-kind="start">Start Chopping</button>
+              <button type="button" class="tm-ov-btn ghost hidden" id="tmOvExit">Back to Games</button>
+            </div>
             <div class="tm-ov-best" id="tmOvBest"></div>
           </div>
         </div>
-      </div>
 
-      <div class="tm-controls" role="group" aria-label="Game controls">
-        <button type="button" class="ft-btn" id="tmPauseBtn">Pause</button>
-        <button type="button" class="ft-btn" id="tmRestartBtn">Restart</button>
-        <button type="button" class="ft-btn si-sound" id="tmSoundBtn" aria-pressed="true"
-                aria-haspopup="dialog" aria-expanded="false">
-          <span class="si-snd-ico" aria-hidden="true">♪</span><span id="tmSoundLbl">sound on</span>
-        </button>
-        <button type="button" class="ft-btn" id="tmFsBtn" aria-pressed="false">Fullscreen</button>
-        <button type="button" class="ft-btn si-exit" id="tmExit">Back to Games</button>
-      </div>
-
-      <!-- audio settings popover: music/effects toggles + volume sliders.
-           Persists via localStorage ('tm-audio-v1'); outside-click close. -->
-      <div class="tm-audio-pop hidden" id="tmAudioPop" role="dialog"
-           aria-label="Audio settings" aria-modal="false">
-        <div class="tm-au-row tm-au-head">
-          <span class="tm-au-title">AUDIO</span>
-          <button type="button" class="tm-au-x" id="tmAudioClose"
-                  aria-label="Close audio settings">✕</button>
+        <!-- PHASE 6 · settings overlay (pauses gameplay) -->
+        <div class="tm-settings hidden" id="tmSettings" role="dialog" aria-modal="true" aria-label="Settings">
+          <div class="tm-set-card">
+            <div class="tm-set-head">
+              <span class="tm-set-title">Settings</span>
+              <button type="button" class="tm-set-x" id="tmSetClose" aria-label="Close settings">✕</button>
+            </div>
+            <button type="button" class="tm-set-btn primary" id="tmSetResume">Resume</button>
+            <button type="button" class="tm-set-btn" id="tmSetRestart">Restart Round</button>
+            <button type="button" class="tm-set-btn" id="tmSetFs">Enter Fullscreen</button>
+            <div class="tm-set-sep" role="presentation"></div>
+            <div class="tm-au-row">
+              <label class="tm-au-l" for="tmAuMusicV">Music</label>
+              <input type="range" id="tmAuMusicV" class="tm-au-slider"
+                     min="0" max="100" step="1" aria-label="Music volume">
+              <span class="tm-au-val" id="tmAuMusicVal"></span>
+            </div>
+            <div class="tm-au-row">
+              <label class="tm-au-l" for="tmAuSfxV">Effects</label>
+              <input type="range" id="tmAuSfxV" class="tm-au-slider"
+                     min="0" max="100" step="1" aria-label="Sound effects volume">
+              <span class="tm-au-val" id="tmAuSfxVal"></span>
+            </div>
+            <div class="tm-au-toggles">
+              <button type="button" class="tm-au-toggle" id="tmAuMusicT"
+                      aria-pressed="true"><span class="tm-au-dot" aria-hidden="true"></span>Music</button>
+              <button type="button" class="tm-au-toggle" id="tmAuSfxT"
+                      aria-pressed="true"><span class="tm-au-dot" aria-hidden="true"></span>Effects</button>
+            </div>
+            <div class="tm-set-sep" role="presentation"></div>
+            <button type="button" class="tm-set-btn danger" id="tmSetExit">Exit to Games</button>
+            <div class="tm-set-hint">P pause · R restart · F fullscreen</div>
+          </div>
         </div>
-        <div class="tm-au-row">
-          <label class="tm-au-l" for="tmAuMusicV">Music</label>
-          <input type="range" id="tmAuMusicV" class="tm-au-slider"
-                 min="0" max="100" step="1" aria-label="Music volume">
-          <span class="tm-au-val" id="tmAuMusicVal"></span>
-        </div>
-        <div class="tm-au-row">
-          <label class="tm-au-l" for="tmAuSfxV">Effects</label>
-          <input type="range" id="tmAuSfxV" class="tm-au-slider"
-                 min="0" max="100" step="1" aria-label="Sound effects volume">
-          <span class="tm-au-val" id="tmAuSfxVal"></span>
-        </div>
-        <div class="tm-au-row tm-au-toggles">
-          <button type="button" class="tm-au-toggle" id="tmAuMusicT"
-                  aria-pressed="true"><span class="tm-au-dot" aria-hidden="true"></span>Music</button>
-          <button type="button" class="tm-au-toggle" id="tmAuSfxT"
-                  aria-pressed="true"><span class="tm-au-dot" aria-hidden="true"></span>Effects</button>
-        </div>
-      </div>
-
-      <div class="tm-help">
-        <span>←/A chop left</span><span>→/D chop right</span>
-        <span>P pause</span><span>R restart</span><span>F fullscreen</span>
-      </div>
-
-      <!-- Touch controls: two large half-screen pads. -->
-      <div class="tm-touch" role="group" aria-label="Touch chop controls">
-        <button type="button" class="tm-pad" id="tmPadL" aria-label="Chop left">⬅ chop left</button>
-        <button type="button" class="tm-pad" id="tmPadR" aria-label="Chop right">chop right ➡</button>
       </div>
     </section>
   </div></div>`;
@@ -1336,16 +1727,16 @@ function renderTmView() {
   if (TMG.raf) { cancelAnimationFrame(TMG.raf); TMG.raf = 0; }
 
   tmReset();
+  // Best score is read fresh from storage on every mount (a previous
+  // session in this tab may have raised it; TMG.best is mount-scoped).
+  TMG.best = +(localStorage.getItem('tmBest') || 0) || TMG.best;
   const okInit = tmInit(document.getElementById('tmCanvas'));
   if (!okInit) {
     // Surface init failure honestly instead of a permanently blank stage.
     document.getElementById('viewRoot').innerHTML =
       `<div class="content"><div class="content-inner">
-         <div class="ft-game-top">
-           <a class="ft-back" href="#funtime" title="Back to the games">← back to games</a>
-           <div class="ft-game-title">Timber Man Ultra</div>
-         </div>
-         <section class="ft-panel ft-game tm-wide" id="tmPanel" aria-label="Timber Man Ultra failed to start">
+         <section class="ft-panel ft-game tm-wide" id="tmPanel"
+              aria-label="Timber Man Ultra failed to start">
            <header class="ft-panel-h">
              <div class="ws-ico ft-ico">${(typeof ICONS !== 'undefined' && ICONS.funtime) || ''}</div>
              <div class="ft-panel-t">
@@ -1357,8 +1748,9 @@ function renderTmView() {
        </div></div>`;
     return;
   }
-  tmSoundButton();
-  tmAudioSyncUi();
+  // Paint persisted audio prefs into the settings card (sliders/toggles)
+  // at mount, and again whenever the card opens.
+  if (typeof TMG._auSync === 'function') TMG._auSync();
   tmOverlay('ready');
   tmHud();
 
@@ -1374,9 +1766,9 @@ function renderTmView() {
     tmAudioUnlock();
   }, true);
 
-  // ---- keyboard ----
-  // Escape is owned by the shared session controller (ftSessionBind):
-  // one press leaves fullscreen AND returns to Fun Time.
+  /* ---- PHASE 6 · keyboard ---------------------------------------------
+     Escape is owned by the shared session controller (ftSessionBind):
+     one press leaves fullscreen AND returns to Fun Time. */
   const GAME_KEYS = new Set(['ArrowLeft','ArrowRight','a','d','A','D',
     'p','P','r','R','f','F','Escape']);
   tmOnLocal(document, 'keydown', e => {
@@ -1384,45 +1776,96 @@ function renderTmView() {
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
-      if (TMG.state === 'playing') { tmChop('left'); }
+      if (!setOpen) { if (TMG.state === 'playing') tmChop('left'); else if (TMG.state === 'ready' || TMG.state === 'over') tmStart(); }
       e.preventDefault(); return;
     }
     if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
-      if (TMG.state === 'playing') { tmChop('right'); }
+      if (!setOpen) { if (TMG.state === 'playing') tmChop('right'); else if (TMG.state === 'ready' || TMG.state === 'over') tmStart(); }
       e.preventDefault(); return;
     }
-    if (e.key === 'p' || e.key === 'P') { tmTogglePause(); e.preventDefault(); return; }
+    if (e.key === 'p' || e.key === 'P') {
+      if (setOpen) setClose(); else tmTogglePause();
+      e.preventDefault(); return;
+    }
     if (e.key === 'r' || e.key === 'R') { tmRestart(); e.preventDefault(); return; }
     if (e.key === 'f' || e.key === 'F') { tmToggleFullscreen(); e.preventDefault(); return; }
     if (GAME_KEYS.has(e.key)) e.preventDefault();
   });
 
   // Held keys must not survive a blur or tab switch.
-  tmOnLocal(window, 'blur', () => { if (TMG.state === 'playing') tmTogglePause(); });
+  tmOnLocal(window, 'blur', () => { if (TMG.state === 'playing' && !setOpen) tmTogglePause(); });
   tmOnLocal(document, 'visibilitychange', () => {
-    if (document.hidden && TMG.state === 'playing') tmTogglePause();
+    if (document.hidden) {
+      if (TMG.state === 'playing') tmTogglePause();
+      if (setOpen) setClose();
+    }
   });
 
-  // ---- persistent controls ----
-  tmOnLocal(tm$('tmPauseBtn'), 'click', () => tmTogglePause());
-  tmOnLocal(tm$('tmRestartBtn'), 'click', () => tmRestart());
+  /* ---- PHASE 6 · settings overlay --------------------------------------
+     Compact gear in the top-right HUD opens a full settings card:
+     Resume / Restart / Fullscreen / music+effects / Exit. Opening it
+     PAUSES gameplay; closing resumes only if it was auto-paused. */
+  const setEl = tm$('tmSettings');
+  let setOpen = false, setPausedByOpen = false;
 
-  /* ---- audio settings popover ------------------------------------------
-     The sound button is the entry point to the full settings panel.
-     State lives in TMA.settings (persisted); the UI is a plain read/write
-     of that object, so refresh/restart both restore exactly what was
-     saved. Changes apply immediately through click-free gain ramps. */
-  const auPop = tm$('tmAudioPop');
+  function setPaintFs() {
+    const b = tm$('tmSetFs');
+    if (b) b.textContent = (typeof ftIsFullscreen === 'function' && ftIsFullscreen())
+      ? 'Leave Fullscreen' : 'Enter Fullscreen';
+  }
+  function setClose() {
+    if (!setEl) return;
+    setEl.classList.add('hidden');
+    setOpen = false;
+    // Resume only when the settings card itself paused the round.
+    if (setPausedByOpen && TMG.state === 'paused') tmTogglePause();
+    setPausedByOpen = false;
+  }
+  function setOpenFn() {
+    if (!setEl) return;
+    tmAudioUnlock();
+    setPausedByOpen = TMG.state === 'playing';
+    if (TMG.state === 'playing') tmTogglePause();   // pause gameplay
+    setEl.classList.remove('hidden');
+    setOpen = true;
+    setPaintFs();
+    if (TMG._auSync) TMG._auSync();
+    tmSfx('ui');
+  }
+  TMG._setClose = setClose;                         // teardown safety
+
+  tmOnLocal(tm$('tmGearBtn'), 'click', () => {
+    if (TMG.epoch !== myEpoch) return;
+    setOpen ? setClose() : setOpenFn();
+  });
+  tmOnLocal(tm$('tmSetClose'), 'click', () => { if (TMG.epoch === myEpoch) setClose(); });
+  tmOnLocal(tm$('tmSetResume'), 'click', () => { if (TMG.epoch === myEpoch) setClose(); });
+  tmOnLocal(tm$('tmSetRestart'), 'click', () => {
+    if (TMG.epoch !== myEpoch) return;
+    setClose();
+    setPausedByOpen = false;                        // restart owns the state
+    tmRestart();
+    tmStart();
+  });
+  tmOnLocal(tm$('tmSetFs'), 'click', () => {
+    if (TMG.epoch !== myEpoch) return;
+    tmToggleFullscreen();
+    setTimeout(setPaintFs, 60);
+  });
+  tmOnLocal(tm$('tmSetExit'), 'click', () => { location.hash = '#funtime'; });
+  // Settings closes on outside pointer press (but not on its own children).
+  tmOnLocal(document, 'pointerdown', e => {
+    if (TMG.epoch !== myEpoch || !setOpen) return;
+    if (setEl.contains(e.target) || tm$('tmGearBtn').contains(e.target)) return;
+    setClose();
+  }, true);
+
+  /* ---- audio controls (inside the settings card) -----------------------
+     State lives in TMA.settings (persisted under 'tm-audio-v1'); the UI is
+     a plain read/write of that object. Changes apply immediately through
+     click-free gain ramps. */
   const auSyncUi = () => {
     const a = TMA.settings;
-    const anyOn = a.mu || a.sx;
-    const b = tm$('tmSoundBtn');
-    if (b) {
-      b.setAttribute('aria-pressed', String(anyOn));
-      b.classList.toggle('on', anyOn);
-      const lbl = tm$('tmSoundLbl');
-      if (lbl) lbl.textContent = anyOn ? 'sound on' : 'muted';
-    }
     const set = (id, v) => { const el = tm$(id); if (el) el.value = String(Math.round(v * 100)); };
     const txt = (id, v) => { const el = tm$(id); if (el) el.textContent = Math.round(v * 100) + '%'; };
     set('tmAuMusicV', a.mv); txt('tmAuMusicVal', a.mv);
@@ -1431,29 +1874,6 @@ function renderTmView() {
     tg('tmAuMusicT', a.mu); tg('tmAuSfxT', a.sx);
   };
   TMG._auSync = auSyncUi;
-  const auOpen = () => {
-    if (!auPop) return;
-    auPop.classList.remove('hidden');
-    tm$('tmSoundBtn').setAttribute('aria-expanded', 'true');
-    tmSfx('ui');
-  };
-  const auClose = () => {
-    if (!auPop) return;
-    auPop.classList.add('hidden');
-    const b = tm$('tmSoundBtn');
-    if (b) b.setAttribute('aria-expanded', 'false');
-  };
-
-  tmOnLocal(tm$('tmSoundBtn'), 'click', () => {
-    if (TMG.epoch !== myEpoch) return;
-    tmAudioUnlock();
-    if (auPop && auPop.classList.contains('hidden')) auOpen();
-    else auClose();
-  });
-  tmOnLocal(tm$('tmAudioClose'), 'click', () => {
-    if (TMG.epoch !== myEpoch) return;
-    auClose();
-  });
 
   // volume sliders — apply live, persist every change (cheap writes)
   const auSlider = (inputId, key, valId) => {
@@ -1480,64 +1900,92 @@ function renderTmView() {
     tmSfx('ui');                                    // plays only if now on
   });
 
-  // dismiss on outside click
-  tmOnLocal(document, 'pointerdown', e => {
-    if (TMG.epoch !== myEpoch) return;
-    if (!auPop || auPop.classList.contains('hidden')) return;
-    if (auPop.contains(e.target) || tm$('tmSoundBtn').contains(e.target)) return;
-    auClose();
-  }, true);
-
+  // Fullscreen icon button (top-right HUD).
   tmOnLocal(tm$('tmFsBtn'), 'click', () => tmToggleFullscreen());
   if (typeof ftFsSupported === 'function' && !ftFsSupported()) {
     const b = tm$('tmFsBtn'); if (b) b.style.display = 'none';
   }
   /* Reflect genuine fullscreen state onto the body class + button label
-     (same convention as Snakes/Ludo). This is what makes the Fullscreen
-     BUTTON path apply the .tm-fs layout; without it the canvas stayed
-     letterboxed after entering fullscreen via the button or F key. */
+     (same convention as Snakes/Ludo). This is what makes the BUTTON path
+     apply the .tm-fs layout; without it the canvas stayed letterboxed
+     after entering fullscreen via the button or F key. */
   const tmFsReflect = () => {
-    if (typeof ftFsReflect === 'function') ftFsReflect('tm', 'tm-fs', '#tmFsBtn');
+    if (typeof ftFsReflect === 'function') ftFsReflect('tm', 'tm-fs', null);
+    setPaintFs();
     tmResize();
   };
   tmOnLocal(document, 'fullscreenchange', tmFsReflect);
   tmOnLocal(document, 'webkitfullscreenchange', tmFsReflect);
-  tmOnLocal(tm$('tmExit'), 'click', () => { location.hash = '#funtime'; });
 
-  // Overlay button: Start / Resume / Chop Again.
+  // Overlay buttons: Start / Resume / Chop Again + Back to Games.
   tmOnLocal(tm$('tmOvBtn'), 'click', () => {
     const kind = tm$('tmOvBtn').dataset.kind;
     if (kind === 'again') { tmRestart(); tmStart(); }
     else tmStart();
   });
-
-  // ---- touch/mouse pads ----
-  const bindTap = (id, side) => {
-    const el = tm$(id);
-    if (!el) return;
-    const press = e => {
-      e.preventDefault();
-      if (TMG.state === 'ready' || TMG.state === 'over') { tmStart(); return; }
-      if (TMG.state === 'paused') { tmTogglePause(); return; }
-      tmChop(side);
-    };
-    tmOnLocal(el, 'pointerdown', press);
-    tmOnLocal(el, 'contextmenu', e => e.preventDefault());
-  };
-  bindTap('tmPadL', 'left');
-  bindTap('tmPadR', 'right');
-
-  // Desktop mouse: click the left/right half of the stage to chop.
-  tmOnLocal(tm$('tmStageWrap'), 'pointerdown', e => {
+  tmOnLocal(tm$('tmOvExit'), 'click', () => { location.hash = '#funtime'; });
+  // Tapping anywhere on the ready/game-over overlay also starts/resumes —
+  // the same gesture arcade cabinets use. (The buttons still work: this
+  // handler only fires for taps that did NOT land on a control.)
+  tmOnLocal(tm$('tmOverlay'), 'pointerdown', e => {
     if (TMG.epoch !== myEpoch) return;
-    if (e.pointerType === 'touch') return;          // touch uses the pads
-    const pad = e.target.closest('.tm-pad, .tm-overlay, button');
-    if (pad) return;                                 // UI elements own their clicks
+    if (e.target.closest('button')) return;         // controls own their taps
+    const kind = tm$('tmOvBtn').dataset.kind;
+    if (kind === 'resume') tmTogglePause();
+    else if (kind === 'start' || kind === 'again') {
+      if (kind === 'again') { tmRestart(); }
+      tmStart();
+    }
+  });
+
+  /* ---- PHASE 6 · pointer chopping (desktop + mobile) --------------------
+     The stage is split into left/right halves. Any pointer type chops the
+     half it lands in: desktop mouse clicks, tablet pens and touch all use
+     the same path — large comfortable targets by construction, with
+     continuous repeat support while held (mobile) and correct release
+     handling via pointerup/pointercancel. */
+  const stageWrap = tm$('tmStageWrap');
+  const chopFromEvent = e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return false;
+    const r = stageWrap.getBoundingClientRect();
+    return (e.clientX - r.left < r.width / 2) ? 'left' : 'right';
+  };
+  tmOnLocal(stageWrap, 'pointerdown', e => {
+    if (TMG.epoch !== myEpoch) return;
+    // UI layers own their own events.
+    if (e.target.closest('.tm-ibtn, .tm-overlay, .tm-settings, button')) return;
+    e.preventDefault();
+    tmAudioUnlock();
     if (TMG.state === 'ready' || TMG.state === 'over') { tmStart(); return; }
     if (TMG.state === 'paused') { tmTogglePause(); return; }
-    const r = tm$('tmStageWrap').getBoundingClientRect();
-    tmChop(e.clientX - r.left < r.width / 2 ? 'left' : 'right');
+    tmChop(chopFromEvent(e));
   });
+  // Continuous input: hold-to-chop repeats at a comfortable arcade rate.
+  // The interval handle is registered in TMG.cleanup so tmTeardown() (any
+  // route change / remount) always clears it — a leaked interval would
+  // keep chopping into the NEXT session's global TMG state.
+  TMG.holdTimer = 0;
+  const holdStop = () => {
+    if (TMG.holdTimer) { clearInterval(TMG.holdTimer); TMG.holdTimer = 0; }
+  };
+  TMG.cleanup.push(holdStop);                       // teardown safety net
+  tmOnLocal(stageWrap, 'pointerup', holdStop);
+  tmOnLocal(stageWrap, 'pointercancel', holdStop);
+  tmOnLocal(stageWrap, 'pointerleave', holdStop);
+  tmOnLocal(window, 'blur', holdStop);
+  tmOnLocal(stageWrap, 'pointerdown', e => {
+    if (TMG.epoch !== myEpoch) return;
+    if (e.target.closest('.tm-ibtn, .tm-overlay, .tm-settings, button')) return;
+    if (e.pointerType === 'touch' && TMG.state === 'playing') {
+      holdStop();
+      const side0 = chopFromEvent(e);
+      TMG.holdTimer = setInterval(() => {
+        if (TMG.epoch !== myEpoch || TMG.state !== 'playing') { holdStop(); return; }
+        tmChop(side0);
+      }, 240);
+    }
+  });
+  tmOnLocal(stageWrap, 'contextmenu', e => e.preventDefault());
 
   // ---- resize + loop ----
   tmOnLocal(window, 'resize', () => tmResize());
@@ -1558,10 +2006,9 @@ function renderTmView() {
 
 function tmRestart() {
   tmBgmStop();                     // music from the old round dies now
+  TMG.deathT = 0;
   tmReset();
   TMG.state = 'ready';
-  const pb = tm$('tmPauseBtn');
-  if (pb) pb.textContent = 'Pause';
   tmOverlay('ready');
   tmSfx('ui');
 }
@@ -1585,6 +2032,9 @@ function tmTeardown() {
   TMG.ctx = null; TMG.canvas = null;
   TMG.w = 0; TMG.h = 0;
   TMG._auSync = null;
+  TMG._setClose = null;
+  TM_MOTES.length = 0;             // background particle pool
+  TMG.deathT = 0;
   tmAudioDispose();                // music timer + context closed ONCE
   ftExitFullscreenQuiet();
   document.body.classList.remove('tm-fs');

@@ -141,6 +141,58 @@ body.ch-playing #chPanel{
   margin:0 auto;width:100%;
   max-width:min(1180px,100%);
 }
+/* PHASE 1 · phones (inline play): the setup block + status strip pushed
+   the board ~584px down a 844px viewport and the action row 700px below
+   the fold. On narrow portrait screens the panel compacts (header folds,
+   setup wraps tightly, board first) and the page scrolls naturally in
+   .content for the sidebar cards. */
+@media (max-width:980px){
+  body.ch-playing #chPanel{padding:12px 12px 14px;gap:10px}
+  body.ch-playing #chPanel .ft-panel-h{display:none}     /* title duplicates the top bar */
+  .ch-setup{padding:10px 12px}
+  .ch-setup-grid{gap:10px}
+  .ch-field{min-width:0}
+  .ch-field>label{margin-bottom:4px;font-size:9.5px}
+  .ch-seg button{padding:6px 10px;font-size:11.5px}
+  .ch-diffbar button{padding:5px 9px;font-size:11px}
+  .ch-setup-actions{margin-top:8px;gap:8px}
+  .ch-note{display:none}
+  .ch-status{margin:0 12px;padding:8px 12px;font-size:12.5px;min-height:38px}
+  .ch-layout{padding:10px 12px;gap:10px}
+  .ch-board{max-width:min(100%,calc(100vh - 320px))}
+  .ch-capbar{font-size:15px;min-height:22px}
+}
+@media (max-width:560px){
+  body.ch-playing #chPanel{padding:8px 8px 10px;gap:8px}
+  .ch-setup{padding:8px 8px}
+  .ch-setup-grid{gap:8px}
+  .ch-seg button{padding:6px 9px;font-size:11px}
+  .ch-status{margin:0 8px;font-size:12px}
+  .ch-layout{padding:6px 8px;gap:8px}
+  .ch-board{width:min(calc(100vw - 20px),calc(100vh - 300px));max-width:100%;font-size:0}
+  .ch-sq{font-size:min(9vw,34px)}
+  .ft-actions{gap:6px}
+  .ft-actions .ft-btn{padding:7px 10px;font-size:11px}
+}
+/* Landscape phones (inline): keep every fixed row ultra-compact so the
+   64-square board stays as large as the short viewport allows. */
+@media (max-height:520px) and (orientation:landscape){
+  body.ch-playing #chPanel{padding:6px 10px 8px;gap:6px}
+  body.ch-playing #chPanel .ft-panel-h{display:none}
+  .ch-setup{padding:4px 10px}
+  .ch-setup-grid{gap:8px}
+  .ch-field>label{display:none}
+  .ch-seg button{padding:4px 8px;font-size:10.5px}
+  .ch-diffbar button{padding:3px 7px;font-size:10px}
+  .ch-setup-actions{margin-top:4px}
+  .ch-status{margin:0 10px;padding:4px 10px;font-size:11.5px;min-height:28px}
+  .ch-layout{padding:4px 10px;gap:8px}
+  .ch-board{width:min(calc(100vh - 210px),calc(100vw - 24px));max-width:100%}
+  .ch-sq{font-size:clamp(13px,5vh,30px)}
+  .ch-capbar{font-size:12px;min-height:16px}
+  .ft-actions{gap:5px}
+  .ft-actions .ft-btn{padding:5px 9px;font-size:10px}
+}
 #chPanel:fullscreen .content,
 html:fullscreen body.ch-fs-doc #chPanel .content,
 body.ch-fs #chPanel .content,
@@ -361,9 +413,13 @@ body.ch-fs.immersive .ch-fs-retry{display:inline-flex}
   #chPanel:fullscreen .ch-layout,
   html:fullscreen body.ch-fs-doc #chPanel .ch-layout,
   body.ch-fs #chPanel .ch-layout{padding:6px 12px;gap:10px}
+  /* PHASE 1 FIX · the old calc(100vh - 230px) starved the board to ~160px
+     on a 390px-tall phone once the fsbar + setup rows were counted. The
+     budget now reflects the compacted chrome and lets the layout's own
+     scroll handle the sidebar below. */
   #chPanel:fullscreen .ch-board,
   html:fullscreen body.ch-fs-doc #chPanel .ch-board,
-  body.ch-fs #chPanel .ch-board{width:min(calc(100vh - 230px),calc(100vw - 300px),700px)}
+  body.ch-fs #chPanel .ch-board{width:min(calc(100vh - 176px),calc(100vw - 300px),700px)}
   #chPanel:fullscreen .ch-capbar,
   html:fullscreen body.ch-fs-doc #chPanel .ch-capbar,
   body.ch-fs #chPanel .ch-capbar{min-height:18px;font-size:13px}

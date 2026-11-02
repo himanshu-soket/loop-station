@@ -87,6 +87,9 @@ use crate::auth_http::AuthState;
 /// registrations cannot produce an unbounded response payload.
 const PENDING_LIST_LIMIT: i64 = 500;
 
+/// Upper bound on the per-account session listing in the details panel.
+const DETAIL_SESSION_LIMIT: i64 = 20;
+
 /// Router for `/api/admin/*`.
 ///
 /// Mounted under the app's existing guard layer, which already requires a
@@ -96,11 +99,18 @@ pub fn admin_router(state: Arc<AuthState>) -> Router {
     Router::new()
         .route("/api/admin/users/pending", get(list_pending))
         .route("/api/admin/users", get(list_users))
+        .route("/api/admin/users/{id}", get(user_details).delete(remove_user))
+        .route("/api/admin/users/{id}/activity", get(user_activity))
         .route("/api/admin/users/{id}/approve", post(approve_user))
         .route("/api/admin/users/{id}/reject", post(reject_user))
         .route("/api/admin/users/{id}/suspend", post(suspend_user))
         .route("/api/admin/users/{id}/reactivate", post(reactivate_user))
         .route("/api/admin/users/{id}/role", post(set_role))
+        .route("/api/admin/users/{id}/reset-password", post(reset_password))
+        .route(
+            "/api/admin/users/{id}/revoke-sessions",
+            post(revoke_sessions),
+        )
         .with_state(state)
 }
 
@@ -188,7 +198,7 @@ async fn require_admin(
 /// authorization. Only the fields the guard and handlers need.
 struct AdminCaller {
     id: i64,
-    #[allow(dead_code)]
+    /// Used by handlers that audit who acted, and by the self-delete guard.
     identifier: String,
     role: String,
     status: String,
@@ -550,11 +560,29 @@ async fn set_role(
     let store = state.store.clone();
     let result = tokio::task::spawn_blocking(move || store.set_account_role(id, &role)).await;
     match result {
-        Ok(Ok(new_role)) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "ok": true, "role": new_role })),
-        )
-            .into_response(),
+        Ok(Ok(new_role)) => {
+            // Audit the role change: who promoted/demoted whom, and to what.
+            let store = state.store.clone();
+            let actor_id = admin.id;
+            let actor_email = admin.identifier.clone();
+            let detail = format!("role set to {new_role}");
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Ok(target) = store.find_account_by_id(id) {
+                    store.record_audit(
+                        crate::auth::audit_event::ROLE_CHANGED,
+                        Some((actor_id, actor_email.as_str())),
+                        Some((target.id, target.identifier.as_str())),
+                        &detail,
+                    );
+                }
+            })
+            .await;
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "ok": true, "role": new_role })),
+            )
+                .into_response()
+        }
         Ok(Err(e)) => account_error_response(e),
         Err(_) => AdminAuthError::Internal.into_response(),
     }
@@ -594,11 +622,37 @@ async fn transition(
     let result =
         tokio::task::spawn_blocking(move || store.set_account_status(id, target_status)).await;
     match result {
-        Ok(Ok(())) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "ok": true, "status": target_status })),
-        )
-            .into_response(),
+        Ok(Ok(())) => {
+            // Audit the transition: who approved/suspended/reactivated whom.
+            // The subject's email is read AFTER the change so the entry
+            // reflects the account as it now stands.
+            let store = state.store.clone();
+            let actor_id = admin.id;
+            let actor_email = admin.identifier.clone();
+            let kind = match target_status {
+                STATUS_APPROVED => crate::auth::audit_event::ACCOUNT_ACTIVATED,
+                STATUS_REJECTED => crate::auth::audit_event::ACCOUNT_REJECTED,
+                STATUS_SUSPENDED => crate::auth::audit_event::ACCOUNT_SUSPENDED,
+                _ => crate::auth::audit_event::ACCOUNT_APPROVED,
+            };
+            let detail = format!("status set to {target_status}");
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Ok(target) = store.find_account_by_id(id) {
+                    store.record_audit(
+                        kind,
+                        Some((actor_id, actor_email.as_str())),
+                        Some((target.id, target.identifier.as_str())),
+                        &detail,
+                    );
+                }
+            })
+            .await;
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "ok": true, "status": target_status })),
+            )
+                .into_response()
+        }
         Ok(Err(e)) => account_error_response(e),
         Err(_) => AdminAuthError::Internal.into_response(),
     }
@@ -609,6 +663,437 @@ async fn transition(
 /// distinguishable from an unknown account.
 fn parse_id(id: &str) -> Option<i64> {
     id.parse::<i64>().ok()
+}
+
+// ---------------------------------------------------------------------------
+// User Management handlers (details, reset, sessions, delete, activity)
+// ---------------------------------------------------------------------------
+
+/// `GET /api/admin/users/{id}` — the full detail record for one account.
+///
+/// Returns identity, role, status, registration date, last sign-in, last
+/// password change (when tracked), the live-session count and the live
+/// sessions themselves (timestamps only — never token digests). Password
+/// hashes and session/reset material are never selected, so they cannot
+/// leak here.
+async fn user_details(
+    State(state): State<Arc<AuthState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(id) = parse_id(&id) else {
+        return invalid_id_response();
+    };
+    if let Err(e) = require_admin(&state, &headers).await {
+        return e.into_response();
+    }
+    let store = state.store.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let detail = store.account_detail(id)?;
+        let sessions = store.account_sessions(id, DETAIL_SESSION_LIMIT)?;
+        Ok::<_, AccountError>((detail, sessions))
+    })
+    .await;
+    match result {
+        Ok(Ok((d, sessions))) => {
+            let sessions_json: Vec<serde_json::Value> = sessions
+                .iter()
+                .map(|s| {
+                    serde_json::json!({
+                        "createdAtMs": s.created_at_ms,
+                        "expiresAtMs": s.expires_at_ms,
+                        "lastSeenAtMs": s.last_seen_at_ms,
+                    })
+                })
+                .collect();
+            Json(serde_json::json!({
+                "id": d.id,
+                "identifier": d.identifier,
+                "role": d.role,
+                "status": d.status,
+                "createdAtMs": d.created_at_ms,
+                // Null (never fabricated) when no sign-in is recorded.
+                "lastSignInAtMs": d.last_sign_in_at_ms,
+                // Null for accounts that predate password-change tracking.
+                "lastPasswordChangeMs": d.last_password_change_ms,
+                "liveSessionCount": d.live_session_count,
+                "sessions": sessions_json,
+            }))
+            .into_response()
+        }
+        Ok(Err(e)) => account_error_response(e),
+        Err(_) => AdminAuthError::Internal.into_response(),
+    }
+}
+
+/// `POST /api/admin/users/{id}/reset-password` — trigger a password reset.
+///
+/// This NEVER sets or reveals a password. It mints a single-use, expiring
+/// token (stored as a SHA-256 digest) and emails the reset link to the
+/// account's own address through the configured provider. The user then
+/// completes the reset on the public `/reset-password` page; their new
+/// password is transmitted once, hashed server-side, and every existing
+/// session is revoked on completion.
+///
+/// Failure modes, each answered distinctly:
+/// * no mail configuration → 503 "email delivery is not configured" (the
+///   administrator learns the instance cannot send mail; nothing is minted);
+/// * provider rejection/transport failure → 502, and the just-minted token
+///   is invalidated so it can never be used undelivered;
+/// * cooldown → 429 with Retry-After.
+async fn reset_password(
+    State(state): State<Arc<AuthState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(id) = parse_id(&id) else {
+        return invalid_id_response();
+    };
+    let admin = match require_admin(&state, &headers).await {
+        Ok(admin) => admin,
+        Err(e) => return e.into_response(),
+    };
+
+    // Fail fast when the instance cannot deliver email: minting a token
+    // nobody can receive would be a silent failure.
+    let Some(mailer) = state.mailer.clone() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "email delivery is not configured on this instance; set LOOP_EMAIL_PROVIDER, LOOP_EMAIL_API_KEY and LOOP_EMAIL_FROM"
+            })),
+        )
+            .into_response();
+    };
+
+    // Mint the token (blocking pool; releases the store lock on return).
+    let store = state.store.clone();
+    let actor_id = admin.id;
+    let issued = tokio::task::spawn_blocking(move || store.issue_password_reset(id, actor_id)).await;
+    let issued = match issued {
+        Ok(Ok(i)) => i,
+        Ok(Err(e)) => {
+            // Cooldown advertises how long to wait.
+            if let AccountError::ResetCooldown { retry_in_ms } = &e {
+                let secs = (*retry_in_ms / 1000).max(1);
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [(header::RETRY_AFTER, secs.to_string())],
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+                    .into_response();
+            }
+            return account_error_response(e);
+        }
+        Err(_) => return AdminAuthError::Internal.into_response(),
+    };
+
+    // Deliver outside any store lock. On failure, invalidate exactly the
+    // row we created so an undelivered link can never be used.
+    let message = crate::mail::PasswordResetMessage {
+        to: issued.identifier.clone(),
+        admin_email: admin.identifier.clone(),
+        // The link target: same origin the admin browser is on. The public
+        // reset page reads the token from the query string.
+        reset_url: format!("/reset-password?token={}", issued.token),
+        expires_in_minutes: (crate::auth::PASSWORD_RESET_TTL.as_secs() / 60).max(1),
+    };
+    let mailer_for_send = mailer.clone();
+    let delivery = tokio::task::spawn_blocking(move || {
+        mailer_for_send.send_password_reset(&message)
+    })
+    .await;
+
+    match delivery {
+        Ok(Ok(())) => {
+            // Audit who triggered the reset and for whom.
+            let store = state.store.clone();
+            let actor_id = admin.id;
+            let actor_email = admin.identifier.clone();
+            let subject_id = issued.account_id;
+            let subject_email = issued.identifier.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                store.record_audit_checked(
+                    crate::auth::audit_event::PASSWORD_RESET_ISSUED,
+                    Some((actor_id, actor_email.as_str())),
+                    Some((subject_id, subject_email.as_str())),
+                    "password reset email sent",
+                )
+            })
+            .await;
+            (
+                StatusCode::OK,
+                [(
+                    header::CACHE_CONTROL,
+                    "no-store".to_string(),
+                )],
+                Json(serde_json::json!({
+                    "ok": true,
+                    // Never echo the token; only where it went.
+                    "sentTo": issued.identifier,
+                    "expiresInMinutes": (crate::auth::PASSWORD_RESET_TTL.as_secs() / 60).max(1),
+                })),
+            )
+                .into_response()
+        }
+        // Delivery failed: kill the token we just made, then report.
+        Ok(Err(delivery_err)) => {
+            let store = state.store.clone();
+            let account_id = issued.account_id;
+            let _ = tokio::task::spawn_blocking(move || {
+                // Supersede (consume) every live token for this account:
+                // the one we minted is the only possible live one.
+                let _ = store.revoke_live_reset_tokens(account_id);
+            })
+            .await;
+            (
+                delivery_err.status(),
+                Json(serde_json::json!({ "error": delivery_err.to_string() })),
+            )
+                .into_response()
+        }
+        Err(_) => AdminAuthError::Internal.into_response(),
+    }
+}
+
+/// `POST /api/admin/users/{id}/revoke-sessions` — invalidate every live
+/// session for the account, immediately.
+///
+/// Confirmation is the client's job (a dialog before calling); the server
+/// simply performs the revocation atomically and reports how many sessions
+/// were actually removed, so the UI can say something truthful.
+async fn revoke_sessions(
+    State(state): State<Arc<AuthState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(id) = parse_id(&id) else {
+        return invalid_id_response();
+    };
+    let admin = match require_admin(&state, &headers).await {
+        Ok(admin) => admin,
+        Err(e) => return e.into_response(),
+    };
+    // Verify the target exists first so a clean 404 beats a silent no-op.
+    let store = state.store.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let target = store.find_account_by_id(id)?;
+        let removed = store.revoke_all_sessions_for(id)?;
+        Ok::<_, AccountError>((target, removed))
+    })
+    .await;
+    match result {
+        Ok(Ok((target, removed))) => {
+            let store = state.store.clone();
+            let actor_id = admin.id;
+            let actor_email = admin.identifier.clone();
+            let subject_id = target.id;
+            let subject_email = target.identifier.clone();
+            let detail = format!("{removed} session(s) revoked");
+            let _ = tokio::task::spawn_blocking(move || {
+                store.record_audit(
+                    crate::auth::audit_event::SESSIONS_REVOKED,
+                    Some((actor_id, actor_email.as_str())),
+                    Some((subject_id, subject_email.as_str())),
+                    &detail,
+                )
+            })
+            .await;
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "ok": true,
+                    "revoked": removed,
+                    "identifier": target.identifier,
+                })),
+            )
+                .into_response()
+        }
+        Ok(Err(e)) => account_error_response(e),
+        Err(_) => AdminAuthError::Internal.into_response(),
+    }
+}
+
+/// `DELETE /api/admin/users/{id}` — permanently remove an account.
+///
+/// Destructive and irreversible. All guards run server-side inside one
+/// transaction (see [`crate::auth::AuthStore::delete_account`]):
+/// * the caller must be an active administrator,
+/// * an administrator cannot delete their own account,
+/// * the last administrator cannot be deleted,
+/// * sessions, reset tokens and failure counters are removed with the
+///   account; the audit trail deliberately survives (it references ids
+///   without foreign keys and keeps an email snapshot).
+///
+/// The endpoint takes no body: there is nothing a client could smuggle
+/// past the guards. Confirmation is the UI's dialog; the server enforces
+/// the invariants regardless of what the client did or did not ask.
+async fn remove_user(
+    State(state): State<Arc<AuthState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let Some(id) = parse_id(&id) else {
+        return invalid_id_response();
+    };
+    let admin = match require_admin(&state, &headers).await {
+        Ok(admin) => admin,
+        Err(e) => return e.into_response(),
+    };
+    let store = state.store.clone();
+    let acting = admin.id;
+    let result =
+        tokio::task::spawn_blocking(move || store.delete_account(id, acting)).await;
+    match result {
+        Ok(Ok(identifier)) => {
+            // Audit AFTER the delete committed: the entry records what was
+            // removed, including the email snapshot, because the account
+            // row itself is gone.
+            let store = state.store.clone();
+            let actor_id = admin.id;
+            let actor_email = admin.identifier.clone();
+            let subject_email = identifier.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                store.record_audit(
+                    crate::auth::audit_event::ACCOUNT_DELETED,
+                    Some((actor_id, actor_email.as_str())),
+                    // subject_id kept, subject_email snapshotted: history
+                    // without retaining the account record.
+                    Some((id, subject_email.as_str())),
+                    "account permanently deleted",
+                )
+            })
+            .await;
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "ok": true, "deleted": identifier })),
+            )
+                .into_response()
+        }
+        Ok(Err(e)) => account_error_response(e),
+        Err(_) => AdminAuthError::Internal.into_response(),
+    }
+}
+
+/// `GET /api/admin/users/{id}/activity` — the audit trail for one account.
+///
+/// Works for deleted accounts too (the log outlives the rows it describes):
+/// the response carries the subject email snapshot from the newest entry
+/// so the panel can title itself honestly even after deletion.
+///
+/// Query parameters: `page` (1-based, default 1) and `perPage` (default
+/// 25, capped at 200 server-side).
+async fn user_activity(
+    State(state): State<Arc<AuthState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+) -> Response {
+    let Some(id) = parse_id(&id) else {
+        return invalid_id_response();
+    };
+    if let Err(e) = require_admin(&state, &headers).await {
+        return e.into_response();
+    }
+
+    let q = uri.query().unwrap_or("");
+    let page = form_urlencoded_get(q, "page")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(1)
+        .max(1);
+    let per_page = form_urlencoded_get(q, "perPage")
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(25);
+    let per_page = per_page.clamp(1, 200);
+    let offset = (page - 1).saturating_mul(per_page);
+
+    let store = state.store.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        store.list_account_activity(id, per_page, offset)
+    })
+    .await;
+    match result {
+        Ok(Ok((entries, total))) => {
+            let rows: Vec<serde_json::Value> = entries
+                .iter()
+                .map(|e| {
+                    serde_json::json!({
+                        "id": e.id,
+                        "atMs": e.at_ms,
+                        "kind": e.kind,
+                        // Readable, human-facing description derived
+                        // server-side; the client never interprets kinds.
+                        "description": describe_audit_entry(e),
+                        "actorEmail": e.actor_email,
+                        "subjectEmail": e.subject_email,
+                        "detail": e.detail,
+                    })
+                })
+                .collect();
+            let subject_email = entries.first().and_then(|e| e.subject_email.clone());
+            Json(serde_json::json!({
+                "events": rows,
+                "totalCount": total,
+                "page": page,
+                "perPage": per_page,
+                "totalPages": if per_page > 0 {
+                    (total + per_page - 1) / per_page
+                } else { 0 },
+                // Present when history exists even for a deleted account.
+                "subjectEmail": subject_email,
+            }))
+            .into_response()
+        }
+        Ok(Err(e)) => account_error_response(e),
+        Err(_) => AdminAuthError::Internal.into_response(),
+    }
+}
+
+/// Human-readable description of one audit entry, for the activity view.
+/// Static text keyed on the kind; dynamic parts come from `detail`.
+fn describe_audit_entry(e: &crate::auth::AuditEntry) -> String {
+    match e.kind.as_str() {
+        crate::auth::audit_event::SIGNIN_SUCCESS => "Signed in successfully".to_string(),
+        crate::auth::audit_event::SIGNIN_FAILED => {
+            format!("Sign-in attempt failed{}", detail_suffix(e))
+        }
+        crate::auth::audit_event::PASSWORD_RESET_ISSUED => {
+            "Password reset emailed by an administrator".to_string()
+        }
+        crate::auth::audit_event::PASSWORD_RESET_COMPLETED => {
+            "Password changed via reset link".to_string()
+        }
+        crate::auth::audit_event::ROLE_CHANGED => {
+            format!("Role changed{}", detail_suffix(e))
+        }
+        crate::auth::audit_event::ACCOUNT_SUSPENDED => {
+            "Account suspended by an administrator".to_string()
+        }
+        crate::auth::audit_event::ACCOUNT_ACTIVATED => {
+            "Account reactivated by an administrator".to_string()
+        }
+        crate::auth::audit_event::SESSIONS_REVOKED => {
+            format!("All sessions revoked{}", detail_suffix(e))
+        }
+        crate::auth::audit_event::ACCOUNT_DELETED => {
+            "Account permanently deleted".to_string()
+        }
+        crate::auth::audit_event::ACCOUNT_APPROVED => {
+            "Registration approved".to_string()
+        }
+        crate::auth::audit_event::ACCOUNT_REJECTED => {
+            "Registration rejected".to_string()
+        }
+        other => format!("Event: {other}"),
+    }
+}
+
+/// ` — <detail>` suffix, empty when the entry has no detail.
+fn detail_suffix(e: &crate::auth::AuditEntry) -> String {
+    match e.detail.as_deref() {
+        Some(d) if !d.trim().is_empty() => format!(" — {d}"),
+        _ => String::new(),
+    }
 }
 
 /// The 400 used for a malformed `{id}` path segment.
@@ -742,9 +1227,9 @@ mod tests {
             .unwrap();
         drop(store);
 
-        let state = Arc::new(AuthState {
-            store: Arc::new(AuthStore::open(&path).unwrap()),
-        });
+        let state = Arc::new(AuthState::new(Arc::new(
+            AuthStore::open(&path).unwrap(),
+        )));
         (admin_router(state), dir, admin_token, admin_id, ids)
     }
 
@@ -1219,9 +1704,9 @@ mod tests {
             )
             .unwrap();
         drop(store);
-        let state = Arc::new(AuthState {
-            store: Arc::new(AuthStore::open(&path).unwrap()),
-        });
+        let state = Arc::new(AuthState::new(Arc::new(
+            AuthStore::open(&path).unwrap(),
+        )));
         (admin_router(state), dir, admin_token)
     }
 
@@ -1900,5 +2385,649 @@ mod tests {
             1,
             "exactly one administrator must survive"
         );
+    }
+
+    // ==================================================================
+    // User Management over HTTP: details, reset, sessions, delete,
+    // activity — plus the authorization matrix for each new endpoint.
+    // ==================================================================
+
+    /// DELETE helper with a cookie.
+    async fn delete_with_cookie(router: &Router, uri: &str, cookie: &str) -> (StatusCode, String) {
+        let mut builder = Request::builder().uri(uri).method("DELETE");
+        if let Some(value) = cookie_header(cookie) {
+            builder = builder.header(header::COOKIE, value);
+        }
+        let res = router
+            .clone()
+            .oneshot(builder.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// A fixture with an approved ordinary user signed in, returning
+    /// (router, dir, admin_token, admin_id, user_id, user_token).
+    async fn um_fixture()
+    -> (
+        Router,
+        tempfile::TempDir,
+        String,
+        i64,
+        i64,
+        String,
+    ) {
+        let (_admin_only_router, dir, admin_token, admin_id, ids) =
+            fixture(&[("victim@soket.ai", STATUS_APPROVED)]).await;
+        let user_id = *ids.get("victim@soket.ai").unwrap();
+        let store = AuthStore::open(dir.path().join("auth.db")).unwrap();
+        let user_token = store
+            .sign_in("victim@soket.ai", "a strong passphrase")
+            .unwrap();
+        drop(store);
+
+        // Both routers are mounted, exactly as the real app composes them:
+        // admin endpoints for the management flows, /api/auth/* for the
+        // public session + password-reset behaviour some tests exercise.
+        let state = Arc::new(AuthState::new(Arc::new(
+            AuthStore::open(dir.path().join("auth.db")).unwrap(),
+        )));
+        let router =
+            admin_router(state.clone()).merge(crate::auth_http::auth_router(state));
+        (router, dir, admin_token, admin_id, user_id, user_token)
+    }
+
+    #[tokio::test]
+    async fn new_endpoints_are_closed_to_anonymous_and_ordinary_users() {
+        let (router, _d, _admin_token, _admin_id, user_id, user_token) =
+            um_fixture().await;
+        // Each endpoint is exercised with its REAL method: a GET against a
+        // POST-only route never reaches the auth layer (405), which would
+        // make this check pass vacuously — or fail spuriously as it did.
+        let get_endpoints = [
+            format!("/api/admin/users/{user_id}"),
+            format!("/api/admin/users/{user_id}/activity"),
+        ];
+        for ep in &get_endpoints {
+            // Anonymous: 401.
+            let (s, b) = get_with_cookie(&router, ep, "").await;
+            assert_eq!(s, StatusCode::UNAUTHORIZED, "{ep}: {b}");
+            // Ordinary signed-in user: 403, nothing leaked.
+            let (s, b) = get_with_cookie(&router, ep, &user_token).await;
+            assert_eq!(s, StatusCode::FORBIDDEN, "{ep}: {b}");
+            assert!(!b.contains("victim@soket.ai"), "{ep} leaked data: {b}");
+        }
+        for ep in [
+            format!("/api/admin/users/{user_id}/reset-password"),
+            format!("/api/admin/users/{user_id}/revoke-sessions"),
+        ] {
+            let (s, b) = post_with_cookie(&router, &ep, "", "{}").await;
+            assert_eq!(s, StatusCode::UNAUTHORIZED, "{ep}: {b}");
+            let (s, b) = post_with_cookie(&router, &ep, &user_token, "{}").await;
+            assert_eq!(s, StatusCode::FORBIDDEN, "{ep}: {b}");
+            assert!(!b.contains("victim@soket.ai"), "{ep} leaked data: {b}");
+        }
+        // DELETE likewise.
+        let uri = format!("/api/admin/users/{user_id}");
+        let (s, _) = delete_with_cookie(&router, &uri, "").await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        let (s, _) = delete_with_cookie(&router, &uri, &user_token).await;
+        assert_eq!(s, StatusCode::FORBIDDEN);
+        // And nothing was deleted.
+        let store = AuthStore::open(_d.path().join("auth.db")).unwrap();
+        assert!(store.find_account_by_id(user_id).is_ok());
+    }
+
+    #[tokio::test]
+    async fn user_details_returns_safe_fields_only() {
+        let (router, _d, admin_token, _admin_id, user_id, _u) = um_fixture().await;
+        // um_fixture already signed the user in exactly once — that is the
+        // single live session the details endpoint must report. (Signing in
+        // again here would create a second session and the count below
+        // would legitimately be 2.)
+        let (s, body) =
+            get_with_cookie(&router, &format!("/api/admin/users/{user_id}"), &admin_token).await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["identifier"], "victim@soket.ai");
+        assert_eq!(v["role"], "user");
+        assert_eq!(v["status"], "approved");
+        assert!(v["createdAtMs"].is_number());
+        assert!(v["lastSignInAtMs"].is_number());
+        assert_eq!(v["liveSessionCount"], 1);
+        assert!(v["sessions"].as_array().unwrap().len() == 1);
+        // Sensitive fields must be absent.
+        for absent in [
+            "password_hash",
+            "passwordHash",
+            "hash",
+            "token_digest",
+            "tokenDigest",
+            "token",
+            "secret",
+        ] {
+            assert!(
+                !body.contains(absent),
+                "details response mentions {absent}: {body}"
+            );
+        }
+        assert!(!body.contains("$argon2"), "no hash material: {body}");
+
+        // Unknown id: 404.
+        let (s, _) =
+            get_with_cookie(&router, "/api/admin/users/99999", &admin_token).await;
+        assert_eq!(s, StatusCode::NOT_FOUND);
+        // Malformed id: 400.
+        let (s, _) =
+            get_with_cookie(&router, "/api/admin/users/not-a-number", &admin_token).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn reset_password_without_mail_configuration_is_honest() {
+        // The test fixture has no mailer configured, so the endpoint must
+        // answer 503 and mint NOTHING — never a silent fake success.
+        let (router, dir, admin_token, _admin_id, user_id, _u) = um_fixture().await;
+        let (s, body) = post_with_cookie(
+            &router,
+            &format!("/api/admin/users/{user_id}/reset-password"),
+            &admin_token,
+            "{}",
+        )
+        .await;
+        assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+        assert!(
+            body.to_lowercase().contains("email delivery is not configured"),
+            "must explain why: {body}"
+        );
+        // No reset token row was created.
+        let store = AuthStore::open(dir.path().join("auth.db")).unwrap();
+        let conn = store.conn_for_tests();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM password_reset_tokens", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0, "nothing may be minted when mail cannot send");
+    }
+
+    #[tokio::test]
+    async fn reset_password_with_mailer_delivers_and_audits() {
+        // Build a router whose state carries a capturing sender.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.db");
+        let store = AuthStore::open(&path).unwrap();
+        store
+            .sign_up(crate::auth::LEGACY_ADMIN_IDENTIFIER, "correct horse battery")
+            .unwrap();
+        let user = store
+            .create_pending_user("mailme@soket.ai", "a strong passphrase")
+            .unwrap();
+        store.set_account_status(user, STATUS_APPROVED).unwrap();
+        let admin_token = store
+            .sign_in(
+                crate::auth::LEGACY_ADMIN_IDENTIFIER,
+                "correct horse battery",
+            )
+            .unwrap();
+        drop(store);
+
+        let sender = std::sync::Arc::new(crate::mail::CapturingSender::new());
+        let state = Arc::new(AuthState {
+            store: Arc::new(AuthStore::open(&path).unwrap()),
+            mailer: Some(sender.clone() as Arc<dyn crate::mail::MailSender>),
+        });
+        // The end-to-end completion flow below exercises the PUBLIC reset
+        // endpoints too, so both routers are mounted — exactly as the real
+        // app composes them.
+        let router = admin_router(state.clone()).merge(crate::auth_http::auth_router(state));
+
+        let (s, body) = post_with_cookie(
+            &router,
+            &format!("/api/admin/users/{user}/reset-password"),
+            &admin_token,
+            "{}",
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["sentTo"], "mailme@soket.ai");
+        assert!(v["expiresInMinutes"].is_number());
+
+        // Exactly one email went out, to the right mailbox, carrying a link.
+        let sent = sender.reset_messages();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].to, "mailme@soket.ai");
+        assert!(sent[0].reset_url.starts_with("/reset-password?token="));
+        // The RESPONSE never echoes the token.
+        assert!(
+            !body.contains(sent[0].reset_url.split('=').nth(1).unwrap()),
+            "the raw token must never appear in the API response: {body}"
+        );
+
+        // The audit trail records the issuance.
+        let check = AuthStore::open(&path).unwrap();
+        let (entries, total) = check.list_account_activity(user, 10, 0).unwrap();
+        assert!(total >= 1, "issuance must be audited");
+        assert!(entries
+            .iter()
+            .any(|e| e.kind == crate::auth::audit_event::PASSWORD_RESET_ISSUED));
+
+        // --- and the full public completion flow works end-to-end ---
+        let token = sent[0].reset_url.split('=').nth(1).unwrap().to_string();
+
+        // Preview says valid.
+        let (ps, pb) = post_with_cookie(
+            &router,
+            "/api/auth/password/reset/preview",
+            "",
+            &format!("{{\"token\":\"{token}\"}}"),
+        )
+        .await;
+        assert_eq!(ps, StatusCode::OK, "{pb}");
+        assert!(pb.contains("\"valid\":true"), "{pb}");
+
+        // Complete with a too-short password: 400, token still live.
+        let (cs, cb) = post_with_cookie(
+            &router,
+            "/api/auth/password/reset",
+            "",
+            &format!("{{\"token\":\"{token}\",\"password\":\"short\"}}"),
+        )
+        .await;
+        assert_eq!(cs, StatusCode::BAD_REQUEST, "{cb}");
+
+        // Complete properly.
+        let (cs, cb) = post_with_cookie(
+            &router,
+            "/api/auth/password/reset",
+            "",
+            &format!("{{\"token\":\"{token}\",\"password\":\"brand new passphrase\"}}"),
+        )
+        .await;
+        assert_eq!(cs, StatusCode::OK, "{cb}");
+
+        // Replay: refused.
+        let (rs, rb) = post_with_cookie(
+            &router,
+            "/api/auth/password/reset",
+            "",
+            &format!("{{\"token\":\"{token}\",\"password\":\"another one ok\"}}"),
+        )
+        .await;
+        assert_eq!(rs, StatusCode::BAD_REQUEST, "{rb}");
+
+        // The new password signs in; the old one does not.
+        let final_store = AuthStore::open(&path).unwrap();
+        assert!(final_store
+            .sign_in("mailme@soket.ai", "brand new passphrase")
+            .is_ok());
+        assert!(matches!(
+            final_store.sign_in("mailme@soket.ai", "a strong passphrase"),
+            Err(crate::auth::AuthError::InvalidCredentials)
+        ));
+        // Completion was audited too.
+        let (_, total) = final_store.list_account_activity(user, 10, 0).unwrap();
+        assert!(total >= 2, "completion must be audited");
+    }
+
+    #[tokio::test]
+    async fn failed_delivery_invalidates_the_minted_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.db");
+        let store = AuthStore::open(&path).unwrap();
+        store
+            .sign_up(crate::auth::LEGACY_ADMIN_IDENTIFIER, "correct horse battery")
+            .unwrap();
+        let user = store
+            .create_pending_user("undelivered@soket.ai", "a strong passphrase")
+            .unwrap();
+        store.set_account_status(user, STATUS_APPROVED).unwrap();
+        let admin_token = store
+            .sign_in(
+                crate::auth::LEGACY_ADMIN_IDENTIFIER,
+                "correct horse battery",
+            )
+            .unwrap();
+        drop(store);
+
+        let sender = std::sync::Arc::new(crate::mail::CapturingSender::new());
+        sender.fail(crate::mail::DeliveryError::Transport("down".into()));
+        let state = Arc::new(AuthState {
+            store: Arc::new(AuthStore::open(&path).unwrap()),
+            mailer: Some(sender.clone() as Arc<dyn crate::mail::MailSender>),
+        });
+        let router = admin_router(state);
+
+        let (s, body) = post_with_cookie(
+            &router,
+            &format!("/api/admin/users/{user}/reset-password"),
+            &admin_token,
+            "{}",
+        )
+        .await;
+        assert_eq!(s, StatusCode::BAD_GATEWAY, "{body}");
+        // Nothing was delivered…
+        assert!(sender.reset_messages().is_empty());
+        // …and no live token remains: an undelivered link can never be used.
+        let check = AuthStore::open(&path).unwrap();
+        let conn = check.conn_for_tests();
+        let live: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM password_reset_tokens
+                  WHERE consumed_at_ms IS NULL AND expires_at_ms > ?1",
+                [chrono::Utc::now().timestamp_millis()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(live, 0, "failed delivery must invalidate the token");
+    }
+
+    #[tokio::test]
+    async fn revoke_sessions_endpoint_revokes_and_reports() {
+        let (router, dir, admin_token, _admin_id, user_id, user_token) =
+            um_fixture().await;
+        // Two live sessions for the victim.
+        {
+            let store = AuthStore::open(dir.path().join("auth.db")).unwrap();
+            let _ = store
+                .sign_in("victim@soket.ai", "a strong passphrase")
+                .unwrap();
+        }
+
+        let (s, body) = post_with_cookie(
+            &router,
+            &format!("/api/admin/users/{user_id}/revoke-sessions"),
+            &admin_token,
+            "{}",
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["revoked"], 2, "both victim sessions: {body}");
+
+        // The victim's cookie is dead on the very next request.
+        let (s, _) = get_with_cookie(&router, "/api/admin/users/pending", &user_token).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+
+        // The admin's still works, and the action was audited.
+        let (s, _) = get_with_cookie(&router, "/api/admin/users/pending", &admin_token).await;
+        assert_eq!(s, StatusCode::OK);
+        let store = AuthStore::open(dir.path().join("auth.db")).unwrap();
+        let (entries, _) = store.list_account_activity(user_id, 10, 0).unwrap();
+        assert!(entries
+            .iter()
+            .any(|e| e.kind == crate::auth::audit_event::SESSIONS_REVOKED));
+
+        // Unknown account: 404.
+        let (s, _) = post_with_cookie(
+            &router,
+            "/api/admin/users/99999/revoke-sessions",
+            &admin_token,
+            "{}",
+        )
+        .await;
+        assert_eq!(s, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn remove_user_deletes_and_cleans_up_everything() {
+        let (router, dir, admin_token, _admin_id, user_id, user_token) =
+            um_fixture().await;
+
+        let (s, body) = delete_with_cookie(
+            &router,
+            &format!("/api/admin/users/{user_id}"),
+            &admin_token,
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        assert!(body.contains("victim@soket.ai"));
+
+        let store = AuthStore::open(dir.path().join("auth.db")).unwrap();
+        // Account gone.
+        assert!(matches!(
+            store.find_account_by_id(user_id),
+            Err(AccountError::NotFound)
+        ));
+        // Sessions and tokens cleaned up. Scoped: the raw-connection guard
+        // must be released before the store calls below, because they lock
+        // the same (non-reentrant) connection mutex.
+        {
+            let conn = store.conn_for_tests();
+            let sessions: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sessions WHERE account_id = ?1",
+                    [user_id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(sessions, 0);
+            let resets: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM password_reset_tokens WHERE account_id = ?1",
+                    [user_id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(resets, 0);
+        }
+        // The victim's cookie stopped validating (account join fails).
+        assert!(store.validate_session(&user_token).is_none());
+        // The audit trail survived with the email snapshot.
+        let (entries, total) = store.list_account_activity(user_id, 10, 0).unwrap();
+        assert!(total >= 1, "deletion must be audited");
+        assert!(entries
+            .iter()
+            .any(|e| e.kind == crate::auth::audit_event::ACCOUNT_DELETED
+                && e.subject_email.as_deref() == Some("victim@soket.ai")));
+        // The admin survives untouched.
+        assert_eq!(store.admin_count().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn admin_cannot_delete_themselves_or_the_last_admin() {
+        let (router, _d, admin_token, admin_id, _u, _ut) = um_fixture().await;
+        // Self-delete: refused with a clear conflict.
+        let (s, body) = delete_with_cookie(
+            &router,
+            &format!("/api/admin/users/{admin_id}"),
+            &admin_token,
+        )
+        .await;
+        assert_eq!(s, StatusCode::CONFLICT, "{body}");
+        assert!(
+            body.to_lowercase().contains("own account"),
+            "must say why: {body}"
+        );
+        // Still exactly one admin, still signed in.
+        let store = AuthStore::open(_d.path().join("auth.db")).unwrap();
+        assert_eq!(store.admin_count().unwrap(), 1);
+        assert!(store.validate_session(&admin_token).is_some());
+    }
+
+    #[tokio::test]
+    async fn last_admin_cannot_be_deleted_even_by_another_admin() {
+        // Two admins; each tries to delete the other. The second deletion
+        // (which would strand the install) must be refused.
+        let (router, dir, admin_token, admin_id, ids) =
+            fixture(&[("peer@soket.ai", STATUS_APPROVED)]).await;
+        let peer_id = *ids.get("peer@soket.ai").unwrap();
+        // Promote the peer through the API.
+        let (s, b) = post_json(
+            &router,
+            &format!("/api/admin/users/{peer_id}/role"),
+            &admin_token,
+            "{\"role\":\"admin\"}",
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+
+        // Peer deletes the original admin: legal.
+        let store = AuthStore::open(dir.path().join("auth.db")).unwrap();
+        let peer_token = store
+            .sign_in("peer@soket.ai", "a strong passphrase")
+            .unwrap();
+        drop(store);
+        let (s, b) = delete_with_cookie(
+            &router,
+            &format!("/api/admin/users/{admin_id}"),
+            &peer_token,
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+
+        // Now the peer is the LAST admin: deleting them is refused.
+        let (s, b) = delete_with_cookie(
+            &router,
+            &format!("/api/admin/users/{peer_id}"),
+            &peer_token,
+        )
+        .await;
+        assert_eq!(s, StatusCode::CONFLICT, "{b}");
+        let final_store = AuthStore::open(dir.path().join("auth.db")).unwrap();
+        assert_eq!(final_store.admin_count().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn activity_endpoint_lists_events_with_descriptions() {
+        let (router, dir, admin_token, _admin_id, user_id, _u) = um_fixture().await;
+        // Generate history THROUGH THE API so the audit trail is written by
+        // the same path production uses: um_fixture's sign-in produced one
+        // signin_success; suspend + reactivate over HTTP each record their
+        // own audit event.
+        {
+            let (s, b) = post_with_cookie(
+                &router,
+                &format!("/api/admin/users/{user_id}/suspend"),
+                &admin_token,
+                "{}",
+            )
+            .await;
+            assert_eq!(s, StatusCode::OK, "suspend: {b}");
+            let (s, b) = post_with_cookie(
+                &router,
+                &format!("/api/admin/users/{user_id}/reactivate"),
+                &admin_token,
+                "{}",
+            )
+            .await;
+            assert_eq!(s, StatusCode::OK, "reactivate: {b}");
+        }
+        let (s, body) = get_with_cookie(
+            &router,
+            &format!("/api/admin/users/{user_id}/activity"),
+            &admin_token,
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let events = v["events"].as_array().unwrap();
+        assert!(
+            events.len() >= 3,
+            "sign-in + suspend + activate: {body}"
+        );
+        // Every event carries a timestamp and a readable description.
+        for e in events {
+            assert!(e["atMs"].is_number(), "{e}");
+            assert!(
+                e["description"].as_str().unwrap_or("").len() > 3,
+                "readable description required: {e}"
+            );
+        }
+        // Kinds present.
+        let kinds: Vec<&str> = events
+            .iter()
+            .filter_map(|e| e["kind"].as_str())
+            .collect();
+        assert!(kinds.contains(&"signin_success"), "{kinds:?}");
+        assert!(kinds.contains(&"account_suspended"), "{kinds:?}");
+        assert!(kinds.contains(&"account_activated"), "{kinds:?}");
+        // No secrets in the payload.
+        assert!(!body.contains("$argon2"));
+        assert!(!body.contains("token_digest"));
+    }
+
+    #[tokio::test]
+    async fn activity_survives_deletion_and_paginates() {
+        let (router, _d, admin_token, _admin_id, user_id, _u) = um_fixture().await;
+        // Delete the account, then read its (preserved) history.
+        let (s, _) = delete_with_cookie(
+            &router,
+            &format!("/api/admin/users/{user_id}"),
+            &admin_token,
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK);
+
+        let (s, body) = get_with_cookie(
+            &router,
+            &format!("/api/admin/users/{user_id}/activity"),
+            &admin_token,
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert!(v["totalCount"].as_i64().unwrap() >= 1);
+        // The email snapshot titles the panel even after deletion.
+        assert_eq!(v["subjectEmail"], "victim@soket.ai");
+
+        // Pagination parameters are honoured and clamped.
+        let (s, body) = get_with_cookie(
+            &router,
+            &format!("/api/admin/users/{user_id}/activity?page=1&perPage=1"),
+            &admin_token,
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert!(v["events"].as_array().unwrap().len() <= 1);
+        assert_eq!(v["perPage"], 1);
+    }
+
+    #[tokio::test]
+    async fn suspended_account_gets_distinct_message_over_http() {
+        let (router, dir, _admin_token, _admin_id, user_id, _u) = um_fixture().await;
+        {
+            let store = AuthStore::open(dir.path().join("auth.db")).unwrap();
+            store.set_account_status(user_id, STATUS_SUSPENDED).unwrap();
+        }
+        // Correct credentials → 403 with the suspended message.
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/auth/signin")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                r#"{"identifier":"victim@soket.ai","password":"a strong passphrase"}"#,
+            ))
+            .unwrap();
+        let res = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8_lossy(&bytes).to_string();
+        assert!(
+            body.to_lowercase().contains("suspended"),
+            "must explain the suspension: {body}"
+        );
+
+        // Wrong credentials → still a generic 401, no status leak.
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/auth/signin")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                r#"{"identifier":"victim@soket.ai","password":"wrong password!"}"#,
+            ))
+            .unwrap();
+        let res = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&bytes), r#"{"error":"invalid credentials"}"#);
     }
 }

@@ -92,6 +92,46 @@ pub const STATUS_REJECTED: &str = "rejected";
 /// Approved earlier, but access has been withdrawn by an administrator.
 pub const STATUS_SUSPENDED: &str = "suspended";
 
+/// How long an administrator-triggered password-reset token stays valid.
+pub const PASSWORD_RESET_TTL: Duration = Duration::from_secs(30 * 60);
+
+/// Minimum delay between two admin-triggered resets for the same account.
+pub const PASSWORD_RESET_COOLDOWN: Duration = Duration::from_secs(60);
+
+/// Wrong submissions allowed per reset token before it dies.
+pub const PASSWORD_RESET_MAX_ATTEMPTS: u32 = 5;
+
+/// How long spent (consumed/expired) reset tokens linger before cleanup.
+const PASSWORD_RESET_RETENTION_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// Audit event kinds recorded by administrative actions. The string forms
+/// are stable wire identifiers persisted in the audit log and returned by
+/// the activity API; never rename one casually.
+pub mod audit_event {
+    /// A successful sign-in (recorded on every approved authentication).
+    pub const SIGNIN_SUCCESS: &str = "signin_success";
+    /// A failed sign-in (wrong password or unknown identifier).
+    pub const SIGNIN_FAILED: &str = "signin_failed";
+    /// An administrator issued a password-reset email.
+    pub const PASSWORD_RESET_ISSUED: &str = "password_reset_issued";
+    /// A password was changed by completing a reset token.
+    pub const PASSWORD_RESET_COMPLETED: &str = "password_reset_completed";
+    /// An account's role was changed (promoted or demoted).
+    pub const ROLE_CHANGED: &str = "role_changed";
+    /// An account was suspended.
+    pub const ACCOUNT_SUSPENDED: &str = "account_suspended";
+    /// A suspended account was reactivated.
+    pub const ACCOUNT_ACTIVATED: &str = "account_activated";
+    /// All of an account's sessions were revoked by an administrator.
+    pub const SESSIONS_REVOKED: &str = "sessions_revoked";
+    /// An account was permanently deleted.
+    pub const ACCOUNT_DELETED: &str = "account_deleted";
+    /// An account was approved (pending → approved).
+    pub const ACCOUNT_APPROVED: &str = "account_approved";
+    /// A registration request was rejected.
+    pub const ACCOUNT_REJECTED: &str = "account_rejected";
+}
+
 /// The grandfathered administrator identifier. Its account record, Argon2id
 /// password hash and live sessions are preserved verbatim by the migration.
 pub const LEGACY_ADMIN_IDENTIFIER: &str = "himanshusudan771@gmail.com";
@@ -120,6 +160,15 @@ pub enum AuthError {
     /// (correct) credentials are not enough.
     #[error("your account is awaiting administrator approval")]
     AccountPending,
+    /// Credentials were correct but an administrator suspended the account.
+    ///
+    /// Like [`AuthError::AccountPending`], returned only after the password
+    /// verifies — a caller with wrong credentials still gets the generic
+    /// [`AuthError::InvalidCredentials`] and learns nothing. The person who
+    /// legitimately owns the credentials deserves to know why access is
+    /// refused so they can contact an administrator.
+    #[error("your account has been suspended by an administrator")]
+    AccountSuspended,
     /// Storage failure.
     #[error("authentication storage error")]
     Storage(#[from] rusqlite::Error),
@@ -136,6 +185,9 @@ impl AuthError {
             // Forbidden, not Unauthorized: the caller IS authenticated, the
             // account just lacks access.
             AuthError::AccountPending => axum::http::StatusCode::FORBIDDEN,
+            // Same reasoning as AccountPending: correct credentials, refused
+            // access. 403 with a truthful message for the real owner.
+            AuthError::AccountSuspended => axum::http::StatusCode::FORBIDDEN,
             AuthError::Storage(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -171,6 +223,66 @@ pub struct ListedAccount {
     /// `last_seen_at_ms`, which is only ever written for a validated
     /// session, so it can only reflect a real sign-in.
     pub last_sign_in_at_ms: Option<i64>,
+}
+
+/// A live session row belonging to an account, projected to fields an
+/// administrator may see. The token digest itself is never included —
+/// this struct cannot leak it because it never selects it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionSummary {
+    /// When the session was minted (unix ms).
+    pub created_at_ms: i64,
+    /// Absolute expiry (unix ms).
+    pub expires_at_ms: i64,
+    /// Most recent validated request (unix ms).
+    pub last_seen_at_ms: i64,
+}
+
+/// Full account detail for the administrator's "View details" panel.
+///
+/// Everything an administrator may legitimately see about one account:
+/// identity, role, status, registration, last sign-in, last password
+/// change and the count of live sessions. No password hash, no session
+/// or reset token material — none is selected, so none can leak.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountDetail {
+    pub id: i64,
+    pub identifier: String,
+    pub role: String,
+    pub status: String,
+    pub created_at_ms: i64,
+    /// Most recent successful sign-in, when one is recorded.
+    pub last_sign_in_at_ms: Option<i64>,
+    /// Last password change (registration or completed reset), when
+    /// tracked. `None` for accounts that predate the column.
+    pub last_password_change_ms: Option<i64>,
+    /// Number of currently live sessions.
+    pub live_session_count: i64,
+}
+
+/// A freshly minted administrator-triggered password-reset token. The raw
+/// value is handed out exactly once (to the email sender); only its
+/// SHA-256 digest is persisted.
+#[derive(Debug)]
+pub struct IssuedPasswordReset {
+    /// Raw URL-safe token for the reset link. Never stored, never logged.
+    pub token: String,
+    pub account_id: i64,
+    /// Normalized identifier of the account (the email recipient).
+    pub identifier: String,
+    pub expires_at_ms: i64,
+}
+
+/// One audit row, projected to the fields the activity view shows.
+/// No secrets are ever selected — the table never stores any.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditEntry {
+    pub id: i64,
+    pub at_ms: i64,
+    pub kind: String,
+    pub actor_email: Option<String>,
+    pub subject_email: Option<String>,
+    pub detail: Option<String>,
 }
 
 /// Filters accepted by [`AuthStore::list_accounts`]. Every field is
@@ -257,6 +369,21 @@ pub enum AccountError {
     /// The operation would leave the installation with no administrator.
     #[error("cannot demote the last remaining administrator")]
     LastAdmin,
+    /// An administrator tried to delete their own account. A state
+    /// conflict, not a malformed request: the account exists and could be
+    /// deleted by a DIFFERENT admin, so 409 fits and lets clients show an
+    /// actionable message.
+    #[error("administrators cannot delete their own account")]
+    AdminSelfDelete,
+    /// A password reset was requested before the cooldown elapsed.
+    #[error("a reset was emailed to this account recently; wait before requesting another")]
+    ResetCooldown { retry_in_ms: i64 },
+    /// The reset token is unknown, expired, exhausted or already used.
+    #[error("this password reset link is invalid or has expired")]
+    ResetInvalid,
+    /// The new password failed validation.
+    #[error("{0}")]
+    PasswordValidation(String),
     /// Storage failure.
     #[error("authentication storage error")]
     Storage(#[from] rusqlite::Error),
@@ -271,6 +398,10 @@ impl AccountError {
             AccountError::NotFound => axum::http::StatusCode::NOT_FOUND,
             AccountError::InvalidTransition { .. } => axum::http::StatusCode::CONFLICT,
             AccountError::LastAdmin => axum::http::StatusCode::CONFLICT,
+            AccountError::AdminSelfDelete => axum::http::StatusCode::CONFLICT,
+            AccountError::ResetCooldown { .. } => axum::http::StatusCode::TOO_MANY_REQUESTS,
+            AccountError::ResetInvalid => axum::http::StatusCode::BAD_REQUEST,
+            AccountError::PasswordValidation(_) => axum::http::StatusCode::BAD_REQUEST,
             AccountError::Storage(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -328,6 +459,89 @@ const SIGNIN_FAILURES_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS signin_failures
      first_failed_at_ms INTEGER NOT NULL,
      last_failed_at_ms  INTEGER NOT NULL
  );";
+
+/// Administrator-triggered password resets (User Management phase).
+///
+/// Only the SHA-256 digest of the raw token is stored — the same shape as
+/// session tokens — so a leaked database cannot be replayed against the
+/// live app. Tokens are single-use (`consumed_at_ms`), expiring
+/// ([`PASSWORD_RESET_TTL`]) and attempt-bounded
+/// ([`PASSWORD_RESET_MAX_ATTEMPTS`]).
+const PASSWORD_RESET_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS password_reset_tokens (
+     id               INTEGER PRIMARY KEY AUTOINCREMENT,
+     account_id       INTEGER NOT NULL
+                      REFERENCES auth_account (id) ON DELETE CASCADE,
+     token_digest     BLOB NOT NULL UNIQUE,
+     requested_by     INTEGER NOT NULL
+                      REFERENCES auth_account (id) ON DELETE SET NULL,
+     created_at_ms    INTEGER NOT NULL,
+     expires_at_ms    INTEGER NOT NULL,
+     attempts         INTEGER NOT NULL DEFAULT 0,
+     consumed_at_ms   INTEGER
+ );
+ CREATE INDEX IF NOT EXISTS idx_password_reset_account
+     ON password_reset_tokens (account_id);";
+
+/// Audit log for administrative actions and authentication events
+/// (User Management phase).
+///
+/// Rows survive account deletion: `subject_id`/`actor_id` have no foreign
+/// key on purpose, so the history an administrator needs after removing an
+/// account is preserved while the personal data itself is gone. The
+/// `subject_email` snapshot keeps deleted accounts identifiable in the log
+/// without retaining their full record.
+const AUDIT_LOG_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS audit_log (
+     id             INTEGER PRIMARY KEY AUTOINCREMENT,
+     at_ms          INTEGER NOT NULL,
+     kind           TEXT NOT NULL,
+     actor_id       INTEGER,
+     actor_email    TEXT,
+     subject_id     INTEGER,
+     subject_email  TEXT,
+     detail         TEXT
+ );
+ CREATE INDEX IF NOT EXISTS idx_audit_subject ON audit_log (subject_id, at_ms DESC);
+ CREATE INDEX IF NOT EXISTS idx_audit_kind ON audit_log (kind, at_ms DESC);";
+
+/// Apply the User Management additive migration: `last_password_change_ms`
+/// on `auth_account`, plus the reset-token and audit-log tables. Idempotent
+/// and safe on every existing database shape — it only ever ADDS columns
+/// and tables, never rewrites or drops anything.
+fn migrate_user_management(conn: &mut Connection) -> Result<(), AuthError> {
+    // 1. New tables (CREATE IF NOT EXISTS makes this a no-op when present).
+    conn.execute_batch(PASSWORD_RESET_SCHEMA)?;
+    conn.execute_batch(AUDIT_LOG_SCHEMA)?;
+
+    // 2. New column on auth_account. SQLite has no ADD COLUMN IF NOT
+    //    EXISTS, so probe sqlite_master's table_info first and ignore the
+    //    "duplicate column" error that a racing open would produce.
+    let has_column: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('auth_account')
+              WHERE name = 'last_password_change_ms'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n > 0)
+        .unwrap_or(false);
+    if !has_column {
+        match conn.execute(
+            "ALTER TABLE auth_account ADD COLUMN last_password_change_ms INTEGER",
+            [],
+        ) {
+            Ok(_) => {}
+            // A concurrent opener added it between the probe and here.
+            // SQLite reports this as a constraint failure on the column.
+            Err(rusqlite::Error::SqliteFailure(ffi, _))
+                if ffi.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT =>
+            {
+                let _ = ffi;
+            }
+            Err(e) => return Err(AuthError::Storage(e)),
+        }
+    }
+    Ok(())
+}
 
 /// Apply the Phase 4A migration inside one transaction.
 ///
@@ -428,6 +642,10 @@ fn migrate_to_multi_user(conn: &mut Connection) -> Result<(), AuthError> {
     Ok(())
 }
 
+/// Apply the Phase 4A migration inside one transaction, then the User
+/// Management additive migration.
+///
+/// Safe by construction:
 impl AuthStore {
     /// Open (creating if necessary) the auth store at `path`, applying the
     /// Phase 4A multi-user migration first.
@@ -448,7 +666,14 @@ impl AuthStore {
         conn.busy_timeout(std::time::Duration::from_millis(5_000))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
+        // Foreign keys are required for ON DELETE CASCADE (sessions,
+        // reset tokens) to fire when an account is deleted. SQLite keeps
+        // this OFF by default for compatibility, so enable it explicitly —
+        // every existing deployment of this store has the constraint
+        // declared but never enforced.
+        conn.pragma_update(None, "foreign_keys", "ON")?;
         migrate_to_multi_user(&mut conn)?;
+        migrate_user_management(&mut conn)?;
         Ok(Self {
             conn: parking_lot::Mutex::new(conn),
             signin_attempts: parking_lot::Mutex::new(Vec::new()),
@@ -576,6 +801,12 @@ impl AuthStore {
         {
             // Wrong password: record the consecutive failure for this
             // normalized identity (never the credential itself).
+            self.record_audit(
+                audit_event::SIGNIN_FAILED,
+                None,
+                None,
+                &format!("wrong password for {}", normalize_identity(identifier)),
+            );
             self.record_signin_failure(&normalize_identity(identifier));
             return Err(AuthError::InvalidCredentials);
         }
@@ -608,13 +839,40 @@ impl AuthStore {
                 // counter: the user did nothing wrong, and counting it
                 // could lock out a legitimate registrant who retries while
                 // waiting. The global throttle above still applies.
+                self.record_audit(
+                    audit_event::SIGNIN_FAILED,
+                    None,
+                    Some((account_id, identifier_trimmed)),
+                    "account pending approval",
+                );
                 return Err(AuthError::AccountPending);
             }
-            // rejected / suspended (or anything unexpected): deny without
-            // saying why, and revoke whatever sessions the account still
-            // holds so a suspension takes effect immediately.
+            STATUS_SUSPENDED => {
+                // Correct credentials, suspended by an administrator. Same
+                // information-disclosure discipline as the pending case:
+                // only the real owner (correct password) ever sees this.
+                // Sessions were already revoked at suspension time; revoke
+                // again defensively in case one slipped through.
+                self.revoke_account_sessions(account_id);
+                self.record_audit(
+                    audit_event::SIGNIN_FAILED,
+                    None,
+                    Some((account_id, identifier_trimmed)),
+                    "account suspended",
+                );
+                return Err(AuthError::AccountSuspended);
+            }
+            // rejected (or anything unexpected): deny without saying why,
+            // and revoke whatever sessions the account still holds so the
+            // refusal takes effect immediately.
             _ => {
                 self.revoke_account_sessions(account_id);
+                self.record_audit(
+                    audit_event::SIGNIN_FAILED,
+                    None,
+                    Some((account_id, identifier_trimmed)),
+                    "account rejected",
+                );
                 self.record_signin_failure(&normalize_identity(identifier));
                 return Err(AuthError::InvalidCredentials);
             }
@@ -649,6 +907,14 @@ impl AuthStore {
             // Opportunistic cleanup of expired sessions.
             conn.execute("DELETE FROM sessions WHERE expires_at_ms < ?1", [now])?;
         }
+        // Successful authentication is itself an auditable event: it is
+        // what the activity view's "last sign-in" narrative is built from.
+        self.record_audit(
+            audit_event::SIGNIN_SUCCESS,
+            None,
+            Some((account_id, identifier_trimmed)),
+            "signed in",
+        );
         Ok(token)
     }
 
@@ -1457,6 +1723,537 @@ impl AuthStore {
         )?;
         tx.commit()?;
         Ok(new_role.to_string())
+    }
+
+    // ------------------------------------------------------------------
+    // User Management: details, sessions, deletion, password reset, audit
+    // ------------------------------------------------------------------
+
+    /// Look up an account by its numeric id.
+    ///
+    /// Mirrors [`AuthStore::find_account_by_identifier`] but keyed on the
+    /// primary key, which is what every admin URL carries.
+    pub fn find_account_by_id(&self, id: i64) -> Result<AccountRecord, AccountError> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT id, identifier, role, status, created_at_ms
+               FROM auth_account
+              WHERE id = ?1",
+            [id],
+            |r| {
+                Ok(AccountRecord {
+                    id: r.get(0)?,
+                    identifier: r.get(1)?,
+                    role: r.get(2)?,
+                    status: r.get(3)?,
+                    created_at_ms: r.get(4)?,
+                })
+            },
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => AccountError::NotFound,
+            other => AccountError::Storage(other),
+        })
+    }
+
+    /// Live (unexpired) sessions for one account, newest activity first.
+    ///
+    /// Bounded by `limit` so a pathological account cannot produce an
+    /// unbounded response.
+    pub fn account_sessions(
+        &self,
+        account_id: i64,
+        limit: i64,
+    ) -> Result<Vec<SessionSummary>, AccountError> {
+        if limit <= 0 {
+            return Err(AccountError::Validation("limit must be positive".into()));
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT created_at_ms, expires_at_ms, last_seen_at_ms
+               FROM sessions
+              WHERE account_id = ?1 AND expires_at_ms > ?2
+              ORDER BY last_seen_at_ms DESC
+              LIMIT ?3",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![account_id, now, limit], |r| {
+                Ok(SessionSummary {
+                    created_at_ms: r.get(0)?,
+                    expires_at_ms: r.get(1)?,
+                    last_seen_at_ms: r.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Read the full detail record for one account.
+    pub fn account_detail(&self, id: i64) -> Result<AccountDetail, AccountError> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT a.id, a.identifier, a.role, a.status, a.created_at_ms,
+                    a.last_password_change_ms,
+                    (SELECT COUNT(*) FROM sessions s
+                      WHERE s.account_id = a.id AND s.expires_at_ms > ?2),
+                    (SELECT MAX(s.last_seen_at_ms) FROM sessions s
+                      WHERE s.account_id = a.id)
+               FROM auth_account a
+              WHERE a.id = ?1",
+            rusqlite::params![id, now],
+            |r| {
+                Ok(AccountDetail {
+                    id: r.get(0)?,
+                    identifier: r.get(1)?,
+                    role: r.get(2)?,
+                    status: r.get(3)?,
+                    created_at_ms: r.get(4)?,
+                    last_password_change_ms: r.get(5).ok(),
+                    live_session_count: r.get(6)?,
+                    last_sign_in_at_ms: r.get(7).ok(),
+                })
+            },
+        )
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => AccountError::NotFound,
+            other => AccountError::Storage(other),
+        })
+    }
+
+    /// Revoke every live session belonging to `account_id`.
+    ///
+    /// Returns the number of sessions actually removed, so the caller can
+    /// report an honest result ("3 sessions revoked") rather than a bare
+    /// success even when there was nothing to revoke.
+    pub fn revoke_all_sessions_for(&self, account_id: i64) -> Result<usize, AccountError> {
+        let conn = self.conn.lock();
+        let n = conn.execute(
+            "DELETE FROM sessions WHERE account_id = ?1",
+            [account_id],
+        )?;
+        Ok(n)
+    }
+
+    /// Permanently delete an account and every dependent record, in one
+    /// transaction.
+    ///
+    /// Safety rules, all enforced inside the transaction:
+    ///
+    /// * The target must exist (404 otherwise).
+    /// * The caller cannot delete itself: pass the acting administrator's
+    ///   id as `acting_admin_id` and a self-delete is refused with
+    ///   [`AccountError::Validation`]. This protects the signed-in
+    ///   administrator from an accidental self-deletion that would strand
+    ///   their own session mid-request.
+    /// * The last administrator cannot be deleted: the admin count is read
+    ///   and the delete executed under one IMMEDIATE transaction, so two
+    ///   racing deletions cannot both pass the check.
+    /// * Sessions, password-reset tokens and the per-identity failure
+    ///   counter are removed in the same transaction — no orphan rows, no
+    ///   window where a deleted account's cookie still validates.
+    /// * The audit trail survives: audit rows reference ids without foreign
+    ///   keys precisely so deletion cannot erase history.
+    ///
+    /// Returns the identifier of the deleted account (for the audit entry
+    /// the caller records next).
+    pub fn delete_account(
+        &self,
+        id: i64,
+        acting_admin_id: i64,
+    ) -> Result<String, AccountError> {
+        let mut conn = self.conn.lock();
+        // IMMEDIATE: the admin-count read and the deletes must not be
+        // interleaved with another writer (see set_account_role).
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        let target: Option<(String, String)> = tx
+            .query_row(
+                "SELECT identifier, role FROM auth_account WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => AccountError::NotFound,
+                other => AccountError::Storage(other),
+            })
+            .map(Some)
+            .or_else(|e| match e {
+                AccountError::NotFound => Ok(None),
+                other => Err(other),
+            })?;
+        let Some((identifier, role)) = target else {
+            tx.rollback().ok();
+            return Err(AccountError::NotFound);
+        };
+
+        if id == acting_admin_id {
+            tx.rollback().ok();
+            return Err(AccountError::AdminSelfDelete);
+        }
+        if role == ADMIN_ROLE {
+            let admins: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM auth_account WHERE role = ?1",
+                [ADMIN_ROLE],
+                |r| r.get(0),
+            )?;
+            if admins <= 1 {
+                tx.rollback().ok();
+                return Err(AccountError::LastAdmin);
+            }
+        }
+
+        // Dependent rows first (explicitly, so behaviour does not depend on
+        // the FK pragma being enabled): sessions, reset tokens, failures.
+        tx.execute("DELETE FROM sessions WHERE account_id = ?1", [id])?;
+        tx.execute("DELETE FROM password_reset_tokens WHERE account_id = ?1", [id])?;
+        tx.execute(
+            "DELETE FROM signin_failures WHERE identity_key = ?1",
+            [&identifier],
+        )?;
+        tx.execute("DELETE FROM auth_account WHERE id = ?1", [id])?;
+        tx.commit()?;
+        Ok(identifier)
+    }
+
+    /// Issue a single-use, expiring password-reset token for an account.
+    ///
+    /// Returns the RAW token exactly once — it exists in cleartext only in
+    /// this return value and the email the caller sends; the database
+    /// stores only its SHA-256 digest. Any previous unconsumed token for
+    /// the account is superseded, so at most one live reset link exists per
+    /// mailbox at any time.
+    pub fn issue_password_reset(
+        &self,
+        account_id: i64,
+        requested_by: i64,
+    ) -> Result<IssuedPasswordReset, AccountError> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        // The account must exist and be identifiable for the email.
+        let identifier: String = tx
+            .query_row(
+                "SELECT identifier FROM auth_account WHERE id = ?1",
+                [account_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => AccountError::NotFound,
+                other => AccountError::Storage(other),
+            })?;
+
+        // Cooldown against the most recent reset for this account, whatever
+        // its state — prevents an administrator (or a compromised admin
+        // session) from mail-bombing a mailbox.
+        let last_created: Option<i64> = tx
+            .query_row(
+                "SELECT MAX(created_at_ms) FROM password_reset_tokens WHERE account_id = ?1",
+                [account_id],
+                |r| r.get(0),
+            )
+            .ok()
+            .flatten();
+        if let Some(t) = last_created {
+            let ready_at = t + PASSWORD_RESET_COOLDOWN.as_millis() as i64;
+            if now < ready_at {
+                tx.rollback().ok();
+                return Err(AccountError::ResetCooldown {
+                    retry_in_ms: ready_at - now,
+                });
+            }
+        }
+
+        // Supersede every live token for this account.
+        tx.execute(
+            "UPDATE password_reset_tokens
+                SET consumed_at_ms = ?1
+              WHERE account_id = ?2 AND consumed_at_ms IS NULL",
+            rusqlite::params![now, account_id],
+        )?;
+
+        let raw = Self::new_token();
+        let digest = token_digest(&raw);
+        let expires = now + PASSWORD_RESET_TTL.as_millis() as i64;
+        tx.execute(
+            "INSERT INTO password_reset_tokens
+                 (account_id, token_digest, requested_by, created_at_ms, expires_at_ms, attempts)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0)",
+            rusqlite::params![account_id, digest, requested_by, now, expires],
+        )?;
+
+        // Opportunistic cleanup of long-spent tokens.
+        let cutoff = now - PASSWORD_RESET_RETENTION_MS;
+        let _ = tx.execute(
+            "DELETE FROM password_reset_tokens
+              WHERE (expires_at_ms < ?1)
+                 OR (consumed_at_ms IS NOT NULL AND consumed_at_ms < ?1)",
+            [cutoff],
+        );
+
+        tx.commit()?;
+        Ok(IssuedPasswordReset {
+            token: raw,
+            account_id,
+            identifier,
+            expires_at_ms: expires,
+        })
+    }
+
+    /// Validate a raw reset token WITHOUT consuming it (for the reset page
+    /// to decide whether to show the form). Never reveals why a token is
+    /// invalid — one message for unknown/expired/consumed/exhausted.
+    pub fn peek_password_reset(&self, token: &str) -> Result<bool, AccountError> {
+        if token.is_empty() || token.len() > 128 {
+            return Ok(false);
+        }
+        let digest = token_digest(token);
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self.conn.lock();
+        let ok = conn
+            .query_row(
+                "SELECT expires_at_ms FROM password_reset_tokens
+                  WHERE token_digest = ?1 AND consumed_at_ms IS NULL AND expires_at_ms > ?2",
+                rusqlite::params![digest, now],
+                |r| r.get::<_, i64>(0),
+            )
+            .is_ok();
+        Ok(ok)
+    }
+
+    /// Consume every live (unconsumed, unexpired) reset token for an
+    /// account. Used when a delivery fails so an undelivered link can
+    /// never later be used; also a safe manual kill-switch.
+    pub fn revoke_live_reset_tokens(&self, account_id: i64) -> Result<(), AccountError> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE password_reset_tokens
+                SET consumed_at_ms = ?1
+              WHERE account_id = ?2 AND consumed_at_ms IS NULL",
+            rusqlite::params![now, account_id],
+        )?;
+        Ok(())
+    }
+
+    /// Complete a password reset: consume the token and set the new
+    /// password, atomically.
+    ///
+    /// Guarantees:
+    /// * The token is single-use: two racing callers cannot both consume
+    ///   it (the conditional UPDATE reports rows affected).
+    /// * The new password is validated (8..=256 chars) and hashed with
+    ///   Argon2id and a fresh random salt BEFORE any lock is taken;
+    ///   plaintext never touches storage or logs.
+    /// * Completing a reset revokes every existing session for the
+    ///   account, so a stolen cookie cannot outlive a recovered password.
+    /// * `last_password_change_ms` is stamped in the same transaction.
+    ///
+    /// Returns the account id + identifier so the caller can audit it.
+    pub fn complete_password_reset(
+        &self,
+        token: &str,
+        new_password: &str,
+    ) -> Result<(i64, String), AccountError> {
+        if new_password.len() < MIN_PASSWORD_LEN {
+            return Err(AccountError::PasswordValidation(format!(
+                "password must be at least {MIN_PASSWORD_LEN} characters"
+            )));
+        }
+        if new_password.len() > 256 {
+            return Err(AccountError::PasswordValidation(
+                "password is too long".into(),
+            ));
+        }
+        if token.is_empty() || token.len() > 128 {
+            return Err(AccountError::ResetInvalid);
+        }
+
+        // Hash BEFORE the transaction: Argon2id is deliberately slow and
+        // must not hold the connection lock.
+        let salt = random_salt();
+        let hash = Argon2::default()
+            .hash_password(new_password.as_bytes(), &salt)
+            .map_err(|_| AccountError::Storage(rusqlite::Error::InvalidQuery))?
+            .to_string();
+
+        let digest = token_digest(token);
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        // Consume the token exactly once. The attempt counter guards
+        // against brute-forcing the token itself through this endpoint.
+        let row: Option<(i64, i64)> = tx
+            .query_row(
+                "SELECT id, attempts FROM password_reset_tokens
+                  WHERE token_digest = ?1 AND consumed_at_ms IS NULL AND expires_at_ms > ?2",
+                rusqlite::params![digest, now],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+        let Some((reset_id, attempts)) = row else {
+            // Unknown / expired / already used. One generic error for all.
+            tx.commit().ok();
+            return Err(AccountError::ResetInvalid);
+        };
+        if attempts >= PASSWORD_RESET_MAX_ATTEMPTS as i64 {
+            // Exhausted: kill the token and refuse indistinguishably.
+            tx.execute(
+                "UPDATE password_reset_tokens SET consumed_at_ms = ?1 WHERE id = ?2",
+                rusqlite::params![now, reset_id],
+            )?;
+            tx.commit().ok();
+            return Err(AccountError::ResetInvalid);
+        }
+        let consumed = tx.execute(
+            "UPDATE password_reset_tokens
+                SET consumed_at_ms = ?1, attempts = attempts + 1
+              WHERE id = ?2 AND consumed_at_ms IS NULL",
+            rusqlite::params![now, reset_id],
+        )?;
+        if consumed == 0 {
+            // Raced with another consumer that won.
+            tx.commit().ok();
+            return Err(AccountError::ResetInvalid);
+        }
+
+        let account: (i64, String) = tx
+            .query_row(
+                "SELECT a.id, a.identifier
+                   FROM password_reset_tokens r
+                   JOIN auth_account a ON a.id = r.account_id
+                  WHERE r.id = ?1",
+                [reset_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => AccountError::ResetInvalid,
+                other => AccountError::Storage(other),
+            })?;
+
+        // Set the new hash and stamp the change time.
+        tx.execute(
+            "UPDATE auth_account
+                SET password_hash = ?1, last_password_change_ms = ?2
+              WHERE id = ?3",
+            rusqlite::params![hash, now, account.0],
+        )?;
+        // A recovered password invalidates every prior session.
+        tx.execute("DELETE FROM sessions WHERE account_id = ?1", [account.0])?;
+        tx.commit()?;
+        Ok(account)
+    }
+
+    // ------------------------------------------------------------------
+    // Audit log
+    // ------------------------------------------------------------------
+
+    /// Record one audit event. Best-effort by design: an audit write must
+    /// never turn a successful administrative action into a 500, and the
+    /// caller decides whether a FAILED audit write should abort (the
+    /// destructive paths use [`AuthStore::record_audit_checked`] instead).
+    ///
+    /// `actor` is `(id, email)` of the administrator who acted, or `None`
+    /// for system events (sign-ins). `subject` is the affected account.
+    /// `detail` is a short human-readable note; it must never contain a
+    /// password, hash or token.
+    pub fn record_audit(
+        &self,
+        kind: &str,
+        actor: Option<(i64, &str)>,
+        subject: Option<(i64, &str)>,
+        detail: &str,
+    ) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self.conn.lock();
+        let _ = conn.execute(
+            "INSERT INTO audit_log
+                 (at_ms, kind, actor_id, actor_email, subject_id, subject_email, detail)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                now,
+                kind,
+                actor.map(|a| a.0),
+                actor.map(|a| a.1.to_string()),
+                subject.map(|s| s.0),
+                subject.map(|s| s.1.to_string()),
+                detail
+            ],
+        );
+    }
+
+    /// Like [`AuthStore::record_audit`] but returns an error on failure, for
+    /// callers that must not proceed silently when the audit trail cannot
+    /// be written.
+    pub fn record_audit_checked(
+        &self,
+        kind: &str,
+        actor: Option<(i64, &str)>,
+        subject: Option<(i64, &str)>,
+        detail: &str,
+    ) -> Result<(), AccountError> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self.conn.lock();
+        conn.execute(
+            "INSERT INTO audit_log
+                 (at_ms, kind, actor_id, actor_email, subject_id, subject_email, detail)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                now,
+                kind,
+                actor.map(|a| a.0),
+                actor.map(|a| a.1.to_string()),
+                subject.map(|s| s.0),
+                subject.map(|s| s.1.to_string()),
+                detail
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// List audit events for one account (as subject), newest first, with
+    /// bounded pagination. Returns the page plus the total matching count.
+    ///
+    /// Deleted accounts keep their history: the query matches on
+    /// `subject_id`, which has no foreign key and therefore survives
+    /// deletion.
+    pub fn list_account_activity(
+        &self,
+        subject_id: i64,
+        limit: i64,
+        offset: i64,
+    ) -> Result<(Vec<AuditEntry>, i64), AccountError> {
+        let limit = limit.clamp(1, 200);
+        let offset = offset.max(0);
+        let conn = self.conn.lock();
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM audit_log WHERE subject_id = ?1",
+            [subject_id],
+            |r| r.get(0),
+        )?;
+        let mut stmt = conn.prepare(
+            "SELECT id, at_ms, kind, actor_email, subject_email, detail
+               FROM audit_log
+              WHERE subject_id = ?1
+              ORDER BY at_ms DESC, id DESC
+              LIMIT ?2 OFFSET ?3",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![subject_id, limit, offset], |r| {
+                Ok(AuditEntry {
+                    id: r.get(0)?,
+                    at_ms: r.get(1)?,
+                    kind: r.get(2)?,
+                    actor_email: r.get(3)?,
+                    subject_email: r.get(4)?,
+                    detail: r.get(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok((rows, total))
     }
 
     /// Bulk-create `n` pending accounts WITHOUT hashing passwords.
@@ -2393,8 +3190,19 @@ mod tests {
             s.validate_session(&token).is_none(),
             "suspension must revoke live sessions"
         );
+        // Correct credentials on a suspended account now yield the
+        // explicit suspended message (User Management phase): the password
+        // verified, so telling the real owner why access is refused leaks
+        // nothing an attacker with wrong credentials could use — they still
+        // get the generic InvalidCredentials below.
         assert!(matches!(
             s.sign_in("eve@soket.ai", "a strong passphrase"),
+            Err(AuthError::AccountSuspended)
+        ));
+        // WRONG credentials on the same suspended account stay generic:
+        // no status information for a caller who cannot prove ownership.
+        assert!(matches!(
+            s.sign_in("eve@soket.ai", "wrong password entirely"),
             Err(AuthError::InvalidCredentials)
         ));
         // Reinstated: access returns.
@@ -2409,7 +3217,7 @@ mod tests {
         s.set_account_status(id, STATUS_SUSPENDED).unwrap();
         assert!(matches!(
             s.sign_in("eve@soket.ai", "a strong passphrase"),
-            Err(AuthError::InvalidCredentials)
+            Err(AuthError::AccountSuspended)
         ));
     }
 
@@ -3076,5 +3884,440 @@ mod tests {
         s.set_account_status(second, STATUS_APPROVED).unwrap();
         s.set_account_role(second, ADMIN_ROLE).unwrap();
         assert_eq!(s.admin_count().unwrap(), 2);
+    }
+
+    // ==================================================================
+    // User Management: details, sessions, deletion, password reset, audit
+    // ==================================================================
+
+    /// Boot an admin + one approved ordinary user; returns (store, dir,
+    /// admin_id, user_id).
+    fn um_fixture() -> (AuthStore, tempfile::TempDir, i64, i64) {
+        let (s, d) = store();
+        s.sign_up(LEGACY_ADMIN, "correct horse battery").unwrap();
+        let admin = s.find_account_by_identifier(LEGACY_ADMIN).unwrap().id;
+        let user = s
+            .create_pending_user("victim@soket.ai", "a strong passphrase")
+            .unwrap();
+        s.set_account_status(user, STATUS_APPROVED).unwrap();
+        (s, d, admin, user)
+    }
+
+    #[test]
+    fn find_account_by_id_round_trips() {
+        let (s, _d, _a, user) = um_fixture();
+        let rec = s.find_account_by_id(user).unwrap();
+        assert_eq!(rec.identifier, "victim@soket.ai");
+        assert_eq!(rec.status, STATUS_APPROVED);
+        assert!(matches!(
+            s.find_account_by_id(999_999),
+            Err(AccountError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn account_detail_reports_every_safe_field() {
+        let (s, _d, _admin, user) = um_fixture();
+        // The user signs in twice: two live sessions.
+        let t1 = s.sign_in("victim@soket.ai", "a strong passphrase").unwrap();
+        let t2 = s.sign_in("victim@soket.ai", "a strong passphrase").unwrap();
+        assert!(s.validate_session(&t1).is_some());
+        assert!(s.validate_session(&t2).is_some());
+
+        let d = s.account_detail(user).unwrap();
+        assert_eq!(d.id, user);
+        assert_eq!(d.identifier, "victim@soket.ai");
+        assert_eq!(d.role, USER_ROLE);
+        assert_eq!(d.status, STATUS_APPROVED);
+        assert!(d.created_at_ms > 0);
+        assert!(d.last_sign_in_at_ms.is_some(), "sign-in must be recorded");
+        assert_eq!(d.live_session_count, 2);
+        // No password-change tracking yet on a fresh account.
+        assert!(d.last_password_change_ms.is_none());
+
+        // Sessions list carries timestamps only — never digests.
+        let sessions = s.account_sessions(user, 10).unwrap();
+        assert_eq!(sessions.len(), 2);
+        for sess in &sessions {
+            assert!(sess.created_at_ms > 0);
+            assert!(sess.expires_at_ms > sess.created_at_ms);
+            assert!(sess.last_seen_at_ms >= sess.created_at_ms);
+        }
+
+        // Unknown id: NotFound, not a panic.
+        assert!(matches!(
+            s.account_detail(424_242),
+            Err(AccountError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn revoke_all_sessions_removes_only_that_accounts_sessions() {
+        let (s, _d, admin, user) = um_fixture();
+        let victim_tok = s.sign_in("victim@soket.ai", "a strong passphrase").unwrap();
+        let admin_tok = s.sign_in(LEGACY_ADMIN, "correct horse battery").unwrap();
+
+        let removed = s.revoke_all_sessions_for(user).unwrap();
+        assert_eq!(removed, 1, "exactly the victim's session");
+        assert!(s.validate_session(&victim_tok).is_none());
+        // The admin's session is untouched.
+        assert!(s.validate_session(&admin_tok).is_some());
+
+        // Idempotent: nothing left to remove.
+        assert_eq!(s.revoke_all_sessions_for(user).unwrap(), 0);
+        let _ = admin;
+    }
+
+    #[test]
+    fn delete_account_cleans_up_dependent_records() {
+        let (s, _d, admin, user) = um_fixture();
+        let tok = s.sign_in("victim@soket.ai", "a strong passphrase").unwrap();
+        assert!(s.validate_session(&tok).is_some());
+        // A pending reset token for the doomed account.
+        s.issue_password_reset(user, admin).unwrap();
+        // A failure-counter row for its identity.
+        let _ = s.sign_in("victim@soket.ai", "wrong password");
+
+        let deleted = s.delete_account(user, admin).unwrap();
+        assert_eq!(deleted, "victim@soket.ai");
+
+        // Account gone.
+        assert!(matches!(
+            s.find_account_by_id(user),
+            Err(AccountError::NotFound)
+        ));
+        // Its session no longer validates (row gone AND join fails).
+        assert!(s.validate_session(&tok).is_none());
+        // Dependent rows are all gone.
+        {
+            let conn = s.conn_for_tests();
+            let sessions: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sessions WHERE account_id = ?1",
+                    [user],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(sessions, 0, "sessions must be cleaned up");
+            let resets: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM password_reset_tokens WHERE account_id = ?1",
+                    [user],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(resets, 0, "reset tokens must be cleaned up");
+            let failures: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM signin_failures WHERE identity_key = ?1",
+                    ["victim@soket.ai"],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(failures, 0, "failure counter must be cleaned up");
+        }
+        // The admin survives.
+        assert_eq!(s.admin_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn delete_account_refuses_self_and_last_admin() {
+        let (s, _d, admin, _user) = um_fixture();
+        // Self-delete refused.
+        assert!(matches!(
+            s.delete_account(admin, admin),
+            Err(AccountError::Validation(_))
+        ));
+        assert_eq!(s.admin_count().unwrap(), 1);
+
+        // Last-admin delete refused even when the acting admin is someone
+        // else (impossible today, but the storage layer must hold alone):
+        // promote a peer, then delete BOTH would strand the install — the
+        // second delete must fail.
+        let peer = s
+            .create_pending_user("peer@soket.ai", "a strong passphrase")
+            .unwrap();
+        s.set_account_status(peer, STATUS_APPROVED).unwrap();
+        s.set_account_role(peer, ADMIN_ROLE).unwrap();
+        assert_eq!(s.admin_count().unwrap(), 2);
+        // Peer deletes the original admin: legal (one admin remains).
+        assert!(s.delete_account(admin, peer).is_ok());
+        assert_eq!(s.admin_count().unwrap(), 1);
+        // Now the peer is the last admin: deleting them is refused.
+        assert!(matches!(
+            s.delete_account(peer, peer),
+            Err(AccountError::Validation(_))
+        ));
+        assert_eq!(s.admin_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn delete_account_requires_positive_id_that_exists() {
+        let (s, _d, admin, _user) = um_fixture();
+        assert!(matches!(
+            s.delete_account(999_999, admin),
+            Err(AccountError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn password_reset_token_is_single_use_and_expiring() {
+        let (s, _d, admin, user) = um_fixture();
+        let issued = s.issue_password_reset(user, admin).unwrap();
+        assert!(!issued.token.is_empty());
+        assert_eq!(issued.identifier, "victim@soket.ai");
+
+        // Peek says valid before use.
+        assert!(s.peek_password_reset(&issued.token).unwrap());
+        // A wrong token does not peek valid.
+        assert!(!s.peek_password_reset("not-a-real-token").unwrap());
+
+        // Complete the reset with a too-short password: refused, token still live.
+        assert!(matches!(
+            s.complete_password_reset(&issued.token, "short"),
+            Err(AccountError::PasswordValidation(_))
+        ));
+        assert!(s.peek_password_reset(&issued.token).unwrap());
+
+        // Complete properly.
+        let (acct, ident) = s
+            .complete_password_reset(&issued.token, "brand new passphrase")
+            .unwrap();
+        assert_eq!(acct, user);
+        assert_eq!(ident, "victim@soket.ai");
+
+        // The token is spent: peek false, replay refused.
+        assert!(!s.peek_password_reset(&issued.token).unwrap());
+        assert!(matches!(
+            s.complete_password_reset(&issued.token, "another passphrase"),
+            Err(AccountError::ResetInvalid)
+        ));
+
+        // The new password works; the old one does not.
+        assert!(s.sign_in("victim@soket.ai", "brand new passphrase").is_ok());
+        assert!(matches!(
+            s.sign_in("victim@soket.ai", "a strong passphrase"),
+            Err(AuthError::InvalidCredentials)
+        ));
+
+        // The change was tracked.
+        let d = s.account_detail(user).unwrap();
+        assert!(d.last_password_change_ms.is_some());
+    }
+
+    #[test]
+    fn completing_a_reset_revokes_existing_sessions() {
+        let (s, _d, admin, user) = um_fixture();
+        let tok = s.sign_in("victim@soket.ai", "a strong passphrase").unwrap();
+        assert!(s.validate_session(&tok).is_some());
+
+        let issued = s.issue_password_reset(user, admin).unwrap();
+        s.complete_password_reset(&issued.token, "replacement passphrase")
+            .unwrap();
+
+        // The pre-reset cookie is dead even though the account is approved.
+        assert!(
+            s.validate_session(&tok).is_none(),
+            "a recovered password must invalidate prior sessions"
+        );
+        // And a fresh sign-in works with the new password.
+        let fresh = s
+            .sign_in("victim@soket.ai", "replacement passphrase")
+            .unwrap();
+        assert!(s.validate_session(&fresh).is_some());
+    }
+
+    #[test]
+    fn issuing_a_new_reset_supersedes_the_previous_one() {
+        let (s, _d, admin, user) = um_fixture();
+        let first = s.issue_password_reset(user, admin).unwrap();
+        // Cooldown blocks an immediate re-issue.
+        match s.issue_password_reset(user, admin) {
+            Err(AccountError::ResetCooldown { retry_in_ms }) => {
+                assert!(retry_in_ms > 0);
+            }
+            other => panic!("expected cooldown, got {other:?}"),
+        }
+        // After the cooldown, the second issue supersedes the first.
+        std::thread::sleep(std::time::Duration::from_millis(
+            PASSWORD_RESET_COOLDOWN.as_millis() as u64 + 20,
+        ));
+        let second = s.issue_password_reset(user, admin).unwrap();
+        assert_ne!(first.token, second.token);
+        // The superseded token can no longer complete a reset.
+        assert!(matches!(
+            s.complete_password_reset(&first.token, "whatever passphrase"),
+            Err(AccountError::ResetInvalid)
+        ));
+        // The fresh one can.
+        assert!(s
+            .complete_password_reset(&second.token, "chosen passphrase")
+            .is_ok());
+    }
+
+    #[test]
+    fn reset_tokens_are_never_stored_plaintext() {
+        let (s, d, admin, user) = um_fixture();
+        let issued = s.issue_password_reset(user, admin).unwrap();
+        // Scan the whole DB file for the raw token's ASCII bytes.
+        let db_bytes = std::fs::read(d.path().join("auth.db")).unwrap();
+        let needle = issued.token.as_bytes();
+        assert!(
+            !db_bytes.windows(needle.len()).any(|w| w == needle),
+            "plaintext reset token must never touch the database"
+        );
+    }
+
+    #[test]
+    fn reset_issuance_fails_cleanly_for_unknown_account() {
+        let (s, _d, admin, _user) = um_fixture();
+        assert!(matches!(
+            s.issue_password_reset(313_131, admin),
+            Err(AccountError::NotFound)
+        ));
+    }
+
+    #[test]
+    fn audit_log_records_and_lists_events() {
+        let (s, _d, admin, user) = um_fixture();
+        s.record_audit(
+            audit_event::ROLE_CHANGED,
+            Some((admin, LEGACY_ADMIN)),
+            Some((user, "victim@soket.ai")),
+            "role set to admin",
+        );
+        s.record_audit(
+            audit_event::SIGNIN_SUCCESS,
+            None,
+            Some((user, "victim@soket.ai")),
+            "signed in",
+        );
+
+        let (entries, total) = s.list_account_activity(user, 50, 0).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(entries.len(), 2);
+        // Newest first.
+        assert_eq!(entries[0].kind, audit_event::SIGNIN_SUCCESS);
+        assert_eq!(entries[1].kind, audit_event::ROLE_CHANGED);
+        assert_eq!(
+            entries[1].actor_email.as_deref(),
+            Some(LEGACY_ADMIN),
+            "the acting administrator is recorded"
+        );
+        assert_eq!(entries[1].subject_email.as_deref(), Some("victim@soket.ai"));
+
+        // record_audit_checked surfaces storage failures.
+        assert!(s
+            .record_audit_checked(
+                audit_event::ACCOUNT_DELETED,
+                Some((admin, LEGACY_ADMIN)),
+                Some((user, "victim@soket.ai")),
+                "x"
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn audit_history_survives_account_deletion() {
+        let (s, _d, admin, user) = um_fixture();
+        s.record_audit(
+            audit_event::ACCOUNT_SUSPENDED,
+            Some((admin, LEGACY_ADMIN)),
+            Some((user, "victim@soket.ai")),
+            "status set to suspended",
+        );
+        let deleted = s.delete_account(user, admin).unwrap();
+        assert_eq!(deleted, "victim@soket.ai");
+
+        // The audit rows outlive the account they describe.
+        let (entries, total) = s.list_account_activity(user, 50, 0).unwrap();
+        assert_eq!(total, 1, "audit history must survive deletion");
+        assert_eq!(entries[0].subject_email.as_deref(), Some("victim@soket.ai"));
+    }
+
+    #[test]
+    fn suspended_signin_returns_distinct_error_after_verification() {
+        let (s, _d, _admin, user) = um_fixture();
+        s.set_account_status(user, STATUS_SUSPENDED).unwrap();
+        // Correct credentials: the truthful suspended message.
+        assert!(matches!(
+            s.sign_in("victim@soket.ai", "a strong passphrase"),
+            Err(AuthError::AccountSuspended)
+        ));
+        // Wrong credentials: still generic, no status leak.
+        assert!(matches!(
+            s.sign_in("victim@soket.ai", "wrong password entirely"),
+            Err(AuthError::InvalidCredentials)
+        ));
+    }
+
+    #[test]
+    fn user_management_migration_is_idempotent_and_additive() {
+        // Opening the same database twice must succeed and leave exactly
+        // one of each new table / column.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("auth.db");
+        {
+            let s = AuthStore::open(&path).unwrap();
+            s.sign_up(LEGACY_ADMIN, "correct horse battery").unwrap();
+        }
+        AuthStore::open(&path).unwrap();
+        AuthStore::open(&path).unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        for table in ["password_reset_tokens", "audit_log"] {
+            let n: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 1, "{table} must exist exactly once");
+        }
+        let cols: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('auth_account')
+                  WHERE name = 'last_password_change_ms'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(cols, 1, "the new column must exist exactly once");
+        // Existing data untouched.
+        let admins: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM auth_account WHERE role = 'admin'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(admins, 1);
+    }
+
+    #[test]
+    fn foreign_keys_are_enforced_on_delete() {
+        // The store must enable PRAGMA foreign_keys so the schema's ON
+        // DELETE CASCADE declarations actually fire.
+        let (s, _d, admin, user) = um_fixture();
+        let _ = s.sign_in("victim@soket.ai", "a strong passphrase").unwrap();
+        s.issue_password_reset(user, admin).unwrap();
+        let fk: i64 = {
+            let conn = s.conn_for_tests();
+            conn.query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(fk, 1, "foreign_keys must be ON");
+        // Cascade removes the dependent rows with the account.
+        s.delete_account(user, admin).unwrap();
+        let conn = Connection::open(_d.path().join("auth.db")).unwrap();
+        let orphan_sessions: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE account_id = ?1",
+                [user],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(orphan_sessions, 0);
     }
 }

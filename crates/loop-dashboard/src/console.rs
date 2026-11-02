@@ -1243,9 +1243,9 @@ mod tests {
             engine,
             store,
             playground,
-            auth: Some(Arc::new(crate::auth_http::AuthState {
-                store: Arc::clone(&auth_store),
-            })),
+            auth: Some(Arc::new(crate::auth_http::AuthState::new(Arc::clone(
+                &auth_store,
+            )))),
         });
         let admin_token = auth_store.sign_in("admin@soket.ai", "admin-password-123").unwrap();
         let user_token = auth_store.sign_in("user@soket.ai", "user-password-123").unwrap();

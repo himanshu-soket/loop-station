@@ -602,7 +602,16 @@ body.ft-playing .topbar{display:none !important}
 body.ft-playing .main{padding:0 !important;margin:0 !important}
 body.ft-playing .content{padding:0 !important}
 body.ft-playing .content-inner{max-width:none !important;padding:0 !important;margin:0 !important}
+/* PHASE 1 · SCROLL ESCAPE HATCH ------------------------------------------
+   Inline play (a direct #funtime/<game> visit, or the CSS-immersive
+   fallback being declined) must never trap content below the fold: the
+   body stays scroll-locked so the GAME owns gesture scrolling (canvases
+   use touch-action:none), but .content itself scrolls vertically whenever
+   a panel is taller than the viewport. True fullscreen and the immersive
+   fallback keep their fixed 100vh panels — those layouts are designed to
+   fit, and their canvases measure against the viewport. */
 body.ft-playing{overflow:hidden}          /* the game owns the viewport */
+body.ft-playing .content{overflow-y:auto;overscroll-behavior:contain}
 /* The view's own '← back to games' header duplicates the in-game Back
    button; hidden while playing so the panel starts at the viewport top. */
 body.ft-playing .ft-game-top{display:none}
@@ -640,6 +649,37 @@ body.ft-playing #t3Panel{margin:0 auto;width:100%;max-width:min(900px,100%)}
 /* The 3×3 board sits large and centred in its own view. */
 .t3-board-wrap{display:flex;justify-content:center;padding:6px 0}
 .ft-game .t3-board{max-width:min(420px,72vh)}
+
+/* ---------- TIC-TAC-TOE responsive tuning ----------
+ * Phones: compact the toolbar/status/actions so the board dominates.
+ * Landscape phones: everything except the board compresses so the 3×3
+ * grid plus its controls fit a 390px-tall viewport without scrolling. */
+@media (max-width:560px){
+  body.ft-playing #t3Panel{padding:10px 12px 12px;gap:10px}
+  body.ft-playing #t3Panel .ft-panel-h{display:none}    /* title duplicates the top bar */
+  .ft-game .t3-board{max-width:min(340px,58vh)}
+  .ft-toolbar{gap:6px}
+  .ft-diff{padding:6px 12px;font-size:10.5px}
+  .ft-actions{gap:7px}
+  .ft-actions .ft-btn{padding:8px 12px;font-size:11px}
+  .ft-scores{gap:6px;padding-top:10px}
+  .ft-sv{font-size:17px}
+}
+@media (max-height:520px) and (orientation:landscape){
+  body.ft-playing #t3Panel{padding:8px 16px 10px;gap:8px}
+  body.ft-playing #t3Panel .ft-panel-h{display:none}
+  .ft-game .t3-board{max-width:min(300px,52vh)}
+  .t3-cell{min-height:52px;font-size:clamp(20px,7vh,32px)}
+  .ft-toolbar{gap:6px}
+  .ft-diff{padding:4px 10px;font-size:10px}
+  .ft-status{min-height:16px;font-size:11px}
+  .ft-actions{gap:6px}
+  .ft-actions .ft-btn{padding:6px 10px;font-size:10.5px}
+  .ft-scores{padding-top:8px;gap:6px}
+  .ft-score{padding:6px 6px}
+  .ft-sv{font-size:15px}
+  .ft-sk{font-size:8px}
+}
 
 .ft-panel{
   background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
@@ -747,6 +787,18 @@ body.ft-playing #t3Panel{margin:0 auto;width:100%;max-width:min(900px,100%)}
   text-transform:uppercase;letter-spacing:.11em;
 }
 .si-v{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums}
+/* Score leads the HUD: slightly larger, accent-tinted key. */
+.si-stat.si-score .si-v{color:var(--ink)}
+.si-stat.si-score .si-k{color:var(--ink-dim)}
+/* Wave badge: its own accent so progression reads at a glance. */
+.si-stat.si-wave{border-color:rgba(201,242,255,.3)}
+.si-stat.si-wave .si-k{color:#c9f2ff}
+/* Lives as ship glyphs — amber, letter-spaced so lost ships leave a
+   visible gap instead of the whole number changing shape. */
+.si-lives-icons{
+  color:#ffd7ba;letter-spacing:.22em;font-size:13px;line-height:1;
+  min-width:3ch;text-align:left;
+}
 
 .si-stage{
   position:relative;width:100%;margin:0 auto;
@@ -754,8 +806,20 @@ body.ft-playing #t3Panel{margin:0 auto;width:100%;max-width:min(900px,100%)}
   border:1px solid var(--line);
   background:#07090d;
   /* Larger playfield in the dedicated view, but never taller than the
-   * viewport so the HUD and controls stay reachable without scrolling. */
-  max-width:min(640px,calc((100vh - 300px) * 480 / 620));
+   * viewport so the HUD and controls stay reachable without scrolling.
+   * RESPONSIVE FIX · the old (100vh - 300px) constant assumed the full
+   * desktop chrome stack; on a 390px-tall landscape phone it capped the
+   * stage at ~70px. The height budget is now measured from the panel's
+   * real non-stage rows by siResize() (which also writes the canvas box),
+   * so this rule only guards against pathological cases with a generous
+   * floor. */
+  max-width:min(640px,calc((100vh - 170px) * 480 / 620));
+}
+/* Short viewports (landscape phones): the 170px allowance above can still
+ * exceed what is left after the compact HUD/controls rows, so lift the cap
+ * entirely and let siResize()'s measured fit own the size. */
+@media (max-height:520px){
+  .si-stage{max-width:min(640px,96vw)}
 }
 #siCanvas{display:block;width:100%;height:auto;touch-action:none}
 
@@ -836,6 +900,7 @@ body.ft-playing #t3Panel{margin:0 auto;width:100%;max-width:min(900px,100%)}
 .si-ov-inner{
   display:flex;flex-direction:column;align-items:center;gap:12px;
   padding:22px 26px;text-align:center;max-width:92%;
+  max-height:100%;overflow-y:auto;overscroll-behavior:contain;
 }
 .si-ov-title{
   font-size:clamp(19px,3.4vw,26px);font-weight:800;letter-spacing:-.01em;
@@ -843,6 +908,20 @@ body.ft-playing #t3Panel{margin:0 auto;width:100%;max-width:min(900px,100%)}
 .si-ov-sub{
   font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);
   line-height:1.65;max-width:340px;
+}
+/* Settings block inside the ready/paused overlay: same controls as the
+   old inline panel, framed so they read as a distinct group under the
+   primary action. [hidden] keeps them out of game over. */
+.si-ov-settings[hidden]{display:none !important}
+.si-ov-set-h{
+  font-family:var(--mono);font-size:9px;color:var(--ink-faint);
+  text-transform:uppercase;letter-spacing:.14em;text-align:center;
+  width:100%;margin-top:2px;
+}
+.si-ov-settings{
+  margin-top:6px;padding-top:10px;
+  border-top:1px dashed var(--line2);
+  max-width:400px;
 }
 /* Persistent control bar under the stage. */
 .si-controls{display:flex;gap:9px;flex-wrap:wrap;justify-content:center}
@@ -856,10 +935,10 @@ body.ft-playing #t3Panel{margin:0 auto;width:100%;max-width:min(900px,100%)}
 }
 
 /* Phase 3/4: audio settings — two independent rows (music / effects),
- * each with a volume slider, live percentage and its own mute button. */
+ * each with a volume slider, live percentage and its own mute button.
+ * Rendered inside the ready/paused overlay (see .si-ov-settings). */
 .si-audio{
   display:flex;flex-direction:column;gap:8px;align-items:center;
-  margin-top:2px;
 }
 .si-audio-row{
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
@@ -873,20 +952,24 @@ body.ft-playing #t3Panel{margin:0 auto;width:100%;max-width:min(900px,100%)}
   font-family:var(--mono);font-size:10px;font-weight:700;color:var(--ink);
   font-variant-numeric:tabular-nums;min-width:34px;
 }
-.si-audio input[type="range"]{
+.si-audio input[type="range"],
+.si-ov-settings input[type="range"]{
   -webkit-appearance:none;appearance:none;
   flex:1 1 140px;min-width:120px;max-width:240px;height:4px;
   background:var(--panel2);border:1px solid var(--line);border-radius:3px;
   outline:none;cursor:pointer;padding:0;margin:0;
 }
-.si-audio input[type="range"]::-webkit-slider-thumb{
+.si-audio input[type="range"]::-webkit-slider-thumb,
+.si-ov-settings input[type="range"]::-webkit-slider-thumb{
   -webkit-appearance:none;appearance:none;
   width:14px;height:14px;border-radius:50%;
   background:#c9f2ff;border:1px solid rgba(201,242,255,.6);
   cursor:pointer;transition:transform .1s;
 }
-.si-audio input[type="range"]::-webkit-slider-thumb:hover{transform:scale(1.15)}
-.si-audio input[type="range"]::-moz-range-thumb{
+.si-audio input[type="range"]::-webkit-slider-thumb:hover,
+.si-ov-settings input[type="range"]::-webkit-slider-thumb:hover{transform:scale(1.15)}
+.si-audio input[type="range"]::-moz-range-thumb,
+.si-ov-settings input[type="range"]::-moz-range-thumb{
   width:13px;height:13px;border-radius:50%;
   background:#c9f2ff;border:1px solid rgba(201,242,255,.6);cursor:pointer;
 }
@@ -1089,7 +1172,13 @@ body.ft-playing.ft-immersive .si-help{display:none}                /* hints live
 /* Inline play with chrome hidden: the terminal fills the main column and
  * still owns the full viewport height, so no dead band is left below it.
  * flex:1 stretches the panel down the .content-inner column (which itself
- * is min-height:100%), and the terminal window takes the surplus. */
+ * is min-height:100%), and the terminal window takes the surplus.
+ * RESPONSIVE FIX · on short viewports (landscape phones) the fixed
+ * 100vh ceiling clipped the control deck off-screen with nothing able to
+ * scroll. The panel now allows its own internal scroll as a last resort
+ * (the terminal log keeps its dedicated scroll; this only engages when
+ * the compacted rows genuinely cannot fit), and phone/landscape rules
+ * below compact the mission header, HUD and control bar first. */
 body.ft-playing #htPanel{
   margin:0 auto;width:100%;
   max-width:min(1180px,100%);
@@ -1100,7 +1189,50 @@ body.ft-playing #htPanel{
   flex:1 1 auto;
   min-height:0;
   max-height:100vh;
-  overflow:hidden;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+}
+/* Phones: compact the mission header + HUD so the terminal keeps most of
+   the screen; the control bar wraps instead of overflowing. */
+@media (max-width:560px){
+  body.ft-playing #htPanel{padding:8px 10px 10px;gap:8px}
+  body.ft-playing #htPanel .ft-panel-h{display:none}    /* title duplicates the top bar */
+  body.ft-playing #htPanel .si-help{display:none}
+  .ht-mhead{padding:6px 10px;gap:8px}
+  .ht-mhead .ht-mtitle{font-size:13px}
+  .ht-hud{gap:5px}
+  .ht-hud .si-stat{padding:3px 8px;gap:5px}
+  .ht-hud .si-k{font-size:7.5px}
+  .ht-hud .si-v{font-size:12.5px}
+  .ht-term-bar{padding:6px 10px}
+  .ht-out{padding:10px 12px;font-size:12px;line-height:1.62}
+  .ht-in-row{padding:8px 12px}
+  .ht-input{font-size:12.5px}
+  .ht-controls{padding:8px 10px;gap:6px}
+  .ht-controls .ft-btn{padding:8px 11px;font-size:11px}
+}
+/* Landscape phones: every fixed row compresses so the scrolling log keeps
+   the lion's share of the 390px viewport and the input row + controls stay
+   on screen (they are the game's primary interface). */
+@media (max-height:520px) and (orientation:landscape){
+  body.ft-playing #htPanel{padding:6px 12px 8px;gap:5px}
+  body.ft-playing #htPanel .ft-panel-h{display:none}
+  body.ft-playing #htPanel .si-help{display:none}
+  .ht-mhead{padding:4px 10px;gap:8px}
+  .ht-mhead .ht-mtitle{font-size:12.5px}
+  .ht-hud{gap:4px}
+  .ht-hud .si-stat{padding:2px 7px;gap:4px}
+  .ht-hud .si-k{font-size:7px}
+  .ht-hud .si-v{font-size:11.5px}
+  .ht-term-bar{padding:4px 10px}
+  .ht-dots i{width:7px;height:7px}
+  .ht-term-title{font-size:9px}
+  .ht-out{padding:8px 12px;font-size:11.5px;line-height:1.55;min-height:120px}
+  .ht-in-row{padding:6px 12px}
+  .ht-input{font-size:12px}
+  .ht-ps{font-size:11.5px}
+  .ht-controls{padding:6px 10px;gap:5px}
+  .ht-controls .ft-btn{padding:5px 10px;font-size:10.5px}
 }
 
 .si-help{
@@ -1122,13 +1254,61 @@ body.ft-playing #htPanel{
 }
 .si-pad:hover{color:var(--ink);border-color:var(--ink-faint)}
 .si-pad:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
-.si-pad:active{background:rgba(94,242,192,.1);border-color:rgba(94,242,192,.4);color:var(--acc)}
+.si-pad:active,.si-pad.held{background:rgba(94,242,192,.1);border-color:rgba(94,242,192,.4);color:var(--acc)}
 /* The middle pad is an indicator, not a control: firing is automatic. */
 .si-auto{
   cursor:default;color:var(--acc);border-color:rgba(94,242,192,.3);
   background:rgba(94,242,192,.06);font-size:11px;letter-spacing:.08em;
 }
 .si-auto:hover{color:var(--acc);border-color:rgba(94,242,192,.3)}
+
+/* ---------- SPACE INVADERS responsive tuning ----------
+ * Phones: compact the panel chrome so the playfield keeps as much of the
+ * viewport as possible, and make the touch pads share the row width
+ * instead of overflowing it (the old fixed min-widths pushed the right
+ * pad outside a 320px viewport). */
+@media (max-width:560px){
+  body.ft-playing #siPanel .ft-panel-h{display:none}   /* title repeats in the top bar */
+  body.ft-playing #siPanel{padding:10px 10px 12px;gap:8px}
+  .si-hud{gap:6px}
+  .si-stat{padding:4px 8px;gap:5px}
+  .si-k{font-size:8px}
+  .si-v{font-size:13px}
+  .si-lives-icons{font-size:11px;letter-spacing:.16em}
+  .si-controls{gap:6px}
+  .si-controls .ft-btn{padding:7px 10px;font-size:10.5px}
+  .si-help{display:none}                    /* hints live in the overlay */
+  /* Overlay settings compress on phones: shorter sliders, smaller mutes. */
+  .si-audio{gap:5px}
+  .si-audio-row{gap:6px}
+  .si-audio-l{min-width:38px;text-align:left}
+  .si-ov-settings input[type="range"]{flex:1 1 90px;min-width:80px}
+  .si-mute{padding:4px 8px;font-size:9px}
+  /* Touch pads: three equal shares of the row, never wider than it. */
+  .si-touch{gap:8px}
+  .si-pad{flex:1 1 0;min-width:0;min-height:52px;padding:0 6px}
+  .si-auto{flex:0 0 auto;min-width:0;padding:0 10px}
+}
+/* Landscape phones: every non-gameplay row compresses so the canvas keeps
+ * a usable height (the HUD and controls stay single-line). */
+@media (max-height:520px) and (orientation:landscape){
+  body.ft-playing #siPanel .ft-panel-h{display:none}
+  body.ft-playing #siPanel{padding:6px 10px 8px;gap:5px}
+  .si-hud{gap:8px}
+  .si-stat{padding:2px 7px}
+  .si-k{font-size:7.5px}
+  .si-v{font-size:12px}
+  .si-lives-icons{font-size:10px;letter-spacing:.14em}
+  .si-controls .ft-btn{padding:5px 9px;font-size:10px}
+  .si-help{display:none}
+  /* Landscape phones: the overlay settings stay available (they live in
+     the pause/ready overlay, which scrolls if needed); nothing inline to
+     hide anymore. */
+  .si-fs-notice{min-height:0;font-size:9.5px}
+  .si-touch{gap:6px}
+  .si-pad{min-height:44px;flex:1 1 0;min-width:0;padding:0 6px}
+  .si-auto{flex:0 0 auto;padding:0 8px}
+}
 
 @media (prefers-reduced-motion:reduce){
   /* Gameplay itself is unaffected; only decorative twinkling is dropped
@@ -1251,6 +1431,13 @@ body.ft-playing #htPanel{
   padding:14px 18px;font-family:var(--mono);font-size:12.5px;line-height:1.7;
   color:var(--acc);word-break:break-word;
   scrollbar-width:thin;scrollbar-color:var(--line2) transparent;
+}
+/* PHASE 1 · short viewports (landscape phones): the 200px floor plus the
+   fixed rows (mission header + HUD + term bar + input row + controls)
+   exceed a 390px viewport, pushing the control deck off-screen. The log
+   keeps a smaller floor there; it still scrolls internally. */
+@media (max-height:560px){
+  .ht-out{min-height:110px;padding:10px 14px}
 }
 .ht-out::-webkit-scrollbar{width:8px}
 .ht-out::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
@@ -1503,6 +1690,35 @@ body.ft-playing.ft-immersive .cr-ctl-overlay{top:44px}
   display:flex;flex-direction:column;align-items:center;gap:12px;
   padding:22px 26px;text-align:center;max-width:92%;
 }
+/* PHASE 1 FIX · menu screens (main menu / difficulty / garage / records /
+   championship) are taller than a landscape-phone stage. The overlay now
+   scrolls its own content so every button stays reachable, and the menu
+   buttons stop forcing a fixed 230px minimum width on narrow screens. */
+@media (max-height:560px){
+  .cr-overlay{overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  .cr-ov-inner{padding:14px 16px;gap:10px;max-height:100%}
+  .cr-ov-title{font-size:clamp(17px,4vh,24px)}
+  .cr-ov-sub{font-size:10.5px;margin:0;line-height:1.5}
+  .cr-menu{gap:10px}
+  .cr-menu-btns{min-width:0;width:min(240px,80vw);gap:6px}
+  .cr-menu-btns .ft-btn{padding:7px 12px;font-size:11.5px}
+  .cr-ov-stats{gap:6px;max-width:none}
+  .cr-ov-stat{padding:6px 8px}
+  .cr-ov-stat .v{font-size:14px}
+  .cr-garage-grid{grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px}
+  .cr-ach-list{max-height:120px}
+  .cr-rec-grid{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+}
+/* Portrait phones: the stage is narrow; give menu buttons the full row. */
+@media (max-width:560px){
+  .cr-ov-inner{padding:16px 14px;gap:10px;max-height:100%}
+  .cr-overlay{overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  .cr-menu-btns{min-width:0;width:100%;max-width:280px}
+  .cr-ov-title{font-size:clamp(19px,6vw,26px)}
+  .cr-ov-sub{font-size:11px;max-width:300px}
+  .cr-ov-stats{grid-template-columns:repeat(2,minmax(0,1fr));max-width:none}
+  .cr-garage-grid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+}
 .cr-ov-title{font-size:clamp(19px,3.4vw,26px);font-weight:800;letter-spacing:-.01em}
 .cr-ov-sub{
   font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);
@@ -1562,6 +1778,20 @@ body.ft-playing.ft-immersive .cr-ctl-overlay{top:44px}
 .cr-pad:active{color:var(--ink);border-color:var(--ink-faint)}
 .cr-pad.nitro{color:var(--violet);border-color:rgba(180,140,255,.4)}
 .cr-pad.drift{color:#5ef2c0;border-color:rgba(94,242,192,.35)}
+/* PHASE 1 · phones: six pads in a bottom overlay row is too wide for a
+   320–430px stage. They shrink to comfortable ≥44px targets that share
+   the row (wrapping to two rows on the narrowest screens), never
+   overflowing the stage or covering the player car for long. */
+@media (max-width:560px){
+  .cr-touch-ov{gap:6px;padding:0 6px;bottom:6px}
+  .cr-pad{min-width:0;min-height:46px;padding:6px 10px;font-size:11.5px;
+    flex:1 1 0}
+  .cr-ctl-overlay{top:6px;right:6px;gap:4px}
+  .cr-chip{padding:5px 7px;font-size:11px}
+}
+@media (max-width:380px){
+  .cr-pad{padding:5px 7px;font-size:10.5px}
+}
 
 /* Fullscreen notice (same shape as SI's). */
 /* Live drift read-out in the HUD: glows while a drift is accruing. */
@@ -1583,6 +1813,33 @@ body.ft-playing.ft-immersive .cr-ctl-overlay{top:44px}
 
 /* PHASE 4 · HUD strip may wrap on narrow screens; keep stats compact. */
 .cr-hud .si-stat .si-v{font-variant-numeric:tabular-nums}
+
+/* PHASE 1 · phones: compact the racing HUD + nitro meter and fold the
+   redundant header so the stage keeps the screen; the control chips and
+   touch pads already sit INSIDE the stage overlay. */
+@media (max-width:560px){
+  body.ft-playing #crPanel .ft-panel-h{display:none}
+  body.ft-playing #crPanel{padding:8px 10px 10px;gap:6px}
+  .cr-hud{gap:4px}
+  .cr-hud .si-stat{padding:3px 6px;gap:4px;border-radius:7px}
+  .cr-hud .si-k{font-size:7px;letter-spacing:.05em}
+  .cr-hud .si-v{font-size:11.5px}
+  .cr-meter-row{margin:0 0 2px;padding:0 2px;gap:6px}
+  .cr-meter{height:8px;max-width:none}
+  .cr-meter-k{font-size:7.5px}
+  .cr-stage{border-radius:10px}
+}
+@media (max-height:520px) and (orientation:landscape){
+  body.ft-playing #crPanel .ft-panel-h{display:none}
+  body.ft-playing #crPanel{padding:5px 10px 8px;gap:4px}
+  .cr-hud{gap:3px}
+  .cr-hud .si-stat{padding:2px 5px;gap:3px;border-radius:6px}
+  .cr-hud .si-k{font-size:6.5px;letter-spacing:.03em}
+  .cr-hud .si-v{font-size:10.5px}
+  .cr-meter-row{margin:0 0 1px;padding:0 2px;gap:5px}
+  .cr-meter{height:6px}
+  .cr-meter-k{font-size:6.5px}
+}
 
 .cr-fs-notice{
   position:absolute;left:50%;bottom:10px;transform:translateX(-50%);
@@ -1611,6 +1868,11 @@ body.ft-playing.ft-immersive .cr-ctl-overlay{top:44px}
  * affected: Pause/Restart/Sound/Fullscreen/Exit stay reachable. */
 #crPanel.cr-menu-on .cr-hud,
 #crPanel.cr-menu-on .cr-meter-row{display:none}
+/* PHASE 1 FIX · the touch pads must not sit ON TOP of the menu screens:
+ * on short viewports the pad row overlapped the menu buttons and stole
+ * their taps. While any menu is up the pads hide; they return the moment
+ * a race (or its ready/pause/result overlay) is showing. */
+#crPanel.cr-menu-on .cr-touch-ov{display:none}
 /* While the HUD rows are hidden the stage takes their place: let it grow
  * so the attract scene fills the panel instead of leaving dead bands. */
 #crPanel.cr-menu-on .cr-stage{flex:1 1 auto;min-height:0}
@@ -2505,6 +2767,20 @@ body.pa-fs .pa-frame-box{height:auto;flex:1;min-height:0}
              /api/admin/*. Hidden by default; never a source of truth. -->
         <a class="sw-signout sw-admin-link" id="adminNavLink" href="/admin" hidden
            title="Review registration requests">Approvals</a>
+        <!-- Help & Support (role-aware). Same visual language as the
+             Approvals link beside it: the server probe decides whether the
+             label reads "Raise a Request" (normal user) or
+             "Support Management" (administrator), and admins get a small
+             pending-ticket badge. Authorization is always re-checked
+             server-side on every /api/support/* call. -->
+        <button class="sw-signout sw-support-btn" id="supportBtn" type="button" hidden
+                title="Help &amp; Support">
+          <svg class="sw-support-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+               aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.4 9a2.6 2.6 0 0 1 5.2.6c0 1.7-2.6 2.2-2.6 3.6"/><circle cx="12" cy="16.8" r=".4" fill="currentColor"/></svg>
+          <span id="supportBtnLabel">Help &amp; Support</span>
+          <span class="sw-support-badge" id="supportBadge" hidden></span>
+        </button>
         <button class="sw-signout" id="signOutBtn" type="button" title="Sign out">Sign out</button>
       </div>
     </header>
@@ -2523,6 +2799,7 @@ body.pa-fs .pa-frame-box{height:auto;flex:1;min-height:0}
 <script src="/console/snakes-engine.js"></script>
 <script src="/console/snakes-game.js"></script>
 <script src="/console/eval-workspaces.js"></script>
+<script src="/console/support-workspace.js"></script>
 <script src="/console/console-app.js"></script>
 </body>
 </html>

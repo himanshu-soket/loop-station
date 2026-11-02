@@ -240,7 +240,10 @@ fn iso_week_start(date: &str) -> Option<String> {
         return None;
     }
     let days = days_from_civil(parts[0], parts[1], parts[2]);
-    let weekday = (days + 4).rem_euclid(7); // 1970-01-01 was Thursday (=4)
+    // Monday=0 … Sunday=6. Day 0 (1970-01-01) was a Thursday, which is
+    // index 3 in that scheme — not 4. The previous `(days + 4)` shifted
+    // every week one day early (Sunday buckets landed on the prior Monday).
+    let weekday = (days + 3).rem_euclid(7);
     let monday = days - weekday;
     let (yy, mm, dd) = civil_from_days(monday);
     Some(format!("{yy:04}-{mm:02}-{dd:02}"))
@@ -1753,9 +1756,9 @@ mod tests {
             engine,
             store,
             playground,
-            auth: Some(Arc::new(crate::auth_http::AuthState {
-                store: Arc::clone(&auth_store),
-            })),
+            auth: Some(Arc::new(crate::auth_http::AuthState::new(Arc::clone(
+                &auth_store,
+            )))),
         });
         let admin = auth_store.sign_in("admin@soket.ai", "admin-pass-123").unwrap();
         let user = auth_store.sign_in("user@soket.ai", "user-pass-123").unwrap();

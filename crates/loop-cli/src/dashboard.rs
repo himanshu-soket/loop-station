@@ -93,6 +93,10 @@ pub async fn start(runtime: &Runtime, state: &DashboardState) -> anyhow::Result<
     // Cookie-session authentication over the same surfaces. The auth
     // DB is separate from the console store.
     let auth_store = Arc::new(loop_dashboard::auth::AuthStore::open(auth_db_path()?)?);
+    // Help & Support tickets: own DB, mounted with the auth surface.
+    let support_store = Arc::new(loop_dashboard::support::store::SupportStore::open(
+        console_db_path()?.with_file_name("support.db"),
+    )?);
     let (app, monitor) = loop_dashboard::api::build_app(loop_dashboard::api::AppOptions {
         demo: false,
         db: Some(runtime.sessions_db.clone()),
@@ -102,11 +106,12 @@ pub async fn start(runtime: &Runtime, state: &DashboardState) -> anyhow::Result<
             engine,
             store,
             playground,
-            auth: Some(Arc::new(loop_dashboard::auth_http::AuthState {
-                store: auth_store.clone(),
-            })),
+            auth: Some(Arc::new(loop_dashboard::auth_http::AuthState::new(
+                auth_store.clone(),
+            ))),
         })),
         auth_store: Some(auth_store),
+        support_store: Some(support_store),
     })?;
 
     let cancel = CancellationToken::new();

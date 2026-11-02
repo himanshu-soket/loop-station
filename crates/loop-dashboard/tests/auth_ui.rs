@@ -53,6 +53,7 @@ async fn app_with_auth() -> (axum::Router, Arc<AuthStore>, tempfile::TempDir) {
         db: None,
         sys_demo: true,
         sys_interval: std::time::Duration::from_millis(2000),
+        support_store: None,
         console_state: None,
         auth_store: Some(auth.clone()),
     })

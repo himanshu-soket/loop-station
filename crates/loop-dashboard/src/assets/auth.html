@@ -467,6 +467,11 @@ $('#signinForm').addEventListener('submit', async ev => {
       // Truthful message; NOT a success and NOT a credential failure, so
       // the mini-game counter is deliberately left untouched here.
       signinError('Your account is awaiting administrator approval. Please try again once it has been approved.');
+    } else if (res.status === 403 && /suspend/i.test(body.error || '')) {
+      // Same discipline as the pending case: the password verified, so the
+      // real owner learns why access is refused. Not a credential failure,
+      // so the counter stays untouched.
+      signinError('Your account has been suspended by an administrator. Contact your administrator to restore access.');
     } else if (res.status === 429) {
       const w = waitPhrase(retryAfterSecs);
       signinError(w

@@ -71,7 +71,12 @@ async function api(path, opts) {
  * caller may use the admin API. We probe /api/admin/users/pending and show
  * the link on 200, hide it on 403/401. The link is never authorization:
  * hiding it protects UX, while every /api/admin/* request is independently
- * role-checked by require_admin() on the server. */
+ * role-checked by require_admin() on the server.
+ *
+ * The Help & Support button follows the same contract through its own
+ * probe (/api/support/me): the label reads "Raise a Request" for normal
+ * users and "Support Management" for administrators, with a pending-count
+ * badge for admins. See support-workspace.js. */
 async function initSessionChip() {
   const chip = document.getElementById('userChip');
   if (!chip) return;
@@ -84,6 +89,10 @@ async function initSessionChip() {
     document.getElementById('userAvatar').textContent =
       name.trim().charAt(0).toUpperCase() || '·';
     maybeShowAdminLink();
+    // Help & Support: probe the role and reveal the header button. Defined
+    // in support-workspace.js; guarded so a missing script never breaks
+    // the session chip.
+    if (typeof supInitHeaderButton === 'function') supInitHeaderButton();
     const btn = document.getElementById('signOutBtn');
     if (btn) btn.onclick = async () => {
       btn.disabled = true;
@@ -3491,6 +3500,16 @@ const SI = (() => {
     if (input.left) dx -= 1;
     if (input.right) dx += 1;
     g.player.x += dx * PSPEED * dt;
+    /* STEP 5 · direct touch steering: when a finger drag supplies an
+     * absolute logical x, the ship tracks it with the same capped speed
+     * as key/pad steering (no teleporting through bombs). Keys and pads
+     * keep priority while held so both control styles compose. */
+    if (typeof input.steerX === 'number' && !dx) {
+      const target = Math.max(0, Math.min(W - g.player.w, input.steerX - g.player.w / 2));
+      const maxMove = PSPEED * dt;
+      const delta = target - g.player.x;
+      g.player.x += Math.max(-maxMove, Math.min(maxMove, delta));
+    }
     // Clamp inside the field; never negative, never past the right edge.
     if (g.player.x < 0) g.player.x = 0;
     if (g.player.x + g.player.w > W) g.player.x = W - g.player.w;
@@ -3659,7 +3678,7 @@ const SIG = {
   lastT: 0,
   epoch: 0,                 // bumped on every teardown/restart
   keys: Object.create(null),
-  touch: { left: false, right: false, fire: false },
+  touch: { left: false, right: false, fire: false, steerX: null },
   cleanup: [],              // [fn, ...] run on teardown
   reducedMotion: false,
 };
@@ -4295,7 +4314,10 @@ function siAudioSetPrefs(patch) {
 }
 /** Reflect prefs in the settings panel controls. */
 function siAudioSettingsPaint() {
-  const wrap = $('#siAudioPanel'); if (!wrap) return;
+  /* Settings render inside the overlay (#siOvAudio). The paint runs for
+   * every overlay change; visibility itself is decided by siOverlay()
+   * (ready/paused show them, game over hides them so the final score
+   * keeps the spotlight). */
   const mv = $('#siMusicVol'), sv = $('#siSfxVol');
   if (mv) { mv.value = String(Math.round(SIA.prefs.musicVol * 100)); }
   if (sv) { sv.value = String(Math.round(SIA.prefs.sfxVol * 100)); }
@@ -4357,13 +4379,20 @@ function siResize() {
   // available height (capped by width) so nothing is cropped or stretched.
   let cssW, cssH;
   if (siIsFullscreen()) {
-    // Available height for the STAGE = viewport minus the panel's other
-    // rows (HUD, controls, notice, touch pads). Measured live so every
-    // viewport/zoom combination fits without scrolling or clipping.
+    /* Available height for the STAGE = viewport minus the panel's other
+     * rows (HUD, controls, notice, touch pads). Measured live so every
+     * viewport/zoom combination fits without scrolling or clipping.
+     *
+     * RESPONSIVE FIX · the measurement is taken against the VIEWPORT, not
+     * panel.clientHeight: in the immersive fallback the panel's height is
+     * content-driven (it collapses to whatever the canvas + chrome occupy),
+     * so subtracting chrome from it created a shrink feedback loop that
+     * collapsed the playfield. window.innerHeight is the true budget in
+     * both native fullscreen (panel = screen) and immersive (panel is
+     * pinned to the viewport by its 100vh rule). */
     const panel = $('#siPanel');
     let chromeH = 0;
     if (panel) {
-      const pr = panel.getBoundingClientRect();
       for (const c of panel.children) {
         if (c === wrap || c === canvas) continue;
         const cr = c.getBoundingClientRect();
@@ -4374,18 +4403,35 @@ function siResize() {
       chromeH += parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
       chromeH += (panel.children.length - 1) * parseFloat(cs.columnGap || cs.gap || '16');
     }
-    const availH = Math.max(80, (panel ? panel.clientHeight : innerHeight) - chromeH);
-    const availW = wrap.clientWidth || 0;
+    const availH = Math.max(120, window.innerHeight - chromeH);
+    const availW = Math.min(wrap.clientWidth || 0, window.innerWidth);
     if (availH > 40 && availW > 40) {
       // Largest 480x620 box that fits both dimensions.
       cssH = Math.min(availH, availW * (SI.H / SI.W));
       cssW = cssH * (SI.W / SI.H);
     } else {                                  // not laid out yet
-      cssW = wrap.clientWidth; cssH = cssW * (SI.H / SI.W);
+      cssW = Math.max(120, wrap.clientWidth); cssH = cssW * (SI.H / SI.W);
     }
   } else {
-    cssW = wrap.clientWidth;
-    cssH = Math.round(cssW * (SI.H / SI.W));
+    /* Inline play: width-driven as before, but never exceed the leftover
+     * viewport height either — the playing session locks page scroll, so a
+     * canvas taller than the fold would push the controls out of reach. */
+    const availW = Math.max(120, wrap.clientWidth || 0);
+    const panel = $('#siPanel');
+    let chromeH = 0;
+    if (panel) {
+      for (const c of panel.children) {
+        if (c === wrap || c === canvas) continue;
+        const cr = c.getBoundingClientRect();
+        if (cr.height > 0) chromeH += cr.height;
+      }
+      const cs = getComputedStyle(panel);
+      chromeH += parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      chromeH += (panel.children.length - 1) * parseFloat(cs.columnGap || cs.gap || '16');
+    }
+    const maxH = Math.max(160, window.innerHeight - chromeH);
+    cssH = Math.min(availW * (SI.H / SI.W), maxH);
+    cssW = cssH * (SI.W / SI.H);
   }
   const dpr = window.devicePixelRatio || 1;
   canvas.style.width = cssW + 'px';
@@ -4403,7 +4449,18 @@ function siInput() {
     left: !!(SIG.keys.ArrowLeft || SIG.keys.a || SIG.touch.left),
     right: !!(SIG.keys.ArrowRight || SIG.keys.d || SIG.touch.right),
     fire: !!(SIG.keys[' '] || SIG.touch.fire),
+    steerX: (typeof SIG.touch.steerX === 'number') ? SIG.touch.steerX : undefined,
   };
+}
+
+/* STEP 5 · map a touch pointer event to a logical x for direct steering.
+ * Uses the canvas's on-page box (kept current by siResize in SIG.cssW) so
+ * the finger position converts exactly into the game's logical units. */
+function siSteerTo(e) {
+  const cv = $('#siCanvas'); if (!cv) return;
+  const r = cv.getBoundingClientRect();
+  if (r.width < 2) return;                          // not laid out yet
+  SIG.touch.steerX = ((e.clientX - r.left) / r.width) * SI.W;
 }
 
 /* ---- Fullscreen ------------------------------------------------------
@@ -4427,8 +4484,15 @@ function siFsSupported() { return ftFsSupported(); }
 /** True when the game is in native fullscreen OR the automatic CSS
  *  immersive fallback (both need the height-fitted canvas layout). */
 function siIsFullscreen() {
+  /* RESPONSIVE FIX · only TRUE fullscreen layouts get the height-fitted
+   * canvas sizing: the native Fullscreen API or the explicit CSS-immersive
+   * fallback. Plain `ft-playing` (inline play after a direct hash visit)
+   * keeps the normal width-driven fit — treating it as fullscreen made
+   * siResize() measure the panel's *content-collapsed* height, whose
+   * feedback loop shrank the canvas to ~62px at every viewport.
+   * Same semantics as crIsFullscreen(). */
   return ftIsFullscreen()
-    || document.body.classList.contains('ft-playing');
+    || document.body.classList.contains('ft-immersive');
 }
 
 /** Enter/leave real browser fullscreen for the game panel. */
@@ -4724,8 +4788,18 @@ function siHud(g) {
   };
   set('siScore', String(g.score));
   set('siHigh', String(g.highScore));
-  set('siLives', String(g.lives));
   set('siWave', String(g.wave));
+  /* Lives render as ship glyphs (▲ per remaining ship) so the count is
+   * readable at combat glance; the accessible label carries the exact
+   * number for screen readers. Lost ships dim via CSS :nth-child rules
+   * driven by the data-lives attribute. */
+  const livesEl = $('#siLives');
+  if (livesEl && SI_HUD_CACHE.lives !== g.lives) {
+    SI_HUD_CACHE.lives = g.lives;
+    livesEl.textContent = '▲'.repeat(Math.max(0, Math.min(g.lives, SI.MAX_LIVES)));
+    livesEl.setAttribute('aria-label', `${g.lives} ${g.lives === 1 ? 'ship' : 'ships'} remaining`);
+    livesEl.dataset.lives = String(g.lives);
+  }
 
   /* Phase 2: active-power chips. Rendered only when the set of actives or
    * any rounded remaining-time value changes, so the DOM is touched at
@@ -4791,7 +4865,7 @@ function siOverlay(kind) {
   ov.classList.remove('hidden'); ov.setAttribute('aria-hidden', 'false');
   const M = {
     ready: ['Space Invaders',
-            'Your ship fires automatically — just steer with ← → or A/D. Clear every wave before they reach the line.',
+            'Steer with ← → or A/D (or drag on the playfield). Your ship fires automatically — clear every wave before they reach the line.',
             'Start Game'],
     paused: ['Paused', 'Press P or Resume to continue', 'Resume'],
     over: ['Game Over', null, 'Play Again'],
@@ -4804,6 +4878,12 @@ function siOverlay(kind) {
       : (sub || '');
   $('#siOvBtn').textContent = btn;
   $('#siOvBtn').dataset.kind = kind;
+  /* Settings are reachable while idle: shown on ready/paused, hidden on
+   * game over so the final score keeps the focus. Re-painted because a
+   * volume change may have happened since the last show. */
+  const set = $('#siOvAudio');
+  if (set) set.hidden = (kind === 'over');
+  if (kind !== 'over') siAudioSettingsPaint();
 }
 function g_finalScore() { return SIG.g ? SIG.g.score : 0; }
 function g_finalWave() { return SIG.g ? SIG.g.wave : 1; }
@@ -4939,7 +5019,7 @@ function siTeardown() {
   for (const off of SIG.cleanup) { try { off(); } catch { /* already gone */ } }
   SIG.cleanup = [];
   SIG.keys = Object.create(null);
-  SIG.touch = { left: false, right: false, fire: false };
+  SIG.touch = { left: false, right: false, fire: false, steerX: null };
   SIG.ctx = null; SIG.g = null; SIG.stars = null;
   SIG.pausedFrom = null;              // Phase 1: no stale resume mode
   SIG.powerFlash = null;              // Phase 2: no stale expiry ghosts
@@ -5270,6 +5350,33 @@ function ftBindFullscreen(off, game, cls, btnId, noticeId, onResize) {
   }
 }
 
+/* ============================================================
+   PHASE 1 · SHARED ORIENTATION / VISUAL-VIEWPORT RESIZE WIRING
+   Rotating a phone or collapsing iOS Safari's toolbars fires NO window
+   'resize' in several engines (iOS <16 orientationchange only; modern iOS
+   fires resize but visualViewport changes on toolbar collapse do not).
+   Every canvas game already exposes a resize/refit function; this helper
+   registers the missing events once per game view through the game's own
+   listener registrar so teardown removes them with everything else.
+   ============================================================ */
+function ftBindOrientation(off, onResize) {
+  if (!onResize) return;
+  let queued = 0;
+  const run = () => {
+    cancelAnimationFrame(queued);
+    queued = requestAnimationFrame(() => { if (ftSessionActive()) onResize(); });
+  };
+  off(window, 'orientationchange', run);
+  off(window, 'pageshow', run);                 // restore after tab switch
+  try {
+    if (window.visualViewport) {
+      off(window.visualViewport, 'resize', run);
+      // scroll (toolbar collapse) can change the visual height too
+      off(window.visualViewport, 'scroll', run);
+    }
+  } catch { /* visualViewport unsupported: resize/orientationchange cover it */ }
+}
+
 /** Leave fullscreen quietly during teardown (never throws, never races). */
 function ftExitFullscreenQuiet() {
   if (!ftIsFullscreen()) return;
@@ -5442,6 +5549,9 @@ function ftSessionBind(off, onResize) {
   };
   off(document, 'fullscreenchange', changed);
   off(document, 'webkitfullscreenchange', changed);
+  /* PHASE 1 · orientation / visual-viewport refits (see ftBindOrientation).
+     Registered through the game's own registrar so teardown removes them. */
+  ftBindOrientation(off, onResize);
 }
 
 /** Called by renderFunTime when a card was just clicked: after the view
@@ -5836,11 +5946,18 @@ function renderSiView() {
         </div>
       </header>
 
+      <!-- Professional HUD: score leads, lives render as ship glyphs so
+           remaining lives read at a glance mid-combat, wave gets its own
+           accent badge. All values still flow through SI_HUD_CACHE so the
+           DOM is only touched on change. -->
       <div class="si-hud" role="status" aria-live="off">
-        <span class="si-stat"><span class="si-k">score</span><span class="si-v" id="siScore">0</span></span>
+        <span class="si-stat si-score"><span class="si-k">score</span><span class="si-v" id="siScore">0</span></span>
         <span class="si-stat"><span class="si-k">high</span><span class="si-v" id="siHigh">0</span></span>
-        <span class="si-stat"><span class="si-k">wave</span><span class="si-v" id="siWave">1</span></span>
-        <span class="si-stat"><span class="si-k">lives</span><span class="si-v" id="siLives">3</span></span>
+        <span class="si-stat si-wave"><span class="si-k">wave</span><span class="si-v" id="siWave">1</span></span>
+        <span class="si-stat si-lives" title="Ships remaining">
+          <span class="si-k">ships</span>
+          <span class="si-v si-lives-icons" id="siLives" aria-label="3 ships remaining">▲▲▲</span>
+        </span>
       </div>
 
       <!-- Phase 2: active power-up indicator. Chips appear only while an
@@ -5849,7 +5966,7 @@ function renderSiView() {
 
       <div class="si-stage">
         <canvas id="siCanvas" role="img"
-          aria-label="Space Invaders play field. Your ship fires automatically; use left and right arrows or A and D to move, P to pause, R to restart. Touch controls appear below on mobile."></canvas>
+          aria-label="Space Invaders play field. Your ship fires automatically; use left and right arrows or A and D to move, or drag on the field on touch screens. P pauses, R restarts."></canvas>
         <div class="si-wave-banner" id="siWaveBanner" aria-hidden="true"></div>
         <!-- Phase 2: POWER-UP ACQUIRED notification, shown during the
              between-levels beat alongside LEVEL COMPLETE. -->
@@ -5859,6 +5976,27 @@ function renderSiView() {
             <div class="si-ov-title" id="siOvTitle">Space Invaders</div>
             <div class="si-ov-sub" id="siOvSub"></div>
             <button type="button" class="ft-btn primary" id="siOvBtn">Start Game</button>
+            <!-- Settings live inside the overlay so they are reachable
+                 exactly when the game is idle (ready / paused / over).
+                 The same controls are mirrored inline on wide screens by
+                 siAudioSettingsPaint() — both point at the same prefs. -->
+            <div class="si-audio si-ov-settings" id="siOvAudio" aria-label="Audio settings">
+              <div class="si-ov-set-h">audio settings</div>
+              <div class="si-audio-row">
+                <label class="si-audio-l" for="siMusicVol">music</label>
+                <input type="range" id="siMusicVol" min="0" max="100" step="1" value="60"
+                       aria-label="Music volume">
+                <span class="si-audio-v" id="siMusicVolVal">60%</span>
+                <button type="button" class="ft-btn si-mute" id="siMusicMute" aria-pressed="false">Music: on</button>
+              </div>
+              <div class="si-audio-row">
+                <label class="si-audio-l" for="siSfxVol">effects</label>
+                <input type="range" id="siSfxVol" min="0" max="100" step="1" value="70"
+                       aria-label="Sound effects volume">
+                <span class="si-audio-v" id="siSfxVolVal">70%</span>
+                <button type="button" class="ft-btn si-mute" id="siSfxMute" aria-pressed="false">Effects: on</button>
+              </div>
+            </div>
             <div id="siOvLaunch"></div>
           </div>
         </div>
@@ -5875,27 +6013,10 @@ function renderSiView() {
         <button type="button" class="ft-btn si-exit" id="siExit">Back to Games</button>
       </div>
 
-      <!-- Phase 3/4: audio settings — independent music/effects volumes
-           and mutes, persisted in localStorage. -->
-      <div class="si-audio" id="siAudioPanel" aria-label="Audio settings">
-        <div class="si-audio-row">
-          <label class="si-audio-l" for="siMusicVol">music</label>
-          <input type="range" id="siMusicVol" min="0" max="100" step="1" value="60"
-                 aria-label="Music volume">
-          <span class="si-audio-v" id="siMusicVolVal">60%</span>
-          <button type="button" class="ft-btn si-mute" id="siMusicMute" aria-pressed="false">Music: on</button>
-        </div>
-        <div class="si-audio-row">
-          <label class="si-audio-l" for="siSfxVol">effects</label>
-          <input type="range" id="siSfxVol" min="0" max="100" step="1" value="70"
-                 aria-label="Sound effects volume">
-          <span class="si-audio-v" id="siSfxVolVal">70%</span>
-          <button type="button" class="ft-btn si-mute" id="siSfxMute" aria-pressed="false">Effects: on</button>
-        </div>
-      </div>
-
       <div class="si-fs-notice" id="siFsNotice" role="status" aria-live="polite"></div>
 
+      <!-- Keyboard legend. Touch devices get pads instead (below); the
+           overlay carries the full how-to-play text. -->
       <div class="si-help">
         <span>←/→ or A/D move</span><span>firing is automatic</span><span>P pauses</span><span>R restarts</span><span>F fullscreen</span>
       </div>
@@ -5947,7 +6068,7 @@ function renderSiView() {
   // Held-key state must not survive a blur or tab switch.
   siOn(window, 'blur', () => {
     SIG.keys = Object.create(null);
-    SIG.touch = { left: false, right: false, fire: false };
+    SIG.touch = { left: false, right: false, fire: false, steerX: null };
     siPause();                       // safe pause on losing focus
   });
   siOn(document, 'visibilitychange', () => {
@@ -6020,11 +6141,13 @@ function renderSiView() {
 
   // Touch steering pads: pointer events cover touch + mouse uniformly,
   // with pointerdown/up/cancel so held movement works and stops correctly.
-  // (No FIRE pad: firing is automatic.)
+  // (No FIRE pad: firing is automatic.) A held pad also gets .held so the
+  // active state stays painted even when the pointer drifts slightly —
+  // :active alone drops on pointerleave, which would read as "released".
   const bindHold = (id, key) => {
     const el = $('#' + id);
-    const on = e => { e.preventDefault(); SIG.touch[key] = true; };
-    const off = e => { e.preventDefault(); SIG.touch[key] = false; };
+    const on = e => { e.preventDefault(); SIG.touch[key] = true; el.classList.add('held'); };
+    const off = e => { e.preventDefault(); SIG.touch[key] = false; el.classList.remove('held'); };
     siOn(el, 'pointerdown', on);
     siOn(el, 'pointerup', off);
     siOn(el, 'pointercancel', off);
@@ -6034,6 +6157,34 @@ function renderSiView() {
   };
   bindHold('siLeft', 'left');
   bindHold('siRight', 'right');
+
+  /* STEP 5 · direct canvas steering for touch: dragging anywhere on the
+   * playfield moves the ship to the finger's x position (relative steering
+   * — the ship follows the finger, not teleports). This is the natural
+   * mobile control for an auto-fire game; the pads remain for players who
+   * prefer them. Pointer capture keeps the drag alive outside the canvas,
+   * and pointerup/cancel always release. The overlay sits above the canvas
+   * (z-index:2), so taps while paused/ready never reach this handler. */
+  const cv = $('#siCanvas');
+  let steerPid = null;
+  siOn(cv, 'pointerdown', e => {
+    if (e.pointerType === 'mouse') return;         // mouse keeps keys/pads
+    steerPid = e.pointerId;
+    try { cv.setPointerCapture(e.pointerId); } catch { /* older browsers */ }
+    siSteerTo(e);
+    e.preventDefault();
+  });
+  siOn(cv, 'pointermove', e => {
+    if (steerPid === null || e.pointerId !== steerPid) return;
+    siSteerTo(e);
+  });
+  const steerEnd = e => {
+    if (steerPid === null || e.pointerId !== steerPid) return;
+    steerPid = null;
+    SIG.touch.steerX = null;                       // stop following
+  };
+  siOn(cv, 'pointerup', steerEnd);
+  siOn(cv, 'pointercancel', steerEnd);
 
   // Resize: refit the canvas; logical state is untouched.
   siOn(window, 'resize', () => siResize());
@@ -7325,6 +7476,7 @@ function crRacersReset(mode, diff) {
         laneT: 0,                                    // lane-change timer
         lane: (i % CR.LANES),                        // start lane (spread)
         x: 0,                                        // lateral position (-1..1)
+        contactT: 0,                                 // post-contact cooldown
       };
       /* P3.14 · proper starting grid: a staggered TWO-COLUMN arrangement
        * across different lanes. Column A (even i) sits on the left half
@@ -7410,38 +7562,61 @@ function crAiStep(r, dt) {
     }
   }
 
-  /* P3.12 · traffic-aware lane changes. A rival scans ordinary traffic
-   * ahead in its lane; when a slower car blocks the way it changes to an
+  /* Traffic- AND racer-aware lane changes. A rival scans everything on
+   * the road ahead in its lane — ordinary traffic, other AI racers and
+   * the player; when something slower blocks the way it changes to an
    * adjacent lane (never teleporting — x eases toward the new centre).
-   * With nothing ahead it drifts occasionally, as before, so the field
-   * still spreads naturally. */
+   * This is what makes overtaking real: a faster rival steers around a
+   * slower one instead of driving through it. With nothing ahead it
+   * drifts occasionally, so the field still spreads naturally. */
   const laneW = 2 / CR.LANES;
   const mySegF = ((r.ai.segF % total) + total) % total;
-  let blockedAhead = false;
-  for (const t of g.traffic) {
-    let rz = t.z - mySegF;
+  const wrapZ = z => {
+    let rz = z - mySegF;
     if (rz < -total / 2) rz += total;
     if (rz > total / 2) rz -= total;
-    if (rz > 0.5 && rz < 14 && Math.abs(t.x - r.ai.x) < laneW * 0.8) {
-      blockedAhead = true; break;
-    }
+    return rz;
+  };
+  let blockedAhead = false;
+  for (const t of g.traffic) {
+    if (wrapZ(t.z) > 0.5 && wrapZ(t.z) < 14
+        && Math.abs(t.x - r.ai.x) < laneW * 0.8) { blockedAhead = true; break; }
+  }
+  if (!blockedAhead) for (const o of CR_RACERS) {
+    if (o === r || o.isPlayer || !o.ai || o.finished) continue;
+    const oz = ((o.ai.segF % total) + total) % total;
+    if (wrapZ(oz) > 0.5 && wrapZ(oz) < 14
+        && Math.abs(o.ai.x - r.ai.x) < laneW * 0.8) { blockedAhead = true; break; }
+  }
+  if (!blockedAhead && !L.finished) {
+    const pz = g.position / CR.SEG_LEN;
+    if (wrapZ(pz) > 0.5 && wrapZ(pz) < 12
+        && Math.abs(g.playerX - r.ai.x) < laneW * 0.8
+        && g.speed < spd) blockedAhead = true;      // slower player ahead: pass them
   }
   r.ai.laneT += dt;
+  if (r.ai.contactT > 0) r.ai.contactT -= dt;       // post-nudge cooldown
   const wantChange = blockedAhead
     || (r.ai.laneT > 2.2 + r.idx * 0.3);
   if (wantChange) {
     r.ai.laneT = 0;
     if (blockedAhead) {
-      // Pick the adjacent lane least occupied by traffic.
+      // Pick the adjacent lane least occupied by ANY road user.
       const laneOccupied = l => {
         let cnt = 0;
         const lx = -1 + laneW * (l + 0.5);
-        for (const t of g.traffic) {
-          let rz = t.z - mySegF;
-          if (rz < -total / 2) rz += total;
-          if (rz > total / 2) rz -= total;
-          if (rz > -6 && rz < 20 && Math.abs(t.x - lx) < laneW * 0.8) cnt++;
+        for (const t of g.traffic)
+          if (wrapZ(t.z) > -6 && wrapZ(t.z) < 20
+              && Math.abs(t.x - lx) < laneW * 0.8) cnt++;
+        for (const o of CR_RACERS) {
+          if (o === r || o.isPlayer || !o.ai) continue;
+          const oz = ((o.ai.segF % total) + total) % total;
+          if (wrapZ(oz) > -6 && wrapZ(oz) < 20
+              && Math.abs(o.ai.x - lx) < laneW * 0.8) cnt++;
         }
+        const pz = g.position / CR.SEG_LEN;
+        if (wrapZ(pz) > -6 && wrapZ(pz) < 20
+            && Math.abs(g.playerX - lx) < laneW * 0.8) cnt++;
         return cnt;
       };
       const opts = [];
@@ -7459,7 +7634,11 @@ function crAiStep(r, dt) {
     }
   }
   const targetX = -1 + laneW * (r.ai.lane + 0.5);
-  r.ai.x += (targetX - r.ai.x) * Math.min(1, dt * 1.4);
+  /* Smooth lateral motion: exponential ease with a capped step, so a
+   * lane change sweeps across (~0.8s) instead of snapping, and a
+   * collision nudge never produces a sideways jump. */
+  const latStep = (targetX - r.ai.x) * Math.min(1, dt * 2.4);
+  r.ai.x += Math.max(-laneW * dt * 1.6, Math.min(laneW * dt * 1.6, latStep));
 
   // Shared bookkeeping for ranking + rendering.
   r.segF = ((r.ai.segF % total) + total) % total;
@@ -7481,6 +7660,114 @@ function crAiStep(r, dt) {
     r.finished ? L.totalLaps : lapDone, gatesHit,
     ((r.ai.segF % total) + total) % total, nextGate, n, total));
 }
+
+/** RACE-FIELD COLLISIONS (player + AI racers).
+ *  Detects REAL longitudinal and lateral overlap between every pair of
+ *  race participants using the same shared half-width chain as the
+ *  traffic contact test, then applies a physical response:
+ *   • longitudinal: the trailing car sheds speed to the leader's minus a
+ *     gap, so nobody drives THROUGH anybody;
+ *   • lateral: both cars are pushed apart proportionally to the actual
+ *     interlock — a glance, not a teleport.
+ *  Ordinary traffic stays separate: it keeps its own system. */
+function crRacerCollisions(dt) {
+  const g = CRG, L = CR_LAP;
+  if (!L.enabled || !CR_RACERS.length) return;
+  const total = g.totalSegs;
+  const playerSegF = g.position / CR.SEG_LEN;
+  // Pairwise overlap uses the shared half-width chain above; bodies carry
+  // only positions + speed references.
+  const bodies = [];
+  for (const r of CR_RACERS) {
+    if (r.isPlayer) {
+      bodies.push({ x: g.playerX, segF: playerSegF, racer: r });
+    } else if (r.ai && !r.finished) {
+      bodies.push({ x: r.ai.x,
+                    segF: ((r.ai.segF % total) + total) % total,
+                    racer: r });
+    }
+  }
+  // Pairwise overlap: wrapped z-gap < ~1.4 segments AND lateral overlap.
+  const halfOf = r => r.isPlayer
+    ? CRP.PLAYER_WIDTH * CRP.CAR_BODY_K * CR.CAR_VIS_K
+    : 0.56 * CRP.CAR_BODY_K * CR.CAR_VIS_K;
+  for (let a = 0; a < bodies.length; a++) {
+    for (let b = a + 1; b < bodies.length; b++) {
+      const A = bodies[a], B = bodies[b];
+      let dz = B.segF - A.segF;
+      if (dz < -total / 2) dz += total;
+      if (dz > total / 2) dz -= total;
+      const dx = Math.abs(A.x - B.x);
+      /* NaN-proof gate: every comparison with NaN is false, which would
+       * let a corrupted body slip THROUGH both overlap tests below and
+       * write NaN shoves. Any non-finite input disqualifies the pair. */
+      if (!isFinite(dz) || !isFinite(dx)) continue;
+      if (Math.abs(dz) >= 1.35 || dx >= halfOf(A.racer) + halfOf(B.racer)) continue;
+
+      /* --- response -------------------------------------------------
+       * Longitudinal: the TRAILING car is pulled back behind the leader
+       * by a fixed gap (speed-scaled, never a warp: at most the distance
+       * covered in one tick plus the overlap). Lateral: both take a
+       * proportional shove away from each other. */
+      const trail = dz >= 0 ? A : B, lead = dz >= 0 ? B : A;
+      const gap = 1.55;
+      const backTo = lead.segF - gap;          // where the trailer must sit
+      const maxPull = 3.5;                     // segments per resolution
+      if (trail.racer.isPlayer) {
+        /* Player rear-ends a rival: shed speed hard (they were ahead),
+         * lose a little ground, take the standard crash feedback. */
+        g.speed = Math.max(0, g.speed * 0.72);
+        g.position -= Math.min(maxPull * CR.SEG_LEN,
+                               Math.abs(dz) * CR.SEG_LEN * 0.5);
+        if (g.crashGrace <= 0) {
+          g.crashes++; g.combo = 0; g.comboT = 0;
+          g.shakeT = Math.max(g.shakeT, 0.22);
+          const sd = (A.racer.isPlayer ? B.x - A.x : A.x - B.x) || 0;
+          if (!g.reducedMotion) crSparks(12, sd);
+          g.crashGrace = 0.8;
+        }
+      } else {
+        // AI trailing: cap its continuous position behind the leader.
+        const want = ((backTo % total) + total) % total;
+        const cur = ((trail.racer.ai.segF % total) + total) % total;
+        let delta = want - cur;
+        if (delta > total / 2) delta -= total;
+        if (delta < -total / 2) delta += total;
+        // Only ever pull BACKWARD (clamp forward creep), capped.
+        if (delta > 0) delta = 0;
+        if (isFinite(delta)) {
+          trail.racer.ai.segF += Math.max(-maxPull, delta);
+          trail.racer.ai.contactT = 0.9;       // brief brake + no lane flip
+          trail.racer.ai.laneT = 0;
+        }
+      }
+      // Lateral separation for BOTH parties (proportional to interlock).
+      const inter = (halfOf(A.racer) + halfOf(B.racer)) - dx;
+      if (!isFinite(inter) || inter <= 0) continue;   // paranoia: never NaN
+      const dir = A.x >= B.x ? 1 : -1;
+      const shove = inter * 0.5;
+      if (A.racer.isPlayer) {
+        g.playerX += dir * shove * 0.6;
+        g.vlat += dir * shove * 2.2;
+      } else A.racer.ai.x += dir * shove * 0.7;
+      if (B.racer.isPlayer) {
+        g.playerX -= dir * shove * 0.6;
+        g.vlat -= dir * shove * 2.2;
+      } else B.racer.ai.x -= dir * shove * 0.7;
+      // Clamp both onto the tarmac.
+      for (const bd of [A, B]) {
+        if (!bd.racer.isPlayer)
+          bd.racer.ai.x = Math.max(-0.95, Math.min(0.95, bd.racer.ai.x));
+      }
+      g.playerX = Math.max(-CRP.BOUND_MAX, Math.min(CRP.BOUND_MAX, g.playerX));
+    }
+  }
+}
+
+/* Shared contact half-widths for the race field (see halfOf inside
+ * crRacerCollisions): AI rivals render at the same sport-body width as
+ * traffic 'sport' cars; the player uses its own PLAYER_WIDTH through the
+ * identical chain the renderer draws. */
 
 /** Race progress in GATE-UNITS: one unit = advancing past one checkpoint
  *  gate. progress = completedLaps * gatesPerLap + gatesHitThisLap +
@@ -8095,6 +8382,16 @@ function crBuildTrack() {
   for (let i = fixStart; i < total; i++) {
     segs[i].y -= residual * crSmooth((i - fixStart + 1) / fixLen);
   }
+
+  /* START/FINISH LINE · the circuit's timing line lives at segment 0 —
+   * the SAME physical location checkpoint gate 0 occupies, so every lap
+   * the checkpoint machine completes is crossed over this exact band.
+   * Two consecutive segments carry the checkered rows (parity stored so
+   * the squares offset like a real racing flag). Purely geometric tags:
+   * crDrawSegment paints them through the normal p1/p2 projection, so
+   * the band bends with the road and never floats. */
+  segs[0].startFinish = 0;
+  segs[1].startFinish = 1;
 
   /* Roadside scenery, varied so the world does not repeat obviously:
    *  • street lamps every 7 segments, alternating verges — their regular
@@ -8799,6 +9096,10 @@ function crStep(dt) {
    * the player (they pause when the game pauses, freeze on finish). */
   if (CR_LAP.enabled && !CR_LAP.finished) {
     for (const r of CR_RACERS) if (!r.isPlayer) crAiStep(r, dt);
+    /* Race-field contact resolution (player vs rivals, rival vs rival):
+     * runs AFTER everyone advanced so it resolves the FINAL geometry of
+     * the tick — same discipline as the traffic separation pass. */
+    crRacerCollisions(dt);
   }
   /* TASK 7.2 · gate/lap/finish transitions change progress by whole
    * units — recompute standings immediately at those moments (the
@@ -10568,6 +10869,35 @@ function crDrawSegment(c, v, alt, W) {
   crPoly(c, p1.x - p1.w, p1.y, p1.x + p1.w, p1.y,
          p2.x + p2.w, p2.y, p2.x - p2.w, p2.y);
 
+  // --- START/FINISH: checkered band across the full road width --------
+  /* Painted ON the tarmac through this segment's own p1/p2 projection:
+   * it inherits every curve/hill the road has, exactly like the rumble
+   * strips beside it. Two rows of alternating squares (row parity from
+   * the segment tag offsets them like a racing flag). Neon edge ticks
+   * tie it to the synthwave palette without extra effects. */
+  if (seg.startFinish !== undefined) {
+    const row = seg.startFinish;
+    const cols = 12;                              // squares across the road
+    for (let k = 0; k < cols; k++) {
+      if ((k + row) % 2 === 0) continue;          // draw only dark cells
+      const t0 = -1 + (2 * k) / cols, t1 = -1 + (2 * (k + 1)) / cols;
+      // Dark cell; the light cells are the asphalt showing through.
+      c.fillStyle = '#0a0e18';
+      crPoly(c,
+        p1.x + p1.w * t0, p1.y,
+        p1.x + p1.w * t1, p1.y,
+        p2.x + p2.w * t1, p2.y,
+        p2.x + p2.w * t0, p2.y);
+    }
+    // Thin neon rule on each side of the band (cyan left / magenta right).
+    c.fillStyle = `${CR_NEON_L}0.85`;
+    crPoly(c, p1.x - p1.w, p1.y, p1.x - p1.w * 0.94, p1.y,
+           p2.x - p2.w * 0.94, p2.y, p2.x - p2.w, p2.y);
+    c.fillStyle = `${CR_NEON_R}0.85`;
+    crPoly(c, p1.x + p1.w * 0.94, p1.y, p1.x + p1.w, p1.y,
+           p2.x + p2.w, p2.y, p2.x + p2.w * 0.94, p2.y);
+  }
+
   // --- lane markers: dashes scale correctly toward the horizon --------
   /* LIGHTING FIX · dash alpha/width come from CR_LIGHT so the markings
    *  stay clearly readable against the lifted asphalt — the old 0.78
@@ -10864,6 +11194,18 @@ function crDrawSprite(c, s, W, H) {
     c.lineTo(p.x + spanW / 2, p.y - h);
     c.stroke();
     c.shadowBlur = 0;
+    /* START/FINISH gantry · the finish gate carries a small illuminated
+     * checker strip on its beam — the overhead marker for the timing line
+     * painted on the road below it. Same projection, same depth; only
+     * drawn when the beam is wide enough to read (near approach). */
+    if (s.isFinish && spanW > 26) {
+      const cells = 14, cw2 = spanW / cells, bh = Math.max(2, u(190));
+      for (let k = 0; k < cells; k++) {
+        if (k % 2 === 0) continue;
+        c.fillStyle = 'rgba(10,14,24,.9)';
+        c.fillRect(p.x - spanW / 2 + k * cw2, p.y - h - bh * 0.5, cw2, bh);
+      }
+    }
     // Small marker lights down each pylon (visible when near).
     if (legW > 2.5) {
       c.fillStyle = col;

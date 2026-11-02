@@ -51,6 +51,21 @@ use crate::auth::{
 pub struct AuthState {
     /// The authenticator.
     pub store: Arc<AuthStore>,
+    /// Email delivery, when configured (`LOOP_EMAIL_*`). `None` means the
+    /// instance cannot send mail; password-reset issuance then answers a
+    /// clear "email delivery is not configured" instead of pretending.
+    pub mailer: Option<Arc<dyn crate::mail::MailSender>>,
+}
+
+impl AuthState {
+    /// Build state over a store with no mail delivery (the historical
+    /// shape; every existing construction site keeps working).
+    pub fn new(store: Arc<AuthStore>) -> Self {
+        Self {
+            store,
+            mailer: None,
+        }
+    }
 }
 
 /// Router for `/api/auth/*` plus the public session probe.
@@ -61,6 +76,12 @@ pub fn auth_router(state: Arc<AuthState>) -> Router {
         .route("/api/auth/register", post(register))
         .route("/api/auth/signin", post(sign_in))
         .route("/api/auth/signout", post(sign_out))
+        // Password reset completion (User Management phase). Public by
+        // necessity: the whole point is that the user cannot sign in. The
+        // token itself is the bearer credential, and it is single-use,
+        // expiring and attempt-bounded — all enforced server-side.
+        .route("/api/auth/password/reset/preview", post(reset_preview))
+        .route("/api/auth/password/reset", post(reset_complete))
         // Registration bodies are tiny (email + password); anything larger
         // is abusive or malformed and can be rejected before it is buffered.
         .layer(DefaultBodyLimit::max(REGISTER_BODY_LIMIT))
@@ -350,6 +371,117 @@ async fn sign_out(State(state): State<Arc<AuthState>>, headers: HeaderMap) -> Re
         .into_response()
 }
 
+// ---------------------------------------------------------------------------
+// Password reset completion (User Management phase)
+//
+// The ADMIN side (issuing a reset) lives in admin_http.rs behind
+// require_admin. These two endpoints are the PUBLIC side: the person who
+// received the email proves control of the token and chooses a new
+// password. They cannot authenticate first — that is the entire problem a
+// reset solves.
+// ---------------------------------------------------------------------------
+
+/// Request body for both public reset endpoints.
+///
+/// Only the token and (for completion) the new password. Nothing else from
+/// the body is deserialized, so no client field can influence which
+/// account is affected.
+#[derive(Deserialize)]
+struct PasswordResetBody {
+    token: String,
+    #[serde(default)]
+    password: Option<String>,
+}
+
+/// `POST /api/auth/password/reset/preview` — does this token still work?
+///
+/// Lets the reset page decide between "show the form" and "this link has
+/// expired" without consuming the token. The answer is boolean and never
+/// explains WHY a token is invalid, so it cannot be used to enumerate or
+/// brute-force tokens any faster than attempting the reset itself.
+async fn reset_preview(
+    State(state): State<Arc<AuthState>>,
+    Json(body): Json<PasswordResetBody>,
+) -> Response {
+    let store = state.store.clone();
+    let token = body.token;
+    let valid = tokio::task::spawn_blocking(move || store.peek_password_reset(&token))
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .unwrap_or(false);
+    (
+        StatusCode::OK,
+        [(
+            header::CACHE_CONTROL,
+            "no-store".to_string(),
+        )],
+        Json(serde_json::json!({ "valid": valid })),
+    )
+        .into_response()
+}
+
+/// `POST /api/auth/password/reset` — consume the token, set the password.
+///
+/// Security properties, all enforced in [`AuthStore::complete_password_reset`]:
+/// * single-use (two racing callers cannot both consume one token),
+/// * expiring, attempt-bounded against token brute force,
+/// * the new password is validated and Argon2id-hashed server-side; the
+///   plaintext exists only inside this request and is never stored or logged,
+/// * completing a reset revokes every existing session for the account.
+async fn reset_complete(
+    State(state): State<Arc<AuthState>>,
+    Json(body): Json<PasswordResetBody>,
+) -> Response {
+    let Some(password) = body.password else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "a new password is required" })),
+        )
+            .into_response();
+    };
+    let store = state.store.clone();
+    let token = body.token;
+    let result = tokio::task::spawn_blocking(move || {
+        store.complete_password_reset(&token, &password)
+    })
+    .await;
+
+    match result {
+        Ok(Ok((account_id, identifier))) => {
+            // Audit: the subject acted on their own behalf with the token.
+            let store = state.store.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                store.record_audit(
+                    crate::auth::audit_event::PASSWORD_RESET_COMPLETED,
+                    None,
+                    Some((account_id, identifier.as_str())),
+                    "password changed via administrator-triggered reset",
+                );
+            })
+            .await;
+            (
+                StatusCode::OK,
+                [(
+                    header::CACHE_CONTROL,
+                    "no-store".to_string(),
+                )],
+                Json(serde_json::json!({
+                    "ok": true,
+                    "message": "Password updated. Sign in with your new password."
+                })),
+            )
+                .into_response()
+        }
+        Ok(Err(e)) => account_error_response(e),
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "authentication unavailable" })),
+        )
+            .into_response(),
+    }
+}
+
 fn auth_error_response(e: AuthError) -> Response {
     // The sign-in throttle advertises how long to wait (Retry-After); every
     // other error keeps its existing body and headers exactly as before.
@@ -461,7 +593,7 @@ mod tests {
     fn router() -> (Router, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(AuthStore::open(dir.path().join("auth.db")).unwrap());
-        let state = Arc::new(AuthState { store });
+        let state = Arc::new(AuthState::new(store));
         (auth_router(state), dir)
     }
 
@@ -607,7 +739,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(AuthStore::open(dir.path().join("auth.db")).unwrap());
         store.sign_up("owner", "correct horse battery").unwrap();
-        let state = Arc::new(AuthState { store });
+        let state = Arc::new(AuthState::new(store));
 
         // A protected page router: /guarded uses the page guard.
         let app = Router::new()
@@ -1042,9 +1174,7 @@ mod tests {
     async fn concurrent_duplicate_registrations_cannot_both_succeed() {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(AuthStore::open(dir.path().join("auth.db")).unwrap());
-        let state = Arc::new(AuthState {
-            store: store.clone(),
-        });
+        let state = Arc::new(AuthState::new(store.clone()));
         let router = auth_router(state);
 
         // Fire 8 concurrent registrations of the same normalized address.
@@ -1160,9 +1290,7 @@ mod tests {
         let store = Arc::new(AuthStore::open(&path).unwrap());
         let snapshot_before = admin_snapshot(&store);
 
-        let state = Arc::new(AuthState {
-            store: store.clone(),
-        });
+        let state = Arc::new(AuthState::new(store.clone()));
         let router = auth_router(state);
 
         // A new registration arrives.
@@ -1349,9 +1477,9 @@ mod tests {
             .unwrap();
         store.set_account_status(id, "approved").unwrap();
         drop(store);
-        let state = Arc::new(AuthState {
-            store: Arc::new(AuthStore::open(&path).unwrap()),
-        });
+        let state = Arc::new(AuthState::new(Arc::new(
+            AuthStore::open(&path).unwrap(),
+        )));
         (auth_router(state), dir, id)
     }
 
@@ -1440,10 +1568,27 @@ mod tests {
             r#"{"identifier":"worker@soket.ai","password":"a strong passphrase"}"#,
         )
         .await;
-        // Suspended: generic denial, no reason leaked.
+        // Suspended with CORRECT credentials: 403 with the truthful
+        // suspended message (User Management phase). The password verified,
+        // so the real owner learns why access is refused; an attacker with
+        // wrong credentials still gets the generic 401 below.
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(
+            body.to_lowercase().contains("suspended"),
+            "must explain the suspension: {body}"
+        );
+        assert!(headers.get(header::SET_COOKIE).is_none());
+
+        // Wrong password on the same suspended account: generic denial,
+        // nothing about the account's state leaked.
+        let (status, body, _) = json_post(
+            &router,
+            "/api/auth/signin",
+            r#"{"identifier":"worker@soket.ai","password":"totally wrong pass"}"#,
+        )
+        .await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
         assert_eq!(body, r#"{"error":"invalid credentials"}"#);
-        assert!(headers.get(header::SET_COOKIE).is_none());
     }
 
     #[tokio::test]
@@ -1472,9 +1617,7 @@ mod tests {
         // gets its own router: stacking both on one router would let the
         // outer layer answer before the inner one is consulted.
         let store = Arc::new(AuthStore::open(dir.path().join("auth.db")).unwrap());
-        let auth_state = Arc::new(AuthState {
-            store: store.clone(),
-        });
+        let auth_state = Arc::new(AuthState::new(store.clone()));
         let api_guarded = Router::new()
             .route("/api/protected", get(|| async { "secret" }))
             .layer(axum::middleware::from_fn_with_state(
@@ -1610,9 +1753,7 @@ mod tests {
             .create_pending_user("live@soket.ai", "a strong passphrase")
             .unwrap();
         store.set_account_status(id, STATUS_APPROVED).unwrap();
-        let state = Arc::new(AuthState {
-            store: store.clone(),
-        });
+        let state = Arc::new(AuthState::new(store.clone()));
         let router = auth_router(state);
 
         // Approved → sign in OK.
@@ -1632,7 +1773,10 @@ mod tests {
             r#"{"identifier":"live@soket.ai","password":"a strong passphrase"}"#,
         )
         .await;
-        assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+        // Correct credentials on a suspended account: 403 with the
+        // suspended message (User Management phase).
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(body.to_lowercase().contains("suspended"), "{body}");
 
         // Reinstate: works again immediately.
         store.set_account_status(id, STATUS_APPROVED).unwrap();
@@ -1817,9 +1961,7 @@ mod tests {
     fn limited_router() -> (Router, Arc<AuthStore>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(AuthStore::open(dir.path().join("auth.db")).unwrap());
-        let state = Arc::new(AuthState {
-            store: store.clone(),
-        });
+        let state = Arc::new(AuthState::new(store.clone()));
         (auth_router(state), store, dir)
     }
 

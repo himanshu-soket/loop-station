@@ -38,6 +38,10 @@ pub struct AppOptions {
     /// Authentication store. When present, workspace pages and APIs are
     /// protected by cookie sessions and `/api/auth/*` is served.
     pub auth_store: Option<std::sync::Arc<crate::auth::AuthStore>>,
+    /// Support-ticket store (Help & Support phase). When present, the
+    /// `/api/support/*` surface is mounted; it requires `auth_store` too,
+    /// because every endpoint resolves the caller's role from a session.
+    pub support_store: Option<std::sync::Arc<crate::support::store::SupportStore>>,
 }
 
 /// Unified data source: the real SQLite store or the clearly-labeled demo set.
@@ -641,16 +645,71 @@ pub fn build_app(options: AppOptions) -> anyhow::Result<(Router, SysMonitor)> {
     // auth store is configured (e.g. legacy embeds), everything stays open.
     let router = match options.auth_store {
         Some(auth) => {
-            let auth_state = Arc::new(crate::auth_http::AuthState { store: auth });
-            apply_guards(
-                router
-                    .merge(crate::auth_http::auth_router(auth_state.clone()))
-                    // Administrator account management (Phase 4D). Mounted
-                    // under the same guard layer, so it also requires a
-                    // valid session; its own handlers add the role check.
-                    .merge(crate::admin_http::admin_router(auth_state.clone())),
-                auth_state,
-            )
+            // Email delivery for password resets: configured from the
+            // environment exactly like the OTP sender, sharing the same
+            // provider (Resend). A missing/invalid configuration logs a
+            // warning and leaves mailer=None — the admin reset endpoint
+            // then answers honestly that email is not configured rather
+            // than pretending to send.
+            let mailer = match crate::mail::EmailConfig::from_env() {
+                Ok(Some(cfg)) => match crate::mail::ResendSender::new(cfg) {
+                    Ok(sender) => Some(std::sync::Arc::new(sender) as Arc<dyn crate::mail::MailSender>),
+                    Err(e) => {
+                        eprintln!("warning: email delivery unavailable ({e}); password-reset emails will not send");
+                        None
+                    }
+                },
+                Ok(None) => None,
+                Err(e) => {
+                    eprintln!("warning: email configuration invalid ({e}); password-reset emails will not send");
+                    None
+                }
+            };
+            let auth_state = Arc::new(crate::auth_http::AuthState {
+                store: auth,
+                mailer: mailer.clone(),
+            });
+            let router = router
+                .merge(crate::auth_http::auth_router(auth_state.clone()))
+                // Administrator account management (Phase 4D). Mounted
+                // under the same guard layer, so it also requires a
+                // valid session; its own handlers add the role check.
+                .merge(crate::admin_http::admin_router(auth_state.clone()));
+
+            // Help & Support (header button → ticket submission for users,
+            // ticket management for administrators). Requires the auth
+            // state above plus the dedicated ticket store; without either
+            // the surface stays unmounted and the header button hidden.
+            let router = match options.support_store {
+                Some(tickets) => {
+                    // Destination for new-ticket notifications. Defaults to
+                    // the first administrator's address when nothing is
+                    // explicitly configured — a local deployment has one
+                    // obvious owner.
+                    let support_email = std::env::var("LOOP_SUPPORT_EMAIL")
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .or_else(|| {
+                            auth_state
+                                .store
+                                .find_account_by_identifier(crate::auth::LEGACY_ADMIN_IDENTIFIER)
+                                .ok()
+                                .map(|a| a.identifier)
+                        });
+                    router.merge(crate::support::support_router(Arc::new(
+                        crate::support::SupportState {
+                            auth: Arc::clone(&auth_state),
+                            tickets,
+                            mailer,
+                            support_email,
+                        },
+                    )))
+                }
+                None => router,
+            };
+
+            apply_guards(router, auth_state)
         }
         // Standalone `--no-auth` mode: the shared shell (console, observatory,
         // system monitor) probes `/api/auth/status` on every load to decide
@@ -688,6 +747,10 @@ fn apply_guards(router: Router, auth_state: Arc<crate::auth_http::AuthState>) ->
         "/signin",
         "/signup",
         "/register",
+        // Password-reset completion: the user cannot sign in (that is the
+        // problem being solved); the emailed single-use token is the
+        // credential, validated server-side on every request.
+        "/reset-password",
         // Terminal ingestion carries its own bearer-token auth.
         "/api/terminal/",
     ];
@@ -829,6 +892,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: None,
+            support_store: None,
         })
         .unwrap();
         let (status, body) = get_json(&app, "/api/health").await;
@@ -856,6 +920,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: Some(auth.clone()),
+            support_store: None,
         })
         .unwrap();
 
@@ -1097,6 +1162,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: None,
+            support_store: None,
         })
         .unwrap();
         let (status, body) = get_json(&app, "/api/overview?range=all").await;
@@ -1128,6 +1194,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: None,
+            support_store: None,
         })
         .unwrap();
         let (_, body) = get_json(&app, "/api/overview?model=m1").await;
@@ -1147,6 +1214,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: None,
+            support_store: None,
         })
         .unwrap();
 
@@ -1195,6 +1263,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: None,
+            support_store: None,
         })
         .unwrap();
         let (status, body) = get_json(&app, "/api/sessions/s1").await;
@@ -1220,6 +1289,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: None,
+            support_store: None,
         })
         .unwrap();
         let (status, body) = get_json(&app, "/api/sessions/does-not-exist").await;
@@ -1240,6 +1310,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: None,
+            support_store: None,
         })
         .unwrap();
         let (_, health) = get_json(&app, "/api/health").await;
@@ -1262,6 +1333,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: None,
+            support_store: None,
         })
         .unwrap();
         let (status, body) = get_json(&app, "/api/filters").await;
@@ -1278,6 +1350,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: None,
+            support_store: None,
         })
         .unwrap();
         let (_, health) = get_json(&app, "/api/health").await;
@@ -1296,6 +1369,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: None,
+            support_store: None,
         })
         .unwrap();
         let res = app
@@ -1321,6 +1395,7 @@ mod tests {
             sys_interval: std::time::Duration::from_secs(2),
             console_state: None,
             auth_store: None,
+            support_store: None,
         })
         .unwrap();
         let res = app

@@ -150,6 +150,35 @@ body.fn-fs .fn-controls,body.ft-playing.ft-immersive .fn-controls{padding:0 2px}
 body.fn-fs .fn-help,body.ft-playing.ft-immersive .fn-help{display:none}
 /* Inline (non-FS) play: centred panel within the main column. */
 body.ft-playing #fnPanel{margin:0 auto;width:100%;max-width:min(980px,100%)}
+/* PHASE 1 · phones: fold the redundant header + help so the slicing field
+   owns the screen; volume slider row wraps instead of overflowing. */
+@media (max-width:560px){
+  body.ft-playing #fnPanel .ft-panel-h{display:none}
+  body.ft-playing #fnPanel{padding:8px 10px 10px;gap:8px}
+  .fn-hud{padding:0 10px;gap:5px}
+  .fn-stat{padding:3px 8px;gap:4px}
+  .fn-stat .k{font-size:8px}
+  .fn-stat .v{font-size:12.5px}
+  .fn-controls{padding:0 10px;gap:5px}
+  .fn-controls .ft-btn{padding:6px 10px;font-size:10.5px}
+  .fn-help{display:none}
+  .fn-stage{margin:4px 10px 8px}
+}
+/* Landscape phones: compact every fixed row so the 16:10 field keeps a
+   usable slice of a 390px-tall viewport and the controls stay reachable. */
+@media (max-height:520px) and (orientation:landscape){
+  body.ft-playing #fnPanel .ft-panel-h{display:none}
+  body.ft-playing #fnPanel{padding:6px 12px 8px;gap:6px}
+  .fn-hud{padding:0 10px;gap:4px}
+  .fn-stat{padding:2px 6px;gap:3px}
+  .fn-stat .k{font-size:7px}
+  .fn-stat .v{font-size:11px}
+  .fn-controls{padding:0 10px;gap:4px}
+  .fn-controls .ft-btn{padding:5px 8px;font-size:10px}
+  .fn-controls .fn-vol{padding:4px 8px}
+  .fn-help{display:none}
+  .fn-stage{margin:3px 10px 6px}
+}
 /* Fun Time selector card art (namespaced fn-card-*). */
 .ft-card-art.fn{
   background:

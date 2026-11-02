@@ -13,6 +13,7 @@ async fn app() -> axum::Router {
         db: None,
         sys_demo: true,
         sys_interval: std::time::Duration::from_millis(2000),
+        support_store: None,
         console_state: None,
         auth_store: None,
     })

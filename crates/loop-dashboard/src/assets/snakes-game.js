@@ -79,10 +79,14 @@ body.ft-playing .sn-side{flex:0 0 320px;max-width:320px;min-height:0;overflow-y:
   body.ft-playing #snLayout{flex-direction:column;overflow-y:auto;align-items:stretch}
   body.ft-playing .sn-stage{flex:0 0 auto}
   body.ft-playing .sn-side{flex:0 0 auto;max-width:none;overflow:visible}
-  /* Mobile: cap the stage so the dice + players remain reachable without
-     scrolling far past the board. The board still fills the width. */
+  /* Mobile: the board is sized by snResize() from the viewport minus the
+     panel's real chrome rows, so the stage no longer needs a vh cap that
+     starved it (the old 56vh/42vh caps plus the content-driven stage
+     height froze the board at the 280px floor). A generous percentage cap
+     keeps the dice + players reachable without scrolling far past the
+     board while leaving the board itself as large as the width allows. */
   @media(max-width:560px){
-    body.ft-playing .sn-stage{max-height:56vh}
+    body.ft-playing .sn-stage{max-height:none}
   }
 }
 .sn-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
@@ -133,6 +137,27 @@ body.ft-playing .sn-side{flex:0 0 320px;max-width:320px;min-height:0;overflow-y:
 
 /* ---- side rail: dice + players + log ---- */
 .sn-side{display:flex;flex-direction:column;gap:12px;min-width:0}
+/* PHASE 1 · phones: the side rail (dice + players + log) sits BELOW the
+   board in the scrolling column. The dice card comes FIRST so the Roll
+   button is one small swipe away, and its rows compact so it usually fits
+   beside the board's bottom edge without any scroll at all. */
+@media (max-width:560px){
+  .sn-side{gap:8px}
+  .sn-card{padding:10px 11px;border-radius:12px}
+  .sn-card h4{margin:0 0 8px;font-size:8.5px}
+  /* dice card: die + value on one tight row, roll button full-width */
+  .sn-dice-row{gap:12px}
+  .sn-die{width:52px;height:52px;padding:8px;border-radius:12px}
+  .sn-die i{width:7px;height:7px}
+  .sn-dice-val{font-size:22px}
+  .sn-roll-btn{margin-top:8px;padding:12px 14px;font-size:13.5px}
+  /* players list: two-per-row chips to halve its height */
+  .sn-players{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+  .sn-pl{padding:6px 8px;gap:6px;flex-wrap:wrap}
+  .sn-pl .stats{display:none}          /* per-player detail stays in the log */
+  /* moves log: shorter window on phones */
+  .sn-log{max-height:120px}
+}
 .sn-card{border:1px solid var(--line2);border-radius:14px;background:
   linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,0)),
   rgba(13,18,30,.55);padding:14px 16px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
@@ -301,10 +326,11 @@ body.ft-playing .sn-side{flex:0 0 320px;max-width:320px;min-height:0;overflow-y:
   #snPanel .ft-btn{padding:7px 11px;font-size:11.5px}
 }
 /* phones: reclaim vertical space so the dice panel is reachable without
-   scrolling — tighter chips, smaller controls, capped stage height, and
-   the redundant panel header folds away (the game keeps its Back button) */
+   scrolling — tighter chips, smaller controls, and the redundant panel
+   header folds away (the game keeps its Back button) */
 @media(max-width:560px){
   body.ft-playing #snPanel .ft-panel-h{display:none}
+  body.ft-playing #snPanel{padding:10px 12px 12px;gap:6px}
   .sn-hud{gap:5px}
   .sn-stat,#snTurnChip{padding:4px 8px;gap:5px;font-size:10px}
   .sn-stat .v{font-size:13px}
@@ -312,6 +338,10 @@ body.ft-playing .sn-side{flex:0 0 320px;max-width:320px;min-height:0;overflow-y:
   .sn-bar-row{gap:6px}
   .sn-controls{gap:5px}
   #snPanel .ft-btn{padding:6px 9px;font-size:11px}
+  /* PHASE 1 FIX · the segmented control overflows horizontally at
+     320–390px (its five nowrap buttons total ~400px). It scrolls within
+     its own row (touch-friendly, no page overflow) and never forces the
+     page wider. */
   .sn-seg{max-width:100%;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
   .sn-seg::-webkit-scrollbar{display:none}
   .sn-seg button{padding:4px 8px;font-size:10.5px;white-space:nowrap;flex:none}
@@ -321,10 +351,11 @@ body.ft-playing .sn-side{flex:0 0 320px;max-width:320px;min-height:0;overflow-y:
   /* phone: mode · Start scroll as ONE compact row; the name inputs (only
      present for local multiplayer) wrap onto their own tight rows below */
   .sn-setup-grid{flex-wrap:wrap;align-items:center;gap:6px}
-  .sn-field{flex:none}
+  .sn-field{flex:none;min-width:0;max-width:100%}
+  .sn-setup{min-width:0}
   #snNamesField{flex:1 1 100%;min-width:0}
   .sn-help{display:none}                 /* hints live in the desktop rail */
-  body.ft-playing .sn-stage{max-height:42vh}
+  body.ft-playing .sn-stage{max-height:none}
   .sn-card{padding:11px 12px}
   .sn-die{width:58px;height:58px;padding:9px;border-radius:13px}
   .sn-die i{width:8px;height:8px}
@@ -332,6 +363,23 @@ body.ft-playing .sn-side{flex:0 0 320px;max-width:320px;min-height:0;overflow-y:
   .sn-roll-btn{margin-top:10px;padding:11px 14px;font-size:13px}
   .sn-pl{padding:7px 9px;gap:8px}
   .sn-players{gap:5px}
+}
+/* Landscape phones: compress every chrome row so the square board keeps a
+   usable size; the side rail moves below the board and stays scrollable. */
+@media(max-height:520px) and (orientation:landscape){
+  body.ft-playing #snPanel .ft-panel-h{display:none}
+  body.ft-playing #snPanel{padding:6px 12px 8px;gap:4px}
+  .sn-topbar{gap:4px}
+  .sn-hud{gap:4px}
+  .sn-stat,#snTurnChip{padding:2px 6px;font-size:9px}
+  .sn-stat .v{font-size:12px}
+  .sn-stat .k{font-size:7.5px}
+  .sn-controls{gap:4px}
+  #snPanel .ft-btn{padding:5px 8px;font-size:10px}
+  .sn-msg{min-height:0;font-size:11px;padding:0}
+  .sn-seg button{padding:3px 7px;font-size:10px}
+  .sn-name-input{width:84px;padding:4px 6px;font-size:10.5px}
+  .sn-help{display:none}
 }
 
 /* ---- Fullscreen / immersive layout (same convention as lu/fn) -------
@@ -351,6 +399,24 @@ body.sn-fs .sn-field>label,body.ft-playing.ft-immersive .sn-field>label{display:
 body.sn-fs .sn-seg button,body.ft-playing.ft-immersive .sn-seg button{padding:6px 11px;font-size:12px}
 body.sn-fs .sn-name-input,body.ft-playing.ft-immersive .sn-name-input{width:140px;padding:6px 9px;font-size:12px}
 body.sn-fs .sn-note,body.ft-playing.ft-immersive .sn-note{display:none}
+/* PHASE 1 · immersive on phones: the setup row compacts like the ≤560px
+   inline rules so the board keeps the screen (the segmented control
+   scrolls inside its own box instead of overflowing). */
+@media (max-width:560px){
+  body.sn-fs .sn-topbar,body.ft-playing.ft-immersive .sn-topbar{gap:6px}
+  body.sn-fs .sn-hud,body.ft-playing.ft-immersive .sn-hud{gap:5px}
+  body.sn-fs .sn-stat,body.ft-playing.ft-immersive #snTurnChip{padding:4px 8px;gap:5px;font-size:10px}
+  body.sn-fs .sn-stat .v,body.ft-playing.ft-immersive .sn-stat .v{font-size:13px}
+  body.sn-fs .sn-stat .k,body.ft-playing.ft-immersive .sn-stat .k{font-size:8.5px}
+  body.sn-fs .sn-seg,body.ft-playing.ft-immersive .sn-seg{
+    max-width:100%;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  body.sn-fs .sn-seg::-webkit-scrollbar,body.ft-playing.ft-immersive .sn-seg::-webkit-scrollbar{display:none}
+  body.sn-fs .sn-seg button,body.ft-playing.ft-immersive .sn-seg button{
+    padding:4px 8px;font-size:10.5px;white-space:nowrap;flex:none}
+  body.sn-fs .sn-name-input,body.ft-playing.ft-immersive .sn-name-input{width:92px;padding:5px 7px;font-size:11px}
+  body.sn-fs #snPanel .ft-btn,body.ft-playing.ft-immersive #snPanel .ft-btn{padding:6px 9px;font-size:11px}
+  body.sn-fs .sn-msg,body.ft-playing.ft-immersive .sn-msg{min-height:0;font-size:11.5px}
+}
 body.sn-fs #snLayout,body.ft-playing.ft-immersive #snLayout{
   flex:1;display:flex;flex-direction:row;justify-content:center;align-items:stretch;min-height:0;gap:16px}
 body.sn-fs .sn-stage,body.ft-playing.ft-immersive .sn-stage{
@@ -835,12 +901,48 @@ function snResize() {
      from the STAGE, never the canvas itself — the canvas's own width is
      whatever the last fit produced, which would freeze the size forever.
      A rAF-deferred second pass catches late flex/grid settles (e.g. right
-     after a viewport change while the topbar is still re-wrapping). */
+     after a viewport change while the topbar is still re-wrapping).
+     RESPONSIVE FIX · on phones the stage is `flex:0 0 auto` inside the
+     scrolling #snLayout column, so its clientHeight is CONTENT height =
+     the canvas itself — a circular measurement that froze the board at
+     the 280px floor. The height budget now comes from the VIEWPORT minus
+     the panel's real non-stage rows (topbar chips + controls), clamped by
+     the stage's own box when that is genuinely larger (desktop, where the
+     layout stretches the stage). */
   const fit = () => {
     if (!SNG.canvas) return;
     const wrap = c.parentElement;                        // .sn-stage
     const availW = Math.max(280, (wrap && wrap.clientWidth) || 620);
-    const availH = Math.max(280, (wrap && wrap.clientHeight) || availW);
+    /* Height budget. Two sources:
+       1. The stage's own box — correct wherever the layout STRETCHES the
+          stage (desktop two-column, fullscreen wide layouts).
+       2. The viewport minus the panel's real non-stage rows — required on
+          phones, where #snLayout is a scrolling column and the stage is
+          `flex:0 0 auto`, i.e. its height is CONTENT height = the canvas
+          itself. Reading only (1) there is circular and froze the board at
+          the 280px floor.
+       Rule: use the LARGER of the two, clamped to what the viewport can
+       actually show. When the layout stretches the stage, (1) already
+       fits the viewport, so it wins; when the stage is content-driven,
+       (2) rescues the board. */
+    let availH = Math.max(280, (wrap && wrap.clientHeight) || availW);
+    const panel = wrap && wrap.closest('.ft-panel');
+    if (panel) {
+      let chrome = 0;
+      for (const el of panel.children) {
+        if (el === wrap || el.contains(wrap)) continue;
+        const st = getComputedStyle(el);
+        if (st.position === 'absolute' || st.position === 'fixed') continue;
+        const h = el.getBoundingClientRect().height;
+        if (h > 0) chrome += h;
+      }
+      const pcs = getComputedStyle(panel);
+      chrome += parseFloat(pcs.paddingTop) + parseFloat(pcs.paddingBottom);
+      chrome += Math.max(0, panel.children.length - 1)
+                * parseFloat(pcs.columnGap || pcs.gap || '0');
+      const budgetH = window.innerHeight - chrome - 8 /* stage margin slack */;
+      if (budgetH > availH) availH = budgetH;
+    }
     const cssW = Math.floor(Math.min(availW, availH));
     const cssH = cssW;
     if (cssW === SNG._lastCssW && c.style.width === cssW + 'px') return;   // no-op guard

@@ -149,9 +149,157 @@ pub struct OtpMessage {
     pub expires_in_minutes: u64,
 }
 
+/// An administrator-triggered password-reset email.
+///
+/// The reset link carries the raw single-use token. Like the OTP code, it
+/// exists in cleartext only inside this message and is never logged.
+#[derive(Debug, Clone)]
+pub struct PasswordResetMessage {
+    /// Normalized recipient.
+    pub to: String,
+    /// Display name of the administrator who triggered the reset.
+    pub admin_email: String,
+    /// Absolute URL of the reset form (already carries the token).
+    pub reset_url: String,
+    /// Minutes until the token expires.
+    pub expires_in_minutes: u64,
+}
+
+/// A support-ticket notification email.
+///
+/// One payload shape covers every support notification (confirmation,
+/// support-staff alert, reply, status update); the subject/body builders
+/// below vary by [`kind`](Self::kind). Ticket content appears only inside
+/// the message handed to the sender — never in logs or errors.
+#[derive(Debug, Clone)]
+pub struct SupportTicketMessage {
+    /// Normalized recipient.
+    pub to: String,
+    /// Which email this is; see the constructor list for the vocabulary.
+    pub kind: SupportNotificationKind,
+    /// Human-readable ticket id (e.g. `TKT-7F3K9Q`).
+    pub ticket_id: String,
+    /// Ticket subject line.
+    pub subject: String,
+    /// Current ticket status (`pending`, `in_progress`, …), when relevant.
+    pub status: Option<String>,
+    /// Submitter's display name (support-staff alerts only).
+    pub submitter_name: Option<String>,
+    /// Submitter's email (support-staff alerts only).
+    pub submitter_email: Option<String>,
+    /// Ticket priority (support-staff alerts only).
+    pub priority: Option<String>,
+    /// Ticket category (support-staff alerts only).
+    pub category: Option<String>,
+}
+
+/// The kinds of support notification this module can deliver.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SupportNotificationKind {
+    /// Sent to the user right after they submit a request.
+    Confirmation,
+    /// Sent to the configured support/admin address about a new ticket.
+    NotifySupport,
+    /// Sent to the user when an administrator replies.
+    Reply,
+    /// Sent to the user when the ticket's status changes.
+    StatusUpdate,
+}
+
+impl SupportTicketMessage {
+    /// Confirmation for the submitter: "we got your request".
+    pub fn confirmation(to: String, ticket_id: &str, subject: &str, status: &str) -> Self {
+        Self {
+            to,
+            kind: SupportNotificationKind::Confirmation,
+            ticket_id: ticket_id.to_string(),
+            subject: subject.to_string(),
+            status: Some(status.to_string()),
+            submitter_name: None,
+            submitter_email: None,
+            priority: None,
+            category: None,
+        }
+    }
+
+    /// Alert for the support/admin inbox: a new request arrived.
+    #[allow(clippy::too_many_arguments)]
+    pub fn notify_support(
+        to: String,
+        ticket_id: &str,
+        subject: &str,
+        submitter_name: &str,
+        submitter_email: &str,
+        priority: &str,
+        category: &str,
+    ) -> Self {
+        Self {
+            to,
+            kind: SupportNotificationKind::NotifySupport,
+            ticket_id: ticket_id.to_string(),
+            subject: subject.to_string(),
+            status: None,
+            submitter_name: Some(submitter_name.to_string()),
+            submitter_email: Some(submitter_email.to_string()),
+            priority: Some(priority.to_string()),
+            category: Some(category.to_string()),
+        }
+    }
+
+    /// Reply notification for the submitter.
+    pub fn reply(to: String, ticket_id: &str, subject: &str) -> Self {
+        Self {
+            to,
+            kind: SupportNotificationKind::Reply,
+            ticket_id: ticket_id.to_string(),
+            subject: subject.to_string(),
+            status: None,
+            submitter_name: None,
+            submitter_email: None,
+            priority: None,
+            category: None,
+        }
+    }
+
+    /// Status-change notification for the submitter.
+    pub fn status_update(to: String, ticket_id: &str, subject: &str, status: &str) -> Self {
+        Self {
+            to,
+            kind: SupportNotificationKind::StatusUpdate,
+            ticket_id: ticket_id.to_string(),
+            subject: subject.to_string(),
+            status: Some(status.to_string()),
+            submitter_name: None,
+            submitter_email: None,
+            priority: None,
+            category: None,
+        }
+    }
+}
+
 /// The delivery seam. Implementations must never log the code or key.
 pub trait MailSender: Send + Sync {
     fn send_otp(&self, message: &OtpMessage) -> Result<(), DeliveryError>;
+
+    /// Deliver an administrator-triggered password-reset link.
+    ///
+    /// The default implementation returns [`DeliveryError::NotConfigured`]
+    /// so a sender that predates this method keeps compiling; production
+    /// senders override it.
+    fn send_password_reset(&self, _message: &PasswordResetMessage) -> Result<(), DeliveryError> {
+        Err(DeliveryError::NotConfigured)
+    }
+
+    /// Deliver a support-ticket notification.
+    ///
+    /// Same default-implementation contract as
+    /// [`MailSender::send_password_reset`].
+    fn send_support_notification(
+        &self,
+        _message: &SupportTicketMessage,
+    ) -> Result<(), DeliveryError> {
+        Err(DeliveryError::NotConfigured)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +344,246 @@ fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+// ---------------------------------------------------------------------------
+// Password-reset email content (User Management phase)
+// ---------------------------------------------------------------------------
+
+/// Subject line for password-reset emails.
+pub const PASSWORD_RESET_SUBJECT: &str = "Reset your Loop dashboard password";
+
+/// Plain-text body of a password-reset email. The link appears exactly once.
+pub fn password_reset_text_body(m: &PasswordResetMessage) -> String {
+    format!(
+        "Hello,\n\n\
+         {admin} (a Loop dashboard administrator) has initiated a password \
+         reset for your account.\n\n\
+         Open this link within {minutes} minutes to choose a new password:\n\n\
+         {url}\n\n\
+         The link works once and expires after {minutes} minutes. If you did \
+         not expect this email you can ignore it — your current password \
+         keeps working until the link is used.\n\n\
+         — Soket Workflow\n",
+        admin = m.admin_email,
+        minutes = m.expires_in_minutes,
+        url = m.reset_url,
+    )
+}
+
+/// Minimal branded HTML body for the reset email, matching the OTP style.
+pub fn password_reset_html_body(m: &PasswordResetMessage) -> String {
+    let url = html_escape(&m.reset_url);
+    let admin = html_escape(&m.admin_email);
+    let minutes = m.expires_in_minutes;
+    format!(
+        r#"<div style="font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;background:#0b1220;padding:32px;border-radius:16px;color:#e7ecf3;max-width:480px;margin:0 auto">
+  <div style="font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#5ef2c0;font-weight:700">Soket Workflow</div>
+  <h1 style="font-size:20px;margin:14px 0 10px">Reset your password</h1>
+  <p style="font-size:14px;line-height:1.6;color:#aab4c3;margin:0 0 20px"><strong style="color:#e7ecf3">{admin}</strong>, a dashboard administrator, has initiated a password reset for your account.</p>
+  <div style="text-align:center;margin:0 0 18px">
+    <a href="{url}" style="display:inline-block;background:#5ef2c0;color:#04231a;font-size:14px;font-weight:600;text-decoration:none;border-radius:10px;padding:12px 22px">Choose a new password</a>
+  </div>
+  <p style="font-family:ui-monospace,'JetBrains Mono',Menlo,monospace;font-size:11px;color:#8b96a8;word-break:break-all;margin:0 0 18px">{url}</p>
+  <p style="font-size:12.5px;color:#8b96a8;margin:0">This link works once and expires in {minutes} minutes. Completing it signs out every active session on your account. If you didn't expect this email, you can safely ignore it.</p>
+</div>"#
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Support-ticket email content (Support phase)
+// ---------------------------------------------------------------------------
+
+/// Subject line for a submitter confirmation.
+fn support_confirmation_subject(m: &SupportTicketMessage) -> String {
+    format!("[{}] We received your request: {}", m.ticket_id, m.subject)
+}
+
+/// Subject line for the support-staff alert.
+fn support_alert_subject(m: &SupportTicketMessage) -> String {
+    format!(
+        "[{}] New {} priority request from {}: {}",
+        m.ticket_id,
+        m.priority.as_deref().unwrap_or("unknown"),
+        m.submitter_email.as_deref().unwrap_or("unknown user"),
+        m.subject
+    )
+}
+
+/// Subject line for a reply notification.
+fn support_reply_subject(m: &SupportTicketMessage) -> String {
+    format!("[{}] Update on your request: {}", m.ticket_id, m.subject)
+}
+
+/// Subject line for a status-change notification.
+fn support_status_subject(m: &SupportTicketMessage) -> String {
+    format!(
+        "[{}] Your request is now {}: {}",
+        m.ticket_id,
+        display_status(m.status.as_deref().unwrap_or("unknown")),
+        m.subject
+    )
+}
+
+/// Human-readable form of a ticket status for email copy.
+pub fn display_status(status: &str) -> &str {
+    match status {
+        "pending" => "Pending",
+        "in_progress" => "In Progress",
+        "waiting_user" => "Waiting for You",
+        "resolved" => "Resolved",
+        "closed" => "Closed",
+        other => other,
+    }
+}
+
+/// Human-readable form of a ticket category for email copy.
+pub fn display_category(category: &str) -> &str {
+    match category {
+        "technical_issue" => "Technical Issue",
+        "bug_report" => "Bug Report",
+        "login_problem" => "Login Problem",
+        "performance_issue" => "Performance Issue",
+        "data_pipeline" => "Data Pipeline",
+        "model_evaluation" => "Model Evaluation",
+        "feature_request" => "Feature Request",
+        "general_inquiry" => "General Inquiry",
+        "other" => "Other",
+        other => other,
+    }
+}
+
+/// Shared visual shell for support emails, matching the OTP/reset style.
+fn support_email_shell(heading: &str, body_html: &str, footer: &str) -> String {
+    format!(
+        r#"<div style="font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;background:#0b1220;padding:32px;border-radius:16px;color:#e7ecf3;max-width:520px;margin:0 auto">
+  <div style="font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:#5ef2c0;font-weight:700">Soket Workflow · Support</div>
+  <h1 style="font-size:20px;margin:14px 0 10px">{heading}</h1>
+  {body_html}
+  <p style="font-size:12.5px;color:#8b96a8;margin:18px 0 0">{footer}</p>
+</div>"#
+    )
+}
+
+/// Ticket-id chip used across the support email bodies.
+fn ticket_chip(m: &SupportTicketMessage) -> String {
+    format!(
+        "<div style=\"font-family:ui-monospace,'JetBrains Mono',Menlo,monospace;font-size:15px;\
+         letter-spacing:.12em;background:#111a2c;border:1px solid #23324d;border-radius:12px;\
+         padding:12px 18px;text-align:center;color:#5ef2c0;margin:0 0 18px\">{}</div>",
+        html_escape(&m.ticket_id)
+    )
+}
+
+/// Plain-text body of a support notification.
+pub fn support_text_body(m: &SupportTicketMessage) -> String {
+    match m.kind {
+        SupportNotificationKind::Confirmation => format!(
+            "Hello,\n\nWe received your support request and it is now \
+             {status}.\n\nTicket ID : {id}\nSubject   : {subject}\n\n\
+             Keep the ticket ID handy — you can check the status of your \
+             request any time from the dashboard's Help & Support button.\n\n\
+             — Soket Workflow Support\n",
+            status = display_status(m.status.as_deref().unwrap_or("pending")),
+            id = m.ticket_id,
+            subject = m.subject,
+        ),
+        SupportNotificationKind::NotifySupport => format!(
+            "A new support request was submitted.\n\n\
+             Ticket ID : {id}\nSubject   : {subject}\nFrom     : {name} <{email}>\n\
+             Priority : {priority}\nCategory : {category}\n\n\
+             Review it in the dashboard's Support Management view.\n\n\
+             — Soket Workflow Support\n",
+            id = m.ticket_id,
+            subject = m.subject,
+            name = m.submitter_name.as_deref().unwrap_or("unknown"),
+            email = m.submitter_email.as_deref().unwrap_or("unknown"),
+            priority = m.priority.as_deref().unwrap_or("unknown"),
+            category = display_category(m.category.as_deref().unwrap_or("other")),
+        ),
+        SupportNotificationKind::Reply => format!(
+            "Hello,\n\nAn administrator replied to your support request.\n\n\
+             Ticket ID : {id}\nSubject   : {subject}\n\n\
+             Read the reply in the dashboard's Help & Support view.\n\n\
+             — Soket Workflow Support\n",
+            id = m.ticket_id,
+            subject = m.subject,
+        ),
+        SupportNotificationKind::StatusUpdate => format!(
+            "Hello,\n\nThe status of your support request changed to \
+             {status}.\n\nTicket ID : {id}\nSubject   : {subject}\n\n\
+             Track it any time from the dashboard's Help & Support button.\n\n\
+             — Soket Workflow Support\n",
+            status = display_status(m.status.as_deref().unwrap_or("unknown")),
+            id = m.ticket_id,
+            subject = m.subject,
+        ),
+    }
+}
+
+/// Branded HTML body of a support notification.
+pub fn support_html_body(m: &SupportTicketMessage) -> String {
+    let subject_line = format!(
+        "<p style=\"font-size:14px;line-height:1.6;color:#aab4c3;margin:0 0 18px\">\
+         Subject: <strong style=\"color:#e7ecf3\">{}</strong></p>",
+        html_escape(&m.subject)
+    );
+    match m.kind {
+        SupportNotificationKind::Confirmation => support_email_shell(
+            "We received your request",
+            &format!(
+                "{chip}{subject}<p style=\"font-size:14px;line-height:1.6;color:#aab4c3;margin:0\">\
+                 Your request is now <strong style=\"color:#5ef2c0\">{status}</strong>. We will \
+                 get back to you at this address.</p>",
+                chip = ticket_chip(m),
+                subject = subject_line,
+                status = display_status(m.status.as_deref().unwrap_or("pending")),
+            ),
+            "You can check the status any time from the dashboard's Help & Support button.",
+        ),
+        SupportNotificationKind::NotifySupport => support_email_shell(
+            "New support request",
+            &format!(
+                "{chip}{subject}\
+                 <table style=\"font-size:13px;color:#aab4c3;border-collapse:collapse\">\
+                 <tr><td style=\"padding:3px 12px 3px 0;color:#8b96a8\">From</td>\
+                 <td>{name} &lt;{email}&gt;</td></tr>\
+                 <tr><td style=\"padding:3px 12px 3px 0;color:#8b96a8\">Priority</td>\
+                 <td>{priority}</td></tr>\
+                 <tr><td style=\"padding:3px 12px 3px 0;color:#8b96a8\">Category</td>\
+                 <td>{category}</td></tr></table>",
+                chip = ticket_chip(m),
+                subject = subject_line,
+                name = html_escape(m.submitter_name.as_deref().unwrap_or("unknown")),
+                email = html_escape(m.submitter_email.as_deref().unwrap_or("unknown")),
+                priority = html_escape(m.priority.as_deref().unwrap_or("unknown")),
+                category = display_category(m.category.as_deref().unwrap_or("other")),
+            ),
+            "Review it in the dashboard's Support Management view.",
+        ),
+        SupportNotificationKind::Reply => support_email_shell(
+            "Update on your request",
+            &format!(
+                "{chip}{subject}<p style=\"font-size:14px;line-height:1.6;color:#aab4c3;margin:0\">\
+                 An administrator replied to your request. Open the dashboard's Help &amp; \
+                 Support view to read the response.</p>",
+                chip = ticket_chip(m),
+                subject = subject_line,
+            ),
+            "Reply to this request from the dashboard at any time.",
+        ),
+        SupportNotificationKind::StatusUpdate => support_email_shell(
+            "Your request's status changed",
+            &format!(
+                "{chip}{subject}<p style=\"font-size:14px;line-height:1.6;color:#aab4c3;margin:0\">\
+                 Status: <strong style=\"color:#5ef2c0\">{status}</strong></p>",
+                chip = ticket_chip(m),
+                subject = subject_line,
+                status = display_status(m.status.as_deref().unwrap_or("unknown")),
+            ),
+            "Track the full history from the dashboard's Help & Support button.",
+        ),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -249,7 +637,56 @@ impl MailSender for ResendSender {
             "html": otp_html_body(message),
             "text": otp_text_body(message),
         });
+        self.deliver(payload)
+    }
 
+    fn send_password_reset(&self, message: &PasswordResetMessage) -> Result<(), DeliveryError> {
+        use serde_json::json;
+
+        let payload = json!({
+            "from": self.config.from,
+            "to": [message.to],
+            "subject": PASSWORD_RESET_SUBJECT,
+            "html": password_reset_html_body(message),
+            "text": password_reset_text_body(message),
+        });
+        self.deliver(payload)
+    }
+
+    fn send_support_notification(
+        &self,
+        message: &SupportTicketMessage,
+    ) -> Result<(), DeliveryError> {
+        use serde_json::json;
+
+        // An empty recipient would be rejected by the provider anyway;
+        // refusing here keeps a misconfigured support address from
+        // producing confusing provider errors.
+        if message.to.trim().is_empty() {
+            return Err(DeliveryError::NotConfigured);
+        }
+        let subject = match message.kind {
+            SupportNotificationKind::Confirmation => support_confirmation_subject(message),
+            SupportNotificationKind::NotifySupport => support_alert_subject(message),
+            SupportNotificationKind::Reply => support_reply_subject(message),
+            SupportNotificationKind::StatusUpdate => support_status_subject(message),
+        };
+        let payload = json!({
+            "from": self.config.from,
+            "to": [message.to],
+            "subject": subject,
+            "html": support_html_body(message),
+            "text": support_text_body(message),
+        });
+        self.deliver(payload)
+    }
+}
+
+impl ResendSender {
+    /// Shared POST + status handling for both message kinds. Never logs the
+    /// token, code or API key; provider rejections are reduced to a status
+    /// plus a heavily redacted body for stderr only.
+    fn deliver(&self, payload: serde_json::Value) -> Result<(), DeliveryError> {
         // Blocking client used from async context must go through
         // spawn_blocking in the caller (see deliver_otp_challenge).
         let response = self
@@ -295,6 +732,8 @@ fn tracing_free_diag(status: &u16, redacted_body: &str) {
 #[derive(Default)]
 pub struct CapturingSender {
     pub sent: parking_lot::Mutex<Vec<OtpMessage>>,
+    pub reset_sent: parking_lot::Mutex<Vec<PasswordResetMessage>>,
+    pub support_sent: parking_lot::Mutex<Vec<SupportTicketMessage>>,
     pub fail_with: parking_lot::Mutex<Option<DeliveryError>>,
 }
 
@@ -312,6 +751,16 @@ impl CapturingSender {
     pub fn messages(&self) -> Vec<OtpMessage> {
         self.sent.lock().clone()
     }
+
+    /// Password-reset emails captured so far.
+    pub fn reset_messages(&self) -> Vec<PasswordResetMessage> {
+        self.reset_sent.lock().clone()
+    }
+
+    /// Support notifications captured so far.
+    pub fn support_messages(&self) -> Vec<SupportTicketMessage> {
+        self.support_sent.lock().clone()
+    }
 }
 
 impl MailSender for CapturingSender {
@@ -320,6 +769,25 @@ impl MailSender for CapturingSender {
             return Err(err);
         }
         self.sent.lock().push(message.clone());
+        Ok(())
+    }
+
+    fn send_password_reset(&self, message: &PasswordResetMessage) -> Result<(), DeliveryError> {
+        if let Some(err) = self.fail_with.lock().take() {
+            return Err(err);
+        }
+        self.reset_sent.lock().push(message.clone());
+        Ok(())
+    }
+
+    fn send_support_notification(
+        &self,
+        message: &SupportTicketMessage,
+    ) -> Result<(), DeliveryError> {
+        if let Some(err) = self.fail_with.lock().take() {
+            return Err(err);
+        }
+        self.support_sent.lock().push(message.clone());
         Ok(())
     }
 }
@@ -649,3 +1117,113 @@ mod tests {
         assert!(redacted.contains("line1 line2"));
     }
 }
+
+    // ---- support notifications (Help & Support phase) ----
+
+    #[test]
+    fn support_confirmation_email_carries_ticket_id_and_subject() {
+        let m = SupportTicketMessage::confirmation(
+            "user@soket.ai".into(),
+            "TKT-7F3K9Q",
+            "Streaming stops",
+            "pending",
+        );
+        let text = support_text_body(&m);
+        let html = support_html_body(&m);
+        for body in [&text, &html] {
+            assert!(body.contains("TKT-7F3K9Q"), "ticket id missing: {body}");
+            assert!(body.contains("Streaming stops"), "subject missing");
+            assert!(body.contains("Pending"), "status missing");
+        }
+        // No secrets, no other recipient.
+        assert!(!text.contains("re_test"));
+    }
+
+    #[test]
+    fn support_alert_email_identifies_the_submitter() {
+        let m = SupportTicketMessage::notify_support(
+            "support@soket.ai".into(),
+            "TKT-AB12CD",
+            "Login broken",
+            "Someone",
+            "someone@soket.ai",
+            "critical",
+            "login_problem",
+        );
+        let text = support_text_body(&m);
+        assert!(text.contains("someone@soket.ai"));
+        assert!(text.contains("critical"));
+        assert!(text.contains("Login Problem"), "category must be human-readable");
+        let html = support_html_body(&m);
+        assert!(html.contains("Critical Issues".replace("Issues", "").trim())
+            || html.contains("critical"));
+    }
+
+    #[test]
+    fn support_reply_and_status_emails_are_distinct() {
+        let reply = SupportTicketMessage::reply("u@soket.ai".into(), "TKT-1", "s");
+        let status = SupportTicketMessage::status_update(
+            "u@soket.ai".into(),
+            "TKT-1",
+            "s",
+            "waiting_user",
+        );
+        assert_ne!(
+            support_text_body(&reply),
+            support_text_body(&status),
+            "reply and status copy must differ"
+        );
+        assert!(support_text_body(&status).contains("Waiting for You"));
+        // Subjects differ per kind so threads stay readable in a mailbox.
+        assert_ne!(
+            support_reply_subject(&reply),
+            support_status_subject(&status)
+        );
+    }
+
+    #[test]
+    fn support_email_html_escapes_user_content() {
+        let m = SupportTicketMessage::confirmation(
+            "u@soket.ai".into(),
+            "TKT-X",
+            "<script>alert(1)</script>",
+            "pending",
+        );
+        let html = support_html_body(&m);
+        assert!(!html.contains("<script>"), "unescaped subject reached HTML");
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn capturing_sender_records_support_messages() {
+        let sender = CapturingSender::new();
+        let m = SupportTicketMessage::confirmation("u@soket.ai".into(), "TKT-1", "s", "pending");
+        sender.send_support_notification(&m).unwrap();
+        let sent = sender.support_messages();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].ticket_id, "TKT-1");
+        assert_eq!(sent[0].kind, SupportNotificationKind::Confirmation);
+
+        // Scripted failure surfaces as an error, not a silent drop.
+        sender.fail(DeliveryError::NotConfigured);
+        assert!(sender
+            .send_support_notification(&m)
+            .is_err());
+    }
+
+    #[test]
+    fn mailer_default_send_support_notification_is_not_configured() {
+        // A sender that predates the method must fail honestly rather than
+        // pretend to deliver.
+        struct Legacy;
+        impl MailSender for Legacy {
+            fn send_otp(&self, _m: &OtpMessage) -> Result<(), DeliveryError> {
+                Ok(())
+            }
+        }
+        let m = SupportTicketMessage::reply("u@soket.ai".into(), "TKT-1", "s");
+        assert!(matches!(
+            Legacy.send_support_notification(&m),
+            Err(DeliveryError::NotConfigured)
+        ));
+    }

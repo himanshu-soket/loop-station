@@ -121,8 +121,24 @@ const SNAKES_GAME_JS: &str = include_str!("assets/snakes-game.js");
 /// working behind the session guard like every other workspace.
 const EVAL_WORKSPACES_JS: &str = include_str!("assets/eval-workspaces.js");
 
+/// Help & Support workspace (`assets/support-workspace.js`).
+///
+/// The role-aware ticket surface opened from the header button: normal
+/// users get "Raise a Request" (submit + track their own tickets),
+/// administrators get "Support Management" (all tickets, replies, status
+/// changes, private notes). Loaded before the console SPA script because
+/// it reuses the SPA's helpers (`api`, `el`, `esc`, `debounce`, `fmtTime`,
+/// `fmtTimeFull`, `fmtInt`, `mdToHtml`, `toast`) — same pattern as the
+/// eval workspaces script above.
+const SUPPORT_WORKSPACE_JS: &str = include_str!("assets/support-workspace.js");
+
 /// Sign-in / sign-up / registration page (one page, three views).
 const AUTH_HTML: &str = include_str!("assets/auth.html");
+
+/// Public password-reset completion page (User Management phase). Served
+/// without a session by necessity — the user cannot sign in; the emailed
+/// single-use token is the credential.
+const RESET_PASSWORD_HTML: &str = include_str!("assets/reset_password.html");
 
 /// Administrator approval queue (Phase 6). Served under the session guard:
 /// unauthenticated visitors are redirected to sign-in by `apply_guards`,
@@ -341,6 +357,23 @@ async fn eval_workspaces_js() -> Response {
         .into_response()
 }
 
+/// `GET /console/support-workspace.js` — the Help & Support workspace
+/// script (ticket submission for users, ticket management for admins).
+/// Public like the other `.js` assets: it contains no user data and must
+/// survive a mid-session expiry without trapping the SPA. Its API calls
+/// are separately session-guarded and role-checked by `/api/support/*`.
+async fn support_workspace_js() -> Response {
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        SUPPORT_WORKSPACE_JS,
+    )
+        .into_response()
+}
+
 /// `GET /console/snakes-engine.js` — the Snakes & Ladders rules engine.
 async fn snakes_engine_js() -> Response {
     (
@@ -362,6 +395,25 @@ async fn auth_page() -> Response {
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
         AUTH_HTML,
+    )
+        .into_response()
+}
+
+/// `GET /reset-password` — public password-reset completion.
+///
+/// The page reads the single-use token from `?token=…`, asks the server
+/// whether it is still valid, and posts the new password to
+/// `/api/auth/password/reset`. It never sees or transmits anything about
+/// the account beyond what the token itself proves.
+async fn reset_password_page() -> Response {
+    (
+        StatusCode::OK,
+        [(
+            header::CACHE_CONTROL,
+            "no-store".to_string(),
+        )],
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        RESET_PASSWORD_HTML,
     )
         .into_response()
 }
@@ -411,6 +463,7 @@ pub fn web_router() -> Router {
         .route("/console/snakes-engine.js", get(snakes_engine_js))
         .route("/console/snakes-game.js", get(snakes_game_js))
         .route("/console/eval-workspaces.js", get(eval_workspaces_js))
+        .route("/console/support-workspace.js", get(support_workspace_js))
         .route("/pipeline-architecture", get(pipeline_architecture_page))
         .route(
             "/pipeline-architecture/index.html",
@@ -430,5 +483,6 @@ pub fn web_router() -> Router {
         .route("/signin", get(auth_page))
         .route("/signup", get(auth_page))
         .route("/register", get(auth_page))
+        .route("/reset-password", get(reset_password_page))
         .route("/admin", get(admin_page))
 }

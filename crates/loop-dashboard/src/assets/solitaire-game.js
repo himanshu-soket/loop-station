@@ -244,6 +244,30 @@ body.ft-playing #soPanel{margin:0 auto;width:100%;max-width:min(1180px,100%)}
   .so-controls .ft-btn{padding:5px 9px;font-size:10.5px}
   .so-table{margin:5px 10px 10px}
 }
+/* PHASE 1 · phones: fold the redundant header so the felt table starts
+   near the top of the screen; controls stay ≥40px touch targets. */
+@media (max-width:560px){
+  body.ft-playing #soPanel .ft-panel-h{display:none}
+  body.ft-playing #soPanel{padding:8px 8px 10px;gap:8px}
+  .so-controls .ft-btn{min-height:40px;padding:8px 11px}
+  .so-board{padding:8px}
+}
+/* Landscape phones: compact HUD/controls so the seven-column tableau plus
+   foundations stay fully visible and reachable in ~390px of height. */
+@media (max-height:520px) and (orientation:landscape){
+  body.ft-playing #soPanel .ft-panel-h{display:none}
+  body.ft-playing #soPanel{padding:6px 12px 8px;gap:6px}
+  .so-hud{padding:0 10px;gap:5px}
+  .so-stat{padding:2px 7px;gap:4px}
+  .so-stat .k{font-size:8px}
+  .so-stat .v{font-size:11.5px}
+  .so-controls{padding:0 10px;gap:5px}
+  .so-controls .ft-btn{padding:5px 9px;font-size:10px}
+  .so-help{display:none}
+  .so-table{margin:4px 10px 8px}
+  .so-board{padding:6px}
+  .so-row{gap:4px}
+}
 @media (prefers-reduced-motion:reduce){
   .so-card{transition:none !important}
   .so-slot.hint,.so-card.hint-card,.so-auto.pulse{animation:none}

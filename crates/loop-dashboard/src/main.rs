@@ -103,6 +103,18 @@ async fn main() -> anyhow::Result<()> {
         Some(std::sync::Arc::new(auth::AuthStore::open(&auth_db)?))
     };
 
+    // Help & Support ticket store: its own database beside the others, so
+    // neither the trace nor the auth schema changes. Only meaningful with
+    // authentication (every endpoint resolves the caller's role).
+    let support_store = match (&auth_store, cli.no_auth) {
+        (Some(_), false) => Some(std::sync::Arc::new(
+            loop_dashboard::support::store::SupportStore::open(
+                console_db.with_file_name("support.db"),
+            )?,
+        )),
+        _ => None,
+    };
+
     let (app, monitor) = api::build_app(api::AppOptions {
         demo: cli.demo,
         db: cli.db.as_deref().map(|p| p.to_path_buf()),
@@ -112,11 +124,14 @@ async fn main() -> anyhow::Result<()> {
             engine,
             store: console_store,
             playground,
+            // Console-state auth is only used for role resolution on trace
+            // content; it needs no mailer.
             auth: auth_store
                 .as_ref()
-                .map(|a| std::sync::Arc::new(auth_http::AuthState { store: a.clone() })),
+                .map(|a| std::sync::Arc::new(auth_http::AuthState::new(a.clone()))),
         })),
         auth_store,
+        support_store,
     })?;
 
     // System-monitor sampling loop: real or clearly-labeled synthetic data.

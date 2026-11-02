@@ -166,6 +166,65 @@
 .lu-die.rolling{animation:lushake .5s ease-in-out infinite}
 @keyframes lushake{0%,100%{transform:rotate(0)}25%{transform:rotate(-14deg)}75%{transform:rotate(14deg)}}
 .lu-help{display:flex;gap:14px;flex-wrap:wrap;padding:4px 22px 18px;font:500 11.5px Sora;color:#7f8ca1}
+/* ---- PHASE 1 RESPONSIVE · portrait phones --------------------------------
+   The four player panels, the control row and the help line consumed
+   ~450px of an 844px phone viewport, starving the square board to ~131px.
+   On narrow portrait screens: fold the header + help away (the Back button
+   and in-game messages carry the same information), make the seat panels a
+   compact 2×2 grid, and let the control row wrap tightly. The board then
+   gets the width and most of the height of the screen. */
+@media (max-width:700px) and (orientation:portrait){
+  body.ft-playing #luPanel .ft-panel-h{display:none}    /* title duplicates the top bar */
+  body.ft-playing #luPanel{padding:10px 12px 12px;gap:6px}
+  .lu-panels{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;
+    padding:0 12px 2px}
+  .lu-panel{padding:5px 8px}
+  .lu-panel::before{top:4px;bottom:4px}
+  .lu-p-name{font-size:12px}
+  .lu-p-stat{padding:1px 5px}
+  .lu-p-stat .v{font-size:12px}
+  .lu-panel .lu-die,.lu-p-die,.lu-p-die-slot{width:22px;height:22px}
+  .lu-panel .lu-die{padding:3px;border-radius:6px}
+  .lu-panel .lu-die i{width:4px;height:4px}
+  .lu-controls{gap:8px;padding:8px 12px 2px}
+  .lu-controls .ft-btn{padding:8px 12px;font-size:11.5px}
+  .lu-dice-btn{padding:8px 14px;font-size:13px}
+  .lu-msg{padding:4px 12px 10px;min-height:16px;font-size:12px}
+  .lu-help{display:none}                     /* hints live in the help overlay */
+  .lu-stage{margin:4px 12px}
+}
+/* Very narrow phones (320px): seat panels stack 2×2 but their stat chips
+   may still crowd — allow the identity to truncate earlier. */
+@media (max-width:380px){
+  .lu-p-kind{display:none}
+  .lu-p-stat .k{letter-spacing:.04em}}
+
+/* PHASE 1 · landscape phones (short viewports): the seat strip, message
+   row and control row together eat ~180px of a 390px viewport, starving
+   the stage to a ~146px board. Compact them so the board keeps the
+   screen: seats collapse to one tight row, controls wrap tightly, the
+   status line shrinks, panel gaps close up. */
+@media (max-height:560px) and (orientation:landscape){
+  body.ft-playing #luPanel .ft-panel-h{display:none}
+  body.ft-playing #luPanel{padding:6px 12px 8px;gap:4px}
+  .lu-panels{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;
+    padding:0 12px 0}
+  .lu-panel{padding:3px 6px;gap:5px;border-radius:8px}
+  .lu-panel::before{top:3px;bottom:3px}
+  .lu-p-name{font-size:10.5px}
+  .lu-p-stat{padding:1px 4px}
+  .lu-p-stat .v{font-size:10.5px}
+  .lu-p-stat .k{font-size:8px}
+  .lu-panel .lu-die,.lu-p-die,.lu-p-die-slot{width:18px;height:18px}
+  .lu-panel .lu-die{padding:2px;border-radius:5px}
+  .lu-panel .lu-die i{width:3px;height:3px}
+  .lu-controls{gap:6px;padding:4px 12px 0}
+  .lu-controls .ft-btn{padding:5px 9px;font-size:10.5px}
+  .lu-dice-btn{padding:5px 11px;font-size:12px}
+  .lu-msg{padding:2px 12px 6px;min-height:14px;font-size:11px}
+  .lu-help{display:none}
+  .lu-stage{margin:2px 12px}
+}
 /* ---- Phase 5.5: game setup lobby ----------------------------------------
    Covers the stage area (board visible but dimmed behind), with a card
    matching the Ludo surface language (.lu-seatpick / .lu-ov-*). Mobile:
@@ -1133,46 +1192,69 @@ function luResize() {
      back to the stage width — that sizes the board by width alone and
      it overflows the viewport. When the stage has no usable height,
      fit the board to the VIEWPORT height minus the panel's non-stage
-     chrome instead (Phase 5.1 landscape fix). */
+     chrome instead (Phase 5.1 landscape fix).
+     RESPONSIVE FIX · the height budget is anchored to the VIEWPORT
+     (window.innerHeight), never the panel's own box: in the CSS-immersive
+     fallback the panel's height is content-driven, so subtracting chrome
+     from it created a shrink feedback loop that collapsed the board to
+     ~131px on phones. The viewport is the true budget in native
+     fullscreen, immersive and inline play alike. */
   let availH;
   const stageH = wrap ? wrap.clientHeight : 0;
-  if (stageH >= 100) {
-    /* Normal case: the stage flexed open. But in short landscape
-       viewports the stage only gets the height LEFT OVER after the
-       board's first (too-large) placement — a chicken-and-egg that
-       starves it. Cap by the viewport minus measured chrome so the
-       board never exceeds what actually fits (Phase 5.1 fix). */
-    const panel = wrap && wrap.parentElement;
+  const panel = wrap && wrap.parentElement;
+  const measureChrome = () => {
     let chrome = 0;
     if (panel) {
       for (const el of panel.children) {
         if (el === wrap) continue;
-        /* Phase 5.5: overlays (#luLobby, #luAudioPop) are absolutely
-           positioned and do NOT consume layout height — counting them
-           starved the stage to the 120px floor while the lobby was
-           open (the setup card is not chrome; it covers the stage). */
+        /* Overlays (#luLobby, #luAudioPop) are absolutely positioned and
+           do NOT consume layout height — counting them starved the stage
+           to the 120px floor while the lobby was open (the setup card is
+           not chrome; it covers the stage). */
         const st = getComputedStyle(el);
         if (st.position === 'absolute' || st.position === 'fixed') continue;
         chrome += el.getBoundingClientRect().height;
       }
     }
-    const fitH = window.innerHeight - chrome
-                 - 36 /* panel padding */ - 20 /* stage margin+slack */;
+    return chrome;
+  };
+  if (stageH >= 100) {
+    /* Normal case: the stage flexed open. But in short landscape
+       viewports the stage only gets the height LEFT OVER after the
+       board's first (too-large) placement — a chicken-and-egg that
+       starves it. Cap by the viewport minus measured chrome so the
+       board never exceeds what actually fits (Phase 5.1 fix).
+       PHASE 1 · measure the panel's REAL padding and inter-child gaps
+       instead of hardcoded constants — the compact landscape rules use
+       14px padding / 4px gaps, and stale 36+20 estimates under-sized
+       the board by ~40px there. */
+    const chrome = measureChrome();
+    const pcs = getComputedStyle(panel);
+    let extras = parseFloat(pcs.paddingTop) + parseFloat(pcs.paddingBottom);
+    const gapPx = parseFloat(pcs.rowGap || pcs.gap || '0');
+    /* Count only IN-FLOW children — absolutely-positioned overlays and
+       zero-height rows do not participate in the flex gap chain. */
+    let inflow = 0;
+    for (const el of panel.children) {
+      const cs2 = getComputedStyle(el);
+      if (cs2.position === 'absolute' || cs2.position === 'fixed') continue;
+      if (el.getBoundingClientRect().height <= 0) continue;
+      inflow++;
+    }
+    extras += Math.max(0, inflow - 1) * gapPx;
+    const fitH = window.innerHeight - chrome - extras - 4 /* stage margin slack */;
     availH = Math.min(stageH, Math.max(fitH, 120));
   } else {
     /* collapsed stage: estimate from viewport minus siblings' heights */
-    const panel = wrap && wrap.parentElement;
-    let chrome = 0;
-    if (panel) {
-      for (const el of panel.children) {
-        if (el === wrap) continue;
-        const st = getComputedStyle(el);            // skip overlays (5.5)
-        if (st.position === 'absolute' || st.position === 'fixed') continue;
-        chrome += el.getBoundingClientRect().height;
-      }
+    const chrome = measureChrome();
+    const pcs = panel ? getComputedStyle(panel) : null;
+    let extras = 24;                                  // conservative default
+    if (pcs) {
+      extras = parseFloat(pcs.paddingTop) + parseFloat(pcs.paddingBottom);
+      const gapPx = parseFloat(pcs.rowGap || pcs.gap || '0');
+      extras += Math.max(0, panel.children.length - 1) * gapPx;
     }
-    availH = Math.max(300, window.innerHeight - chrome
-                      - 36 /* panel padding */ - 20 /* stage margin+slack */);
+    availH = Math.max(300, window.innerHeight - chrome - extras - 4);
   }
   const cssW = Math.floor(Math.min(availW, availH));
   const cssH = cssW;                                  // square board

@@ -214,6 +214,196 @@ body.sw-auth.adm-body{display:block;height:auto;min-height:100%;overflow-y:visib
 .adm-pager-btns{display:flex;gap:6px}
 .adm-pager .btn-sm[disabled]{opacity:.45;cursor:not-allowed}
 
+/* ---------- actions menu (⋮) ----------
+ * A compact per-row dropdown replacing the old inline buttons. It opens
+ * below the trigger and flips above it near the viewport bottom, so it can
+ * never overflow. Keyboard: the trigger is a real button (Enter/Space
+ * open), items are buttons reached with ArrowUp/ArrowDown, Escape closes,
+ * and focus returns to the trigger on close. */
+.adm-menu{position:relative;flex:none}
+.adm-menu-btn{
+  width:32px;height:32px;border-radius:9px;
+  border:1px solid var(--line2);background:var(--panel2);color:var(--ink-dim);
+  font-size:15px;line-height:1;cursor:pointer;display:inline-flex;
+  align-items:center;justify-content:center;padding:0;
+  letter-spacing:.02em;
+}
+.adm-menu-btn:hover:not(:disabled),
+.adm-menu-btn[aria-expanded="true"]{
+  color:var(--ink);border-color:var(--ink-faint);background:var(--bg2)
+}
+.adm-menu-btn:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.adm-menu-btn:disabled{opacity:.45;cursor:not-allowed}
+
+.adm-menu-pop{
+  position:absolute;right:0;top:calc(100% + 6px);z-index:60;
+  min-width:212px;max-width:min(280px, calc(100vw - 32px));
+  background:var(--panel);border:1px solid var(--line2);border-radius:12px;
+  box-shadow:0 18px 48px rgba(0,0,0,.55);
+  padding:5px;display:none;
+}
+.adm-menu-pop.open{display:block}
+/* Flip above the trigger when there is no room below. */
+.adm-menu-pop.flip{top:auto;bottom:calc(100% + 6px)}
+.adm-menu-item{
+  display:flex;align-items:center;gap:10px;width:100%;
+  appearance:none;background:none;border:0;cursor:pointer;text-align:left;
+  font:inherit;font-size:12.5px;color:var(--ink);
+  padding:8px 10px;border-radius:8px;
+}
+.adm-menu-item:hover:not(:disabled){background:var(--panel2);color:var(--ink)}
+.adm-menu-item:focus-visible{outline:2px solid var(--acc);outline-offset:-2px}
+.adm-menu-item:disabled{opacity:.4;cursor:not-allowed}
+.adm-menu-item .adm-mi-icon{
+  flex:none;width:16px;text-align:center;color:var(--ink-faint);
+  font-size:12px;
+}
+.adm-menu-item.danger{color:#ffb3bf}
+.adm-menu-item.danger:hover:not(:disabled){background:rgba(255,107,129,.1)}
+.adm-menu-item.danger .adm-mi-icon{color:var(--red)}
+.adm-menu-sep{height:1px;background:var(--line);margin:5px 4px}
+.adm-menu-hint{
+  font-size:10.5px;color:var(--ink-faint);padding:6px 10px 3px;line-height:1.5;
+}
+
+/* ---------- modal layer ----------
+ * One overlay reused by every dialog (details panel, confirmations, the
+ * activity view). Scrolls internally when taller than the viewport, traps
+ * nothing dangerous (the browser handles Escape via keydown here), and
+ * moves focus to the first control on open and back to the trigger on
+ * close. */
+.adm-modal{
+  position:fixed;inset:0;z-index:100;display:none;
+  align-items:flex-start;justify-content:center;
+  background:rgba(4,6,10,.72);backdrop-filter:blur(3px);
+  padding:24px 16px;overflow-y:auto;
+}
+.adm-modal.open{display:flex}
+.adm-modal-card{
+  width:100%;max-width:520px;margin:auto;
+  background:var(--panel);border:1px solid var(--line2);border-radius:var(--rad);
+  box-shadow:0 24px 80px rgba(0,0,0,.6);
+  animation:admModalIn .14s ease-out;
+}
+.adm-modal-card.wide{max-width:640px}
+@keyframes admModalIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.adm-modal-card{animation:none}}
+
+.adm-modal-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  padding:18px 20px 14px;border-bottom:1px solid var(--line);
+}
+.adm-modal-title{font-size:15px;font-weight:700;letter-spacing:-.01em;
+  overflow-wrap:anywhere}
+.adm-modal-sub{font-size:12px;color:var(--ink-dim);margin-top:4px;line-height:1.5;
+  overflow-wrap:anywhere}
+.adm-modal-x{
+  flex:none;width:30px;height:30px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--line2);background:var(--panel2);color:var(--ink-dim);
+  font-size:13px;line-height:1;
+}
+.adm-modal-x:hover{color:var(--ink);border-color:var(--ink-faint)}
+.adm-modal-x:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+
+.adm-modal-body{padding:18px 20px}
+.adm-modal-foot{
+  display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;
+  padding:14px 20px 18px;border-top:1px solid var(--line);
+}
+.adm-modal-foot .btn-sm{min-height:36px;padding:8px 14px}
+
+/* Detail rows in the details panel. */
+.adm-dl{display:grid;gap:0}
+.adm-dl-row{
+  display:flex;gap:14px;padding:9px 0;border-bottom:1px solid var(--line);
+  align-items:baseline;
+}
+.adm-dl-row:last-child{border-bottom:0}
+.adm-dl-key{
+  flex:none;width:132px;font-size:11px;text-transform:uppercase;
+  letter-spacing:.05em;color:var(--ink-faint);padding-top:1px;
+}
+.adm-dl-val{font-size:13px;color:var(--ink);min-width:0;overflow-wrap:anywhere}
+.adm-dl-val.mono{font-family:var(--mono);font-size:12px}
+.adm-dl-val.dim{color:var(--ink-dim)}
+
+/* Session list inside the details panel. */
+.adm-sessions{margin-top:14px;border:1px solid var(--line);border-radius:var(--rad-sm);
+  overflow:hidden}
+.adm-sessions-head{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px 12px;background:var(--bg2);border-bottom:1px solid var(--line);
+  font-size:11.5px;color:var(--ink-dim);
+}
+.adm-session-row{
+  display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;
+  padding:9px 12px;border-bottom:1px solid var(--line);font-size:12px;
+}
+.adm-session-row:last-child{border-bottom:0}
+.adm-session-row .mono{font-family:var(--mono);font-size:11.5px;color:var(--ink-dim)}
+
+/* Activity timeline. */
+.adm-activity{display:grid;gap:0;max-height:min(52vh,420px);overflow-y:auto}
+.adm-act-row{
+  display:flex;gap:12px;padding:11px 2px;border-bottom:1px solid var(--line);
+}
+.adm-act-row:last-child{border-bottom:0}
+.adm-act-dot{
+  flex:none;width:8px;height:8px;border-radius:50%;margin-top:5px;
+  background:var(--ink-faint);
+}
+.adm-act-dot.ok{background:var(--acc)}
+.adm-act-dot.warn{background:var(--amber)}
+.adm-act-dot.bad{background:var(--red)}
+.adm-act-main{min-width:0;flex:1}
+.adm-act-desc{font-size:12.5px;color:var(--ink);overflow-wrap:anywhere}
+.adm-act-meta{font-size:11px;color:var(--ink-faint);margin-top:3px;
+  display:flex;gap:10px;flex-wrap:wrap}
+.adm-act-empty{padding:36px 16px;text-align:center;color:var(--ink-dim);font-size:12.5px}
+
+/* Destructive confirmation emphasis. */
+.adm-confirm-target{
+  margin:12px 0;padding:11px 13px;border-radius:var(--rad-sm);
+  background:rgba(255,107,129,.07);border:1px solid rgba(255,107,129,.3);
+  font-family:var(--mono);font-size:12.5px;color:#ffb3bf;
+  overflow-wrap:anywhere;word-break:break-word;
+}
+.adm-confirm-note{font-size:12px;color:var(--ink-dim);line-height:1.65}
+.adm-confirm-note strong{color:var(--ink)}
+.adm-confirm-input{
+  width:100%;margin-top:10px;background:var(--bg2);border:1px solid var(--line2);
+  color:var(--ink);border-radius:var(--rad-sm);padding:10px 12px;
+  font:inherit;font-size:13px;
+}
+.adm-confirm-input:focus{
+  outline:none;border-color:var(--acc-dim);
+  box-shadow:0 0 0 3px var(--acc-glow);
+}
+.btn-danger-solid{background:var(--red);border-color:transparent;color:#2a0910;font-weight:600}
+.btn-danger-solid:hover:not(:disabled){filter:brightness(1.08);border-color:transparent}
+
+/* Role choice segmented control in the Change Role dialog. */
+.adm-role-choice{display:grid;gap:8px;margin-top:4px}
+.adm-role-opt{
+  display:flex;align-items:flex-start;gap:10px;cursor:pointer;
+  border:1px solid var(--line2);border-radius:var(--rad-sm);
+  padding:11px 13px;background:var(--bg2);
+}
+.adm-role-opt:hover{border-color:var(--ink-faint)}
+.adm-role-opt input{margin-top:2px;accent-color:var(--acc)}
+.adm-role-opt .adm-role-name{font-size:13px;font-weight:600;color:var(--ink)}
+.adm-role-opt .adm-role-desc{font-size:11.5px;color:var(--ink-dim);margin-top:2px;line-height:1.5}
+.adm-role-opt.current{border-color:var(--acc-dim);background:var(--acc-glow)}
+
+/* Spinner for in-dialog loading states. */
+.adm-spin{
+  width:22px;height:22px;margin:26px auto;border-radius:50%;
+  border:2px solid var(--line2);border-top-color:var(--acc);
+  animation:admSpin .8s linear infinite;
+}
+@keyframes admSpin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.adm-spin{animation-duration:2s}}
+
 .skel{height:64px;border-bottom:1px solid var(--line);
   background:linear-gradient(90deg,var(--panel) 25%,var(--panel2) 50%,var(--panel) 75%);
   background-size:200% 100%;animation:shimmer 1.3s infinite linear}
@@ -328,6 +518,25 @@ body.sw-auth.adm-body{display:block;height:auto;min-height:100%;overflow-y:visib
     this; this page only asks.
   </p>
 </main>
+
+<!-- ============ shared modal layer ============
+     One overlay, one card; every dialog (details, confirmations, activity)
+     renders into it. Closed by the ✕, Escape, a click on the backdrop, or
+     a Cancel button — never by a destructive action completing. -->
+<div class="adm-modal" id="modalRoot" role="dialog" aria-modal="true"
+     aria-labelledby="modalTitle" hidden>
+  <div class="adm-modal-card" id="modalCard">
+    <div class="adm-modal-head">
+      <div style="min-width:0">
+        <h2 class="adm-modal-title" id="modalTitle"></h2>
+        <p class="adm-modal-sub" id="modalSub" hidden></p>
+      </div>
+      <button class="adm-modal-x" id="modalClose" type="button" aria-label="Close dialog">&#10005;</button>
+    </div>
+    <div class="adm-modal-body" id="modalBody"></div>
+    <div class="adm-modal-foot" id="modalFoot" hidden></div>
+  </div>
+</div>
 
 <script>
 'use strict';
@@ -559,6 +768,7 @@ async function handleFailure(res, body, action) {
   if (res.status === 401) {
     // Session expired or revoked: offer to re-authenticate. Never retry on
     // our own — the guard is the authority.
+    closeModal();
     showNotice('error', 'Your session has ended. Please sign in again.', [
       { label: 'Sign in', primary: true,
         onClick: () => { location.href = '/signin?next=' + encodeURIComponent(location.pathname); } },
@@ -566,12 +776,14 @@ async function handleFailure(res, body, action) {
     return;
   }
   if (res.status === 403) {
+    closeModal();
     showNotice('error',
       'This account is not permitted to administer users. ' +
       'Ask your administrator for help.');
     return;
   }
   if (res.status === 404) {
+    closeModal();
     showNotice('error', 'That account no longer exists. Refreshing the list.');
     await reloadActive();
     return;
@@ -585,7 +797,13 @@ async function handleFailure(res, body, action) {
     return;
   }
   if (res.status === 429) {
-    showNotice('error', 'Too many requests — wait a moment and try again.');
+    showNotice('error', msg || 'Too many requests — wait a moment and try again.');
+    return;
+  }
+  if (res.status === 502 || res.status === 503) {
+    // Email delivery missing or the provider refused the send. The server's
+    // message explains which; nothing was minted or sent.
+    showNotice('error', msg || 'The request could not be completed.');
     return;
   }
   showNotice('error', msg || 'The request failed. Try again.');
@@ -749,68 +967,204 @@ function badgeFor(kind, value) {
   return b;
 }
 
-function roleActionButton(user) {
-  // Exactly one primary action per row, chosen by the account's CURRENT
-  // role and status as reported by the server (never client state):
-  //   admin            -> "Demote" (the server refuses the last admin and
-  //                        self-demotion; the UI reports its 409 clearly)
-  //   user + approved  -> "Make admin"
-  //   user + other     -> disabled "Make admin", because the server only
-  //                        promotes APPROVED accounts. Approval is a
-  //                        separate action on the Pending tab; offering a
-  //                        button that cannot succeed would be misleading.
+/* ---------- per-row actions menu (⋮) ----------
+ * One compact trigger per row; the items shown depend on the account's
+ * CURRENT role and status as reported by the server (never client state).
+ * The server re-validates every action independently — this menu is a
+ * convenience, not an authorization. */
+
+/** Which menu items apply to this account right now.
+ *  Returns [{id, label, icon, danger?, disabled?, hint?}]. */
+function menuItemsFor(user, selfId) {
   const isAdmin = user.role === 'admin';
-  const eligible = !isAdmin && user.status === 'approved';
+  const approved = user.status === 'approved';
+  const suspended = user.status === 'suspended';
+  const pending = user.status === 'pending';
+  const rejected = user.status === 'rejected';
+  const isSelf = Number(user.id) === Number(selfId);
+  const items = [];
+
+  items.push({ id: 'details', label: 'View details', icon: '👁' });
+
+  // Reset password: available for any real account except your own (an
+  // administrator resetting their own password should use the reset flow
+  // directly rather than emailing themselves).
+  if (!isSelf) {
+    items.push({
+      id: 'reset', label: 'Reset password', icon: '✉',
+      hint: 'Emails a single-use reset link',
+    });
+  }
+
+  // Change role: both directions offered for other accounts. Hidden for
+  // yourself (the server refuses self-role-changes anyway).
+  if (!isSelf) {
+    let label, hint;
+    if (isAdmin) { label = 'Change role'; hint = 'Currently administrator'; }
+    else if (approved) { label = 'Change role'; hint = 'Currently user'; }
+    else { label = 'Change role'; hint = null; }
+    const it = { id: 'role', label, icon: '⇄' };
+    if (!isAdmin && !approved) {
+      it.disabled = true;
+      it.hint = 'Approve this account first — only approved accounts can be promoted';
+    } else if (hint) {
+      it.hint = hint;
+    }
+    items.push(it);
+  }
+
+  // Suspend / Activate: contextual by current status.
+  if (!isSelf) {
+    if (approved && !isAdmin) {
+      items.push({ id: 'suspend', label: 'Suspend account', icon: '⏸', danger: true });
+    } else if (suspended) {
+      items.push({ id: 'activate', label: 'Activate account', icon: '▶' });
+    }
+    // Pending/rejected accounts are handled on the Approvals tab; offering
+    // suspend there would be a transition the server refuses.
+  }
+
+  // Revoke sessions: meaningful only when sessions could exist.
+  if (!isSelf && (approved || suspended)) {
+    items.push({
+      id: 'revoke', label: 'Revoke all sessions', icon: '⏏', danger: true,
+    });
+  }
+
+  items.push({ id: 'activity', label: 'View activity', icon: '🕘' });
+
+  // Remove: destructive, never for yourself, never offered as a one-click.
+  if (!isSelf) {
+    items.push({ id: 'remove', label: 'Remove user', icon: '🗑', danger: true });
+  }
+
+  return items;
+}
+
+/** Build the ⋮ cell for one row. */
+function actionsCell(user) {
+  const td = document.createElement('td');
+  td.className = 'adm-cell-actions';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'adm-menu';
+
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'btn btn-sm ' + (isAdmin ? 'btn-danger' : 'btn-ok');
-  btn.textContent = isAdmin ? 'Demote' : 'Make admin';
+  btn.className = 'adm-menu-btn';
+  btn.setAttribute('aria-label', 'Actions for ' + String(user.identifier ?? 'account'));
+  btn.setAttribute('aria-haspopup', 'menu');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.textContent = '⋮';
 
-  if (!isAdmin && !eligible) {
-    btn.disabled = true;
-    btn.title = 'Approve this account first — only approved accounts can ' +
-      'be promoted. Approval happens on the Pending tab.';
-    return btn;
-  }
+  const pop = document.createElement('div');
+  pop.className = 'adm-menu-pop';
+  pop.setAttribute('role', 'menu');
 
-  btn.addEventListener('click', () => {
-    const email = String(user.identifier ?? 'this account');
-    const msg = isAdmin
-      ? 'Demote ' + email + ' to an ordinary user?\n\nThey will keep their ' +
-        'password and sign-in, but lose administrator access.'
-      : 'Make ' + email + ' an administrator?\n\nThey will be able to ' +
-        'approve registrations and manage accounts.';
-    if (!window.confirm(msg)) return;
-    changeRole(user, isAdmin ? 'user' : 'admin', btn);
-  });
-  return btn;
-}
-
-async function changeRole(user, role, btn) {
-  const label = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Working…';
-  try {
-    const { res, body } = await api('/api/admin/users/' + Number(user.id) + '/role', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: role }),
-    });
-    if (res.ok) {
-      showNotice('ok', role === 'admin'
-        ? 'Promoted ' + user.identifier + ' to administrator.'
-        : 'Demoted ' + user.identifier + ' to ordinary user.');
-      await loadUsers();
-      return;
+  const items = menuItemsFor(user, currentAdminId());
+  let lastWasDanger = false;
+  items.forEach((it, idx) => {
+    // A separator before the destructive group so Remove/Suspend read as a
+    // distinct zone rather than blending into navigation.
+    if (it.danger && !lastWasDanger && idx > 0) {
+      pop.appendChild(document.createElement('div')).className = 'adm-menu-sep';
     }
-    await handleFailure(res, body, 'role');
-  } catch (e) {
-    showNotice('error', 'Network error — could not reach the dashboard.');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = label;
+    lastWasDanger = !!it.danger;
+
+    const mi = document.createElement('button');
+    mi.type = 'button';
+    mi.className = 'adm-menu-item' + (it.danger ? ' danger' : '');
+    mi.setAttribute('role', 'menuitem');
+    mi.disabled = !!it.disabled;
+    if (it.disabled && it.hint) mi.title = it.hint;
+
+    const icon = document.createElement('span');
+    icon.className = 'adm-mi-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = it.icon;
+    const label = document.createElement('span');
+    label.textContent = it.label;           // static string; still textContent
+    mi.append(icon, label);
+
+    if (!it.disabled) {
+      mi.addEventListener('click', () => {
+        closeAllMenus();
+        runAction(it.id, user);
+      });
+    }
+    pop.appendChild(mi);
+
+    if (it.hint && !it.disabled) {
+      const hint = document.createElement('div');
+      hint.className = 'adm-menu-hint';
+      hint.textContent = it.hint;
+      pop.appendChild(hint);
+    }
+  });
+
+  btn.addEventListener('click', () => toggleMenu(wrap, btn, pop));
+  btn.addEventListener('keydown', ev => {
+    if (ev.key === 'ArrowDown' || ev.key === 'Enter' || ev.key === ' ') {
+      ev.preventDefault();
+      openMenu(wrap, btn, pop);
+      focusFirstItem(pop);
+    }
+  });
+  pop.addEventListener('keydown', ev => {
+    const buttons = Array.from(pop.querySelectorAll('.adm-menu-item:not([disabled])'));
+    const i = buttons.indexOf(document.activeElement);
+    if (ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      (buttons[i + 1] || buttons[0]).focus();
+    } else if (ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      (buttons[i - 1] || buttons[buttons.length - 1]).focus();
+    } else if (ev.key === 'Escape') {
+      ev.stopPropagation();
+      closeAllMenus();
+      btn.focus();
+    }
+  });
+
+  wrap.append(btn, pop);
+  td.appendChild(wrap);
+  return td;
+}
+
+/* Exactly one menu is open at a time; the document click-away closes it. */
+let openMenuEl = null;
+function closeAllMenus() {
+  if (openMenuEl) {
+    const btn = openMenuEl.querySelector('.adm-menu-btn');
+    const pop = openMenuEl.querySelector('.adm-menu-pop');
+    if (pop) { pop.classList.remove('open', 'flip'); }
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    openMenuEl = null;
   }
 }
+function openMenu(wrap, btn, pop) {
+  closeAllMenus();
+  pop.classList.add('open');
+  // Flip above the trigger when the menu would run past the viewport.
+  requestAnimationFrame(() => {
+    const r = pop.getBoundingClientRect();
+    if (r.bottom > window.innerHeight - 8) pop.classList.add('flip');
+  });
+  btn.setAttribute('aria-expanded', 'true');
+  openMenuEl = wrap;
+}
+function toggleMenu(wrap, btn, pop) {
+  if (pop.classList.contains('open')) closeAllMenus();
+  else openMenu(wrap, btn, pop);
+}
+function focusFirstItem(pop) {
+  const first = pop.querySelector('.adm-menu-item:not([disabled])');
+  if (first) first.focus();
+}
+document.addEventListener('click', ev => {
+  if (openMenuEl && !openMenuEl.contains(ev.target)) closeAllMenus();
+});
+window.addEventListener('blur', closeAllMenus);
 
 function renderUsers(payload) {
   usersBody.replaceChildren();
@@ -818,6 +1172,13 @@ function renderUsers(payload) {
   const total = Number(payload.totalCount) || 0;
   const page = Number(payload.page) || 1;
   const totalPages = Number(payload.totalPages) || 1;
+
+  // Remember the page so self-targeting actions can be hidden without a
+  // second request (the server enforces them independently anyway).
+  lastUsersPayload = payload;
+  // The admin's own id may only be resolvable now that rows are present.
+  adminAccountId = null;
+  currentAdminId();
 
   usersCount.textContent = total + (total === 1 ? ' account' : ' accounts');
 
@@ -866,12 +1227,11 @@ function renderUsers(payload) {
         ? 'Never'
         : fmtDate(u.lastSignInAtMs)));
 
-    // Actions
-    const tdAct = document.createElement('td');
-    tdAct.className = 'adm-cell-actions';
-    tdAct.appendChild(roleActionButton(u));
+    tr.append(tdEmail, tdRole, tdStatus, tdCreated, tdSeen);
 
-    tr.append(tdEmail, tdRole, tdStatus, tdCreated, tdSeen, tdAct);
+    // Actions (⋮ menu)
+    tr.appendChild(actionsCell(u));
+
     usersBody.appendChild(tr);
   }
 
@@ -957,6 +1317,660 @@ $('#userSearch').addEventListener('input', () => {
 });
 $('#roleFilter').addEventListener('change', () => { usersPage = 1; loadUsers(); });
 $('#statusFilter').addEventListener('change', () => { usersPage = 1; loadUsers(); });
+
+/* ==================================================================
+ * User Management: shared modal + the seven actions.
+ * ================================================================== */
+
+/* The signed-in administrator's account id, learned from /api/auth/status
+ * so the menu can hide self-targeting actions. The SERVER enforces every
+ * one of these rules independently — this only avoids offering an action
+ * that would be refused. */
+let adminAccountId = null;
+async function learnAdminId() {
+  try {
+    const { res, body } = await api('/api/auth/status');
+    if (res.ok && body && body.identifier) {
+      // Resolve the identifier to an id through the user list we already
+      // load (never a separate privileged call).
+      adminAccountId = null;              // resolved lazily by currentAdminId()
+      adminIdentifier = String(body.identifier);
+    }
+  } catch (e) { /* leave unknown; the server still guards everything */ }
+}
+let adminIdentifier = null;
+function currentAdminId() {
+  if (adminAccountId !== null) return adminAccountId;
+  if (!adminIdentifier || !lastUsersPayload) return null;
+  const me = lastUsersPayload.users.find(
+    u => String(u.identifier).toLowerCase() === adminIdentifier.toLowerCase());
+  if (me) adminAccountId = Number(me.id);
+  return adminAccountId;
+}
+let lastUsersPayload = null;
+
+/* ---------- modal plumbing ---------- */
+const modalRoot = $('#modalRoot');
+const modalCard = $('#modalCard');
+const modalTitle = $('#modalTitle');
+const modalSub = $('#modalSub');
+const modalBody = $('#modalBody');
+const modalFoot = $('#modalFoot');
+let modalReturnFocus = null;
+let modalOnEscape = null;
+
+function openModal(opts) {
+  // opts: { title, sub?, wide?, body (Node), foot?: [Node], onEscape? }
+  closeAllMenus();
+  modalReturnFocus = document.activeElement;
+  modalTitle.textContent = opts.title;            // textContent only
+  if (opts.sub) { modalSub.textContent = opts.sub; modalSub.hidden = false; }
+  else { modalSub.textContent = ''; modalSub.hidden = true; }
+  modalCard.classList.toggle('wide', !!opts.wide);
+  modalBody.replaceChildren(opts.body || document.createDocumentFragment());
+  modalFoot.replaceChildren(...(opts.foot || []));
+  modalFoot.hidden = !(opts.foot && opts.foot.length);
+  modalOnEscape = opts.onEscape || null;
+  modalRoot.classList.add('open');
+  modalRoot.hidden = false;
+  // Focus the first focusable control inside the card.
+  requestAnimationFrame(() => {
+    const target = modalCard.querySelector(
+      'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])');
+    (target || modalCloseBtn).focus({ preventScroll: true });
+  });
+}
+function closeModal() {
+  modalRoot.classList.remove('open');
+  modalRoot.hidden = true;
+  modalBody.replaceChildren();
+  modalFoot.replaceChildren();
+  modalOnEscape = null;
+  if (modalReturnFocus && document.contains(modalReturnFocus)) {
+    modalReturnFocus.focus({ preventScroll: true });
+  }
+  modalReturnFocus = null;
+}
+const modalCloseBtn = $('#modalClose');
+modalCloseBtn.addEventListener('click', closeModal);
+modalRoot.addEventListener('mousedown', ev => {
+  // Backdrop click closes; clicks inside the card do not.
+  if (ev.target === modalRoot) closeModal();
+});
+document.addEventListener('keydown', ev => {
+  if (ev.key === 'Escape' && modalRoot.classList.contains('open')) {
+    if (modalOnEscape) { modalOnEscape(); return; }
+    closeModal();
+  }
+});
+
+/* Small helpers for building dialog content with safe DOM only. */
+function el(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== undefined) n.textContent = String(text);   // never markup
+  return n;
+}
+function dialogButton(label, kind, onClick, disabled) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'btn btn-sm ' + (kind || '');
+  b.textContent = label;
+  if (disabled) b.disabled = true;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+/** Standard footer: Cancel (left intent) + a primary action. */
+function confirmFooter(primaryLabel, primaryKind, onPrimary, opts) {
+  const cancel = dialogButton('Cancel', '', () => {
+    if (opts && opts.onCancel) opts.onCancel();
+    else closeModal();
+  });
+  const primary = dialogButton(primaryLabel, primaryKind, onPrimary);
+  return [cancel, primary];
+}
+
+/** Replace the modal body with a spinner while an action runs. */
+function modalBusy(label) {
+  const wrap = el('div');
+  wrap.appendChild(el('div', 'adm-spin'));
+  if (label) wrap.appendChild(el('p', 'adm-act-empty', label));
+  modalBody.replaceChildren(wrap);
+  modalFoot.replaceChildren();
+  modalFoot.hidden = true;
+}
+
+/* ---------- action dispatch ---------- */
+function runAction(id, user) {
+  switch (id) {
+    case 'details': return showDetails(user);
+    case 'reset': return confirmResetPassword(user);
+    case 'role': return showRoleChange(user);
+    case 'suspend': return confirmSuspend(user);
+    case 'activate': return confirmActivate(user);
+    case 'revoke': return confirmRevokeSessions(user);
+    case 'activity': return showActivity(user);
+    case 'remove': return confirmRemove(user);
+  }
+}
+
+/* ---------- 1. View details ---------- */
+async function showDetails(user) {
+  const id = Number(user.id);
+  const body = el('div');
+  body.appendChild(el('div', 'adm-spin'));
+  openModal({
+    title: 'Account details',
+    sub: String(user.identifier ?? ''),
+    body,
+  });
+
+  let detail;
+  try {
+    const { res, body: payload } = await api('/api/admin/users/' + id);
+    if (!res.ok) {
+      await handleFailure(res, payload, 'details');
+      closeModal();
+      return;
+    }
+    detail = payload;
+  } catch (e) {
+    showNotice('error', 'Network error — could not reach the dashboard.');
+    closeModal();
+    return;
+  }
+
+  const dl = el('div', 'adm-dl');
+  const row = (key, valueNode, valClass) => {
+    const r = el('div', 'adm-dl-row');
+    r.appendChild(el('div', 'adm-dl-key', key));
+    const v = el('div', 'adm-dl-val' + (valClass ? ' ' + valClass : ''));
+    if (typeof valueNode === 'string') v.textContent = valueNode;
+    else v.appendChild(valueNode);
+    r.appendChild(v);
+    dl.appendChild(r);
+  };
+
+  row('Email address', String(detail.identifier ?? 'unknown'), 'mono');
+  // Role + status as badges, matching the table.
+  const roleLine = el('span');
+  roleLine.appendChild(badgeFor('role', String(detail.role ?? 'user')));
+  row('Current role', roleLine);
+  const statusLine = el('span');
+  statusLine.appendChild(badgeFor('status', String(detail.status ?? 'pending')));
+  row('Account status', statusLine);
+  row('Registration date', fmtDate(detail.createdAtMs));
+  row('Last sign-in',
+    (detail.lastSignInAtMs === null || detail.lastSignInAtMs === undefined)
+      ? 'Never'
+      : fmtDate(detail.lastSignInAtMs), 'dim');
+  row('Account ID', '#' + String(detail.id ?? '?'), 'mono');
+  row('Last password update',
+    (detail.lastPasswordChangeMs === null || detail.lastPasswordChangeMs === undefined)
+      ? 'Not tracked (pre-existing account)'
+      : fmtDate(detail.lastPasswordChangeMs), 'dim');
+
+  const body2 = el('div');
+  body2.appendChild(dl);
+
+  // Active sessions block.
+  const sessions = Array.isArray(detail.sessions) ? detail.sessions : [];
+  const box = el('div', 'adm-sessions');
+  const head = el('div', 'adm-sessions-head');
+  head.appendChild(el('span', null,
+    'Active sessions (' + Number(detail.liveSessionCount ?? sessions.length) + ')'));
+  body2.appendChild(box);
+  if (!sessions.length) {
+    box.appendChild(head);
+    box.appendChild(el('div', 'adm-act-empty',
+      'No active sessions right now.'));
+  } else {
+    head.appendChild(el('span', null, 'newest activity first'));
+    box.appendChild(head);
+    for (const s of sessions) {
+      const r = el('div', 'adm-session-row');
+      r.appendChild(el('span', 'mono', 'since ' + fmtDate(s.createdAtMs)));
+      r.appendChild(el('span', 'mono', 'last seen ' + fmtDate(s.lastSeenAtMs)));
+      r.appendChild(el('span', 'mono', 'expires ' + fmtDate(s.expiresAtMs)));
+      box.appendChild(r);
+    }
+  }
+
+  modalBody.replaceChildren(body2);
+  modalFoot.replaceChildren(dialogButton('Close', '', closeModal));
+  modalFoot.hidden = false;
+}
+
+/* ---------- 2. Reset password ---------- */
+function confirmResetPassword(user) {
+  const email = String(user.identifier ?? 'this account');
+  const body = el('div');
+  body.appendChild(el('p', 'adm-confirm-note',
+    'Loop will email ' + email + ' a single-use link to choose a new ' +
+    'password. The link expires in 30 minutes.'));
+  body.appendChild(el('p', 'adm-confirm-note',
+    'Their existing password keeps working until the link is used. ' +
+    'Completing the reset signs out every active session on the account.'));
+  const target = el('div', 'adm-confirm-target', email);
+  body.appendChild(target);
+
+  const onPrimary = async btn => {
+    modalBusy('Sending reset email…');
+    try {
+      const { res, body: payload } =
+        await api('/api/admin/users/' + Number(user.id) + '/reset-password', { method: 'POST' });
+      if (res.ok) {
+        closeModal();
+        showNotice('ok', 'Reset link emailed to ' +
+          String(payload.sentTo ?? email) + '. It expires in ' +
+          Number(payload.expiresInMinutes ?? 30) + ' minutes.');
+        return;
+      }
+      // Put the dialog back so the error is visible in context.
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Send reset link', 'btn-ok', () => onPrimary(btn)));
+      modalFoot.hidden = false;
+      await handleFailure(res, payload, 'reset');
+    } catch (e) {
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Send reset link', 'btn-ok', () => onPrimary(btn)));
+      modalFoot.hidden = false;
+      showNotice('error', 'Network error — could not reach the dashboard.');
+    }
+  };
+
+  openModal({
+    title: 'Reset password',
+    sub: 'Administrator-triggered reset',
+    body,
+    foot: confirmFooter('Send reset link', 'btn-ok', onPrimary),
+  });
+}
+
+/* ---------- 3. Change role ---------- */
+function showRoleChange(user) {
+  const email = String(user.identifier ?? 'this account');
+  const isAdmin = user.role === 'admin';
+  const approved = user.status === 'approved';
+
+  const body = el('div');
+  body.appendChild(el('p', 'adm-confirm-note',
+    'Choose the new role for this account. The change takes effect ' +
+    'immediately; their password and sessions are untouched.'));
+
+  const choice = el('div', 'adm-role-choice');
+  const mk = (value, name, desc, current) => {
+    const lab = el('label', 'adm-role-opt' + (current ? ' current' : ''));
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'admRoleChoice';
+    input.value = value;
+    input.checked = current;
+    if (current) input.disabled = true;   // the current role is not a choice
+    const txt = el('span');
+    txt.appendChild(el('span', 'adm-role-name', name));
+    txt.appendChild(el('span', 'adm-role-desc', desc));
+    lab.append(input, txt);
+    return lab;
+  };
+  choice.appendChild(mk('user', 'User',
+    'Can sign in and use the workspaces. Cannot manage accounts.',
+    !isAdmin));
+  choice.appendChild(mk('admin', 'Administrator',
+    'Can approve registrations, promote or suspend accounts, trigger ' +
+    'password resets and remove users.',
+    isAdmin));
+  body.appendChild(choice);
+
+  if (isAdmin) {
+    body.appendChild(el('p', 'adm-confirm-note',
+      'Demoting the last remaining administrator is refused by the server.'));
+  }
+
+  const onPrimary = async () => {
+    const picked = modalBody.querySelector('input[name="admRoleChoice"]:checked');
+    if (!picked) return;
+    const newRole = picked.value;
+    if (newRole === user.role) return;    // nothing to do
+
+    modalBusy('Changing role…');
+    try {
+      const { res, body: payload } = await api(
+        '/api/admin/users/' + Number(user.id) + '/role', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: newRole }),
+        });
+      if (res.ok) {
+        closeModal();
+        showNotice('ok', newRole === 'admin'
+          ? 'Promoted ' + email + ' to administrator.'
+          : 'Demoted ' + email + ' to ordinary user.');
+        await loadUsers();
+        return;
+      }
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Change role', 'btn-ok', onPrimary));
+      modalFoot.hidden = false;
+      await handleFailure(res, payload, 'role');
+    } catch (e) {
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Change role', 'btn-ok', onPrimary));
+      modalFoot.hidden = false;
+      showNotice('error', 'Network error — could not reach the dashboard.');
+    }
+  };
+
+  openModal({
+    title: 'Change role',
+    sub: email,
+    body,
+    foot: confirmFooter('Change role', 'btn-ok', onPrimary),
+  });
+}
+
+/* ---------- 4a. Suspend account ---------- */
+function confirmSuspend(user) {
+  const email = String(user.identifier ?? 'this account');
+  const body = el('div');
+  body.appendChild(el('p', 'adm-confirm-note',
+    'Suspending prevents ' + email + ' from signing in and immediately ' +
+    'revokes every active session. They will see an account-suspended ' +
+    'message when they try.'));
+  body.appendChild(el('p', 'adm-confirm-note',
+    'Suspension is reversible: use Activate account to restore access at ' +
+    'any time. Their password is untouched.'));
+  body.appendChild(el('div', 'adm-confirm-target', email));
+
+  const onPrimary = async () => {
+    modalBusy('Suspending account…');
+    try {
+      const { res, body: payload } =
+        await api('/api/admin/users/' + Number(user.id) + '/suspend', { method: 'POST' });
+      if (res.ok) {
+        closeModal();
+        showNotice('ok', 'Suspended ' + email + '. Their sessions were revoked.');
+        await reloadActive();
+        return;
+      }
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Suspend account', 'btn-danger-solid', onPrimary));
+      modalFoot.hidden = false;
+      await handleFailure(res, payload, 'suspend');
+    } catch (e) {
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Suspend account', 'btn-danger-solid', onPrimary));
+      modalFoot.hidden = false;
+      showNotice('error', 'Network error — could not reach the dashboard.');
+    }
+  };
+
+  openModal({
+    title: 'Suspend account',
+    sub: 'Revokes access immediately',
+    body,
+    foot: confirmFooter('Suspend account', 'btn-danger-solid', onPrimary),
+  });
+}
+
+/* ---------- 4b. Activate account ---------- */
+function confirmActivate(user) {
+  const email = String(user.identifier ?? 'this account');
+  const body = el('div');
+  body.appendChild(el('p', 'adm-confirm-note',
+    'Reactivate ' + email + '? They will be able to sign in again with ' +
+    'their existing password.'));
+  body.appendChild(el('p', 'adm-confirm-note',
+    'Previously revoked sessions stay revoked — the user simply signs in ' +
+    'for a fresh one.'));
+  body.appendChild(el('div', 'adm-confirm-target', email));
+
+  const onPrimary = async () => {
+    modalBusy('Reactivating account…');
+    try {
+      const { res, body: payload } =
+        await api('/api/admin/users/' + Number(user.id) + '/reactivate', { method: 'POST' });
+      if (res.ok) {
+        closeModal();
+        showNotice('ok', 'Reactivated ' + email + '. They can sign in again.');
+        await reloadActive();
+        return;
+      }
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Activate account', 'btn-ok', onPrimary));
+      modalFoot.hidden = false;
+      await handleFailure(res, payload, 'activate');
+    } catch (e) {
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Activate account', 'btn-ok', onPrimary));
+      modalFoot.hidden = false;
+      showNotice('error', 'Network error — could not reach the dashboard.');
+    }
+  };
+
+  openModal({
+    title: 'Activate account',
+    sub: 'Restore sign-in access',
+    body,
+    foot: confirmFooter('Activate account', 'btn-ok', onPrimary),
+  });
+}
+
+/* ---------- 6. Revoke all sessions ---------- */
+function confirmRevokeSessions(user) {
+  const email = String(user.identifier ?? 'this account');
+  const body = el('div');
+  body.appendChild(el('p', 'adm-confirm-note',
+    'Immediately invalidate every active session belonging to ' + email +
+    '. Their cookies stop working on their very next request.'));
+  body.appendChild(el('p', 'adm-confirm-note',
+    'The account itself is unaffected — they can simply sign in again ' +
+    'with their existing password.'));
+  body.appendChild(el('div', 'adm-confirm-target', email));
+
+  const onPrimary = async () => {
+    modalBusy('Revoking sessions…');
+    try {
+      const { res, body: payload } = await api(
+        '/api/admin/users/' + Number(user.id) + '/revoke-sessions', { method: 'POST' });
+      if (res.ok) {
+        const n = Number(payload.revoked ?? 0);
+        closeModal();
+        showNotice('ok', n === 0
+          ? 'No active sessions to revoke for ' + email + '.'
+          : 'Revoked ' + n + (n === 1 ? ' session' : ' sessions') + ' for ' + email + '.');
+        await loadUsers();
+        return;
+      }
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Revoke all sessions', 'btn-danger-solid', onPrimary));
+      modalFoot.hidden = false;
+      await handleFailure(res, payload, 'revoke');
+    } catch (e) {
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Revoke all sessions', 'btn-danger-solid', onPrimary));
+      modalFoot.hidden = false;
+      showNotice('error', 'Network error — could not reach the dashboard.');
+    }
+  };
+
+  openModal({
+    title: 'Revoke all sessions',
+    sub: 'Sign this account out everywhere',
+    body,
+    foot: confirmFooter('Revoke all sessions', 'btn-danger-solid', onPrimary),
+  });
+}
+
+/* ---------- 8. View activity ---------- */
+let activityPage = 1;
+async function showActivity(user, page) {
+  const id = Number(user.id);
+  activityPage = page || 1;
+  const email = String(user.identifier ?? 'this account');
+
+  const body = el('div');
+  body.appendChild(el('div', 'adm-spin'));
+  openModal({
+    title: 'Account activity',
+    sub: email,
+    wide: true,
+    body,
+  });
+
+  let payload;
+  try {
+    const { res, body: p } = await api(
+      '/api/admin/users/' + id + '/activity?page=' + activityPage + '&perPage=25');
+    if (!res.ok) {
+      await handleFailure(res, p, 'activity');
+      closeModal();
+      return;
+    }
+    payload = p;
+  } catch (e) {
+    showNotice('error', 'Network error — could not reach the dashboard.');
+    closeModal();
+    return;
+  }
+
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  const total = Number(payload.totalCount) || 0;
+  const totalPages = Number(payload.totalPages) || 1;
+
+  const wrap = el('div');
+  const list = el('div', 'adm-activity');
+  if (!events.length) {
+    list.appendChild(el('div', 'adm-act-empty',
+      'No recorded events yet. Sign-ins and administrative actions will ' +
+      'appear here.'));
+  } else {
+    for (const e of events) {
+      const row = el('div', 'adm-act-row');
+      const dotClass = kindTone(String(e.kind ?? ''));
+      row.appendChild(el('span', 'adm-act-dot ' + dotClass));
+      const main = el('div', 'adm-act-main');
+      main.appendChild(el('div', 'adm-act-desc',
+        String(e.description ?? e.kind ?? 'Event')));
+      const meta = el('div', 'adm-act-meta');
+      meta.appendChild(el('span', null, fmtDate(e.atMs)));
+      if (e.actorEmail) {
+        meta.appendChild(el('span', null, 'by ' + String(e.actorEmail)));
+      }
+      main.appendChild(meta);
+      row.appendChild(main);
+      list.appendChild(row);
+    }
+  }
+  wrap.appendChild(list);
+
+  // Pager, only when there is more than one page.
+  if (totalPages > 1) {
+    const pager = el('div', 'adm-pager');
+    const info = el('span', 'adm-pager-info',
+      'Page ' + activityPage + ' of ' + totalPages + ' · ' + total +
+      (total === 1 ? ' event' : ' events'));
+    const btns = el('div', 'adm-pager-btns');
+    const prev = dialogButton('← Prev', '', () => showActivity(user, activityPage - 1));
+    prev.disabled = activityPage <= 1;
+    const next = dialogButton('Next →', '', () => showActivity(user, activityPage + 1));
+    next.disabled = activityPage >= totalPages;
+    btns.append(prev, next);
+    pager.append(info, btns);
+    wrap.appendChild(pager);
+  }
+
+  modalBody.replaceChildren(wrap);
+  modalFoot.replaceChildren(dialogButton('Close', '', closeModal));
+  modalFoot.hidden = false;
+}
+
+/** Tone class for an audit-kind dot. */
+function kindTone(kind) {
+  if (kind === 'signin_success') return 'ok';
+  if (kind === 'account_suspended' || kind === 'account_deleted') return 'bad';
+  if (kind === 'signin_failed' || kind === 'sessions_revoked') return 'warn';
+  return '';
+}
+
+/* ---------- 7. Remove user ---------- */
+function confirmRemove(user) {
+  const email = String(user.identifier ?? 'this account');
+  const CONFIRM_WORD = 'DELETE';
+
+  const body = el('div');
+  body.appendChild(el('p', 'adm-confirm-note',
+    'This permanently deletes the account for:'));
+  body.appendChild(el('div', 'adm-confirm-target', email));
+  body.appendChild(el('p', 'adm-confirm-note',
+    'Everything attached to the account goes with it — sessions, password ' +
+    'reset links and sign-in history. The audit trail is kept, but the ' +
+    'account record itself cannot be recovered.'));
+  body.appendChild(el('p', 'adm-confirm-note',
+    'To confirm, type ' + CONFIRM_WORD + ' in the box below:'));
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'adm-confirm-input';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.setAttribute('aria-label', 'Type DELETE to confirm');
+  input.placeholder = CONFIRM_WORD;
+  body.appendChild(input);
+
+  const onPrimary = async () => {
+    if (input.value.trim().toUpperCase() !== CONFIRM_WORD) {
+      input.focus();
+      input.select();
+      return;
+    }
+    modalBusy('Deleting account…');
+    try {
+      const { res, body: payload } =
+        await api('/api/admin/users/' + Number(user.id), { method: 'DELETE' });
+      if (res.ok) {
+        closeModal();
+        showNotice('ok', 'Permanently deleted ' +
+          String(payload.deleted ?? email) + '.');
+        await loadUsers();
+        return;
+      }
+      // Restore the dialog so the refusal is readable in context.
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Delete permanently', 'btn-danger-solid', onPrimary));
+      modalFoot.hidden = false;
+      await handleFailure(res, payload, 'remove');
+    } catch (e) {
+      modalBody.replaceChildren(body);
+      modalFoot.replaceChildren(...confirmFooter(
+        'Delete permanently', 'btn-danger-solid', onPrimary));
+      modalFoot.hidden = false;
+      showNotice('error', 'Network error — could not reach the dashboard.');
+    }
+  };
+
+  openModal({
+    title: 'Remove user',
+    sub: 'This action cannot be undone',
+    body,
+    foot: confirmFooter('Delete permanently', 'btn-danger-solid', onPrimary),
+  });
+}
+
+/* Learn who is signed in so self-targeting actions can be hidden. The
+ * server enforces the same rules regardless. */
+learnAdminId();
 
 </script>
 </body>

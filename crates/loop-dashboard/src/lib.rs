@@ -30,6 +30,7 @@ pub mod persist;
 pub mod pipelines;
 pub mod playground;
 pub mod store;
+pub mod support;
 pub mod sysmon;
 pub mod termhook;
 pub mod web;

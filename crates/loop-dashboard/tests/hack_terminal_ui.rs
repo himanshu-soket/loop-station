@@ -16,6 +16,7 @@ async fn app() -> axum::Router {
         db: None,
         sys_demo: true,
         sys_interval: std::time::Duration::from_millis(2000),
+        support_store: None,
         console_state: None,
         auth_store: None,
     })
@@ -110,7 +111,10 @@ fn responsive_layout_contract() {
     // In fullscreen the term keeps flexing and the log stays the scroller.
     assert!(styles.contains("body.ht-fs .ht-term,\nbody.ft-playing.ft-immersive .ht-term{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}"));
     // Windowed play: the panel fills the viewport but never exceeds it.
-    assert!(styles.contains("max-height:100vh;\n  overflow:hidden;\n}"));
+    // PHASE 1 · scroll escape hatch: inline play scrolls inside the panel
+    // (overflow-y:auto) instead of clipping, so nothing is trapped below
+    // the fold when the terminal outgrows the viewport.
+    assert!(styles.contains("max-height:100vh;\n  overflow-y:auto;\n  overscroll-behavior:contain;\n}"));
     // The old fixed-height clamp is gone (it ignored the free space).
     assert!(
         !styles.contains("height:clamp(240px,38vh,380px)"),
