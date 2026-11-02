@@ -1,4 +1,4 @@
-# Loop — Agent Harness & Data Operations Console
+# Loop Station — Agent Harness & Data Operations Console
 
 **Live deployment:** <https://loopstation.growthon.online/>
 
