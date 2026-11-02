@@ -66,7 +66,15 @@ fn migrations_are_idempotent_and_versioned() {
             Ok(n)
         })
         .unwrap();
-    assert_eq!(applied, 3, "all migrations recorded exactly once");
+    // The count must equal the number of compiled-in migrations exactly:
+    // each recorded once, none missing, none duplicated. Asserting against
+    // the registry (rather than a literal) keeps this test correct as the
+    // schema evolves.
+    assert_eq!(
+        applied as usize,
+        crate::persist::MIGRATIONS.len(),
+        "all migrations recorded exactly once"
+    );
 }
 
 #[test]
@@ -358,6 +366,7 @@ fn conversations_persist_and_order() {
     store
         .create_conversation(&crate::persist::ConversationRow {
             conversation_id: "c1".into(),
+            owner_account_id: Some(7),
             title: "First chat".into(),
             created_at_ms: now,
             updated_at_ms: now,
@@ -395,9 +404,23 @@ fn conversations_persist_and_order() {
     assert_eq!(summaries.len(), 1);
     assert_eq!(summaries[0].message_count, 3);
 
-    // Rename + delete.
-    assert!(store.rename_conversation("c1", "Renamed").unwrap());
-    assert!(store.delete_conversation("c1").unwrap());
+    // Ownership scoping: the same conversation is invisible to another
+    // account, and rename/delete through that other account are no-ops.
+    assert!(store.list_conversations_for_owner(8, 10).unwrap().is_empty());
+    assert!(!store.rename_conversation_for_owner("c1", 8, "Stolen").unwrap());
+    assert!(!store.delete_conversation_for_owner("c1", 8).unwrap());
+    // The owner still sees it untouched.
+    assert_eq!(
+        store
+            .list_conversations_for_owner(7, 10)
+            .unwrap()[0]
+            .title,
+        "First chat"
+    );
+
+    // Rename + delete by the real owner.
+    assert!(store.rename_conversation_for_owner("c1", 7, "Renamed").unwrap());
+    assert!(store.delete_conversation_for_owner("c1", 7).unwrap());
     assert!(store.list_messages("c1").unwrap().is_empty(), "cascade");
 }
 
@@ -408,6 +431,7 @@ fn failed_messages_are_represented_honestly() {
     store
         .create_conversation(&crate::persist::ConversationRow {
             conversation_id: "c1".into(),
+            owner_account_id: Some(1),
             title: "t".into(),
             created_at_ms: now,
             updated_at_ms: now,

@@ -18,6 +18,34 @@ const S = {
               q: '', status: 'all' },
 };
 
+/* ---------- conversation privacy (multi-user) ----------
+ * Conversations are private to the signed-in account. The list is fetched
+ * fresh from /api/conversations on every entry into the chat view, and any
+ * cached copy is dropped when the session changes — so signing out or
+ * switching accounts can never show the previous user's history.
+ *
+ * `S.conversations` is a render cache only; the server enforces ownership on
+ * every request. `resetConversationState()` is the single place that clears
+ * it, called on boot, on 401, and before each reload of the chat view. */
+function resetConversationState() {
+  S.conversations = [];
+  if (S.activeConv && S.activeConv.id !== null) S.activeConv = null;
+  // Stop any in-flight generation belonging to the previous session.
+  if (S.streaming) { try { stopGeneration(); } catch { /* already gone */ } }
+}
+
+/* Identity of the session whose conversations are cached. When the chip
+ * reports a different identifier than the one the cache was loaded for, the
+ * cache is discarded before anything renders. */
+let convCacheOwner = null;
+
+async function currentSessionIdentifier() {
+  try {
+    const st = await fetch('/api/auth/status').then(r => r.json());
+    return st.signedIn ? String(st.identifier || '') : null;
+  } catch { return null; }
+}
+
 const $ = s => document.querySelector(s);
 const el = (t, c, h) => { const n = document.createElement(t); if (c) n.className = c; if (h != null) n.innerHTML = h; return n; };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -96,10 +124,7 @@ async function initSessionChip() {
     const btn = document.getElementById('signOutBtn');
     if (btn) btn.onclick = async () => {
       btn.disabled = true;
-      try {
-        await fetch('/api/auth/signout', { method: 'POST' });
-      } catch { /* network gone: cookie clearing below still helps */ }
-      location.replace('/signin');
+      await handleSignOut();
     };
   } catch { chip.hidden = true; }
 }
@@ -2089,7 +2114,26 @@ async function renderChat() {
   renderMessages();
 }
 
+/* Sign-out must leave no conversation state behind. The server invalidates
+ * the session; this clears the client cache so a subsequent sign-in as a
+ * different account starts from a clean slate (belt and braces — the
+ * identity guard in loadConversations would catch it too). */
+async function handleSignOut() {
+  resetConversationState();
+  convCacheOwner = null;
+  try { await fetch('/api/auth/signout', { method: 'POST' }); } catch { /* network gone */ }
+  location.replace('/signin');
+}
+
 async function loadConversations() {
+  // Session-identity guard: if the signed-in account changed since this
+  // cache was filled (sign-out, account switch, expired session replaced by
+  // another sign-in), drop everything before loading. The server would
+  // refuse the old ids anyway; this keeps the UI from even flashing them.
+  const who = await currentSessionIdentifier();
+  if (who === null) { resetConversationState(); return; }
+  if (convCacheOwner !== null && convCacheOwner !== who) resetConversationState();
+  convCacheOwner = who;
   try {
     const body = await api('/api/conversations');
     S.conversations = body.conversations || [];

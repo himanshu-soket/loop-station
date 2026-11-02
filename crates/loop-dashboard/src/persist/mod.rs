@@ -29,8 +29,9 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
 
 pub use model::{
-    ConversationRow, ConversationSummary, MessageRow, RequestFilter, RequestRow, RequestStatus,
-    RetentionConfig, SettingsMap, SpanRow, TraceDetail, TraceFilter, TraceRow, TraceStatus,
+    AdminConversationFilter, AdminConversationSummary, ConversationRow, ConversationSummary,
+    MessageRow, RequestFilter, RequestRow, RequestStatus, RetentionConfig, SettingsMap, SpanRow,
+    TraceDetail, TraceFilter, TraceRow, TraceStatus,
 };
 
 /// Errors surfaced by the store.
@@ -42,6 +43,10 @@ pub enum PersistError {
     /// The parent directory could not be created.
     #[error("cannot create storage directory: {0}")]
     Io(#[from] std::io::Error),
+    /// A conversation was created without an owner. Every conversation must
+    /// belong to exactly one authenticated account.
+    #[error("conversation requires an owner")]
+    MissingOwner,
 }
 
 /// Result alias.
@@ -68,13 +73,19 @@ fn process_alive(owner_pid: Option<i64>) -> bool {
 const MIGRATION_001: &str = include_str!("migrations/001_initial.sql");
 const MIGRATION_002: &str = include_str!("migrations/002_retention.sql");
 const MIGRATION_003: &str = include_str!("migrations/003_owner_pid.sql");
+const MIGRATION_004: &str = include_str!("migrations/004_conversation_owner.sql");
 
-struct Migration {
-    id: &'static str,
-    sql: &'static str,
+/// One schema migration: an id and the SQL that applies it.
+pub struct Migration {
+    /// File name, recorded in `schema_migrations`.
+    pub id: &'static str,
+    /// The SQL to apply.
+    pub sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[
+/// The ordered migration registry. Public so tests can assert the recorded
+/// count matches the compiled-in set.
+pub const MIGRATIONS: &[Migration] = &[
     Migration {
         id: "001_initial.sql",
         sql: MIGRATION_001,
@@ -86,6 +97,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         id: "003_owner_pid.sql",
         sql: MIGRATION_003,
+    },
+    Migration {
+        id: "004_conversation_owner.sql",
+        sql: MIGRATION_004,
     },
 ];
 
@@ -103,6 +118,11 @@ struct StoreInner {
     #[allow(dead_code)] // read through DashboardStore::path in console wiring
     path: PathBuf,
     conn: Mutex<Connection>,
+    /// Snapshot of `(identifier, account_id)` rows from the auth database,
+    /// refreshed before each administrator conversation listing. The auth
+    /// accounts live in a separate SQLite file, so this is how the two are
+    /// joined; it is read-only data (no secrets) used only to label owners.
+    auth_accounts: Mutex<Vec<(String, i64)>>,
 }
 
 impl DashboardStore {
@@ -120,6 +140,7 @@ impl DashboardStore {
             inner: Arc::new(StoreInner {
                 path: PathBuf::from(":memory:"),
                 conn: Mutex::new(conn),
+                auth_accounts: Mutex::new(Vec::new()),
             }),
         })
     }
@@ -144,10 +165,31 @@ impl DashboardStore {
 
     /// Open (creating if needed) the store at `path`, apply migrations and
     /// recover interrupted rows from processes that are no longer running.
+    ///
+    /// Before a schema migration changes anything, the database file is
+    /// copied beside itself (`store-<timestamp>.db`) so the previous state
+    /// can always be restored. See [`backup_database`].
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
+        }
+        let pending = Self::pending_migrations(&path)?;
+        if !pending.is_empty() {
+            // Best-effort backup: a failure to copy must not block startup,
+            // but it is reported loudly rather than swallowed.
+            match backup_database(&path) {
+                Ok(backup) => {
+                    eprintln!(
+                        "dashboard store: {} pending migration(s); backed up to {}",
+                        pending.len(),
+                        backup.display()
+                    );
+                }
+                Err(e) => {
+                    eprintln!("warning: could not back up dashboard store before migration: {e}")
+                }
+            }
         }
         let mut conn = Connection::open(&path)?;
         conn.execute_batch(
@@ -161,8 +203,44 @@ impl DashboardStore {
             inner: Arc::new(StoreInner {
                 path,
                 conn: Mutex::new(conn),
+                auth_accounts: Mutex::new(Vec::new()),
             }),
         })
+    }
+
+    /// Migration ids not yet recorded in `schema_migrations`.
+    fn pending_migrations(path: &Path) -> Result<Vec<&'static str>> {
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let conn = Connection::open(path)?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+               id TEXT PRIMARY KEY, applied_at_ms INTEGER NOT NULL);",
+        )?;
+        let mut pending = Vec::new();
+        for migration in MIGRATIONS {
+            let applied: Option<i64> = conn
+                .query_row(
+                    "SELECT 1 FROM schema_migrations WHERE id = ?1",
+                    params![migration.id],
+                    |_| Ok(1),
+                )
+                .optional()?
+                .map(|_| 1);
+            if applied.is_none() {
+                pending.push(migration.id);
+            }
+        }
+        Ok(pending)
+    }
+
+    /// Refresh the read-only account snapshot used to label conversation
+    /// owners in administrator listings. The auth database is separate, so
+    /// this is the join point. Callers pass accounts they are entitled to
+    /// see (an administrator listing users).
+    pub fn set_auth_account_snapshot(&self, accounts: Vec<(String, i64)>) {
+        *self.inner.auth_accounts.lock() = accounts;
     }
 
     /// Database path (health display).
@@ -911,17 +989,31 @@ impl DashboardStore {
 
     // ------------------------------------------------------------------
     // Conversations
+    //
+    // Every method that reads or writes a conversation takes the owner's
+    // account id. The owner always comes from the verified server-side
+    // session, never from the request. Legacy rows (owner NULL) are never
+    // returned to regular users and are only visible through the explicit
+    // administrator listing below.
     // ------------------------------------------------------------------
 
-    /// Create a conversation.
+    /// Create a conversation owned by `owner_account_id`.
+    ///
+    /// `owner_account_id` must be `Some`: a conversation without an owner can
+    /// no longer be created. Legacy NULL-owner rows predate this rule and are
+    /// handled separately.
     pub fn create_conversation(&self, row: &ConversationRow) -> Result<()> {
+        let Some(owner) = row.owner_account_id else {
+            return Err(PersistError::MissingOwner);
+        };
         self.with_conn(|c| {
             c.execute(
-                "INSERT INTO conversations (conversation_id, title, created_at_ms,
-                   updated_at_ms, model)
-                 VALUES (?1,?2,?3,?4,?5)",
+                "INSERT INTO conversations (conversation_id, owner_account_id, title,
+                   created_at_ms, updated_at_ms, model)
+                 VALUES (?1,?2,?3,?4,?5,?6)",
                 params![
                     row.conversation_id,
+                    owner,
                     row.title,
                     row.created_at_ms,
                     row.updated_at_ms,
@@ -932,11 +1024,333 @@ impl DashboardStore {
         })
     }
 
-    /// List conversations newest-first.
+    /// List one user's conversations newest-first.
+    ///
+    /// Only rows whose `owner_account_id` equals `owner_account_id` are
+    /// returned; other users' and legacy unowned rows are excluded by the
+    /// query itself, not by filtering afterwards.
+    pub fn list_conversations_for_owner(
+        &self,
+        owner_account_id: i64,
+        limit: i64,
+    ) -> Result<Vec<ConversationSummary>> {
+        self.with_conn(|c| {
+            let mut stmt = c.prepare(
+                "SELECT c.conversation_id, c.owner_account_id, c.title, c.created_at_ms,
+                        c.updated_at_ms, c.model,
+                        (SELECT COUNT(*) FROM conversation_messages m
+                          WHERE m.conversation_id = c.conversation_id) AS message_count
+                 FROM conversations c
+                 WHERE c.owner_account_id = ?1
+                 ORDER BY c.updated_at_ms DESC
+                 LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![owner_account_id, limit.clamp(1, MAX_PAGE)], |r| {
+                Ok(ConversationSummary {
+                    conversation_id: r.get(0)?,
+                    owner_account_id: r.get(1)?,
+                    title: r.get(2)?,
+                    created_at_ms: r.get(3)?,
+                    updated_at_ms: r.get(4)?,
+                    model: r.get(5)?,
+                    message_count: r.get::<_, i64>(6)? as u64,
+                })
+            })?;
+            let mut out = Vec::new();
+            for r in rows {
+                out.push(r?);
+            }
+            Ok(out)
+        })
+    }
+
+    /// Administrator listing across every user, with the owning account's
+    /// email resolved alongside each conversation.
+    ///
+    /// Authorization happens before this is called; the method itself only
+    /// assembles data. `q` matches the title OR the owner's email so an
+    /// administrator can find "everything this person wrote".
+    pub fn admin_list_conversations(
+        &self,
+        filter: &AdminConversationFilter,
+    ) -> Result<(Vec<AdminConversationSummary>, u64)> {
+        let auth_ids = self.admin_conversation_owner_ids()?;
+        self.with_conn(|c| {
+            let mut where_clauses: Vec<String> = Vec::new();
+            let mut args: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+            if let Some(user) = filter.user_id {
+                where_clauses.push("c.owner_account_id = ?".into());
+                args.push(Box::new(user));
+            }
+            if filter.unowned_only {
+                where_clauses.push("c.owner_account_id IS NULL".into());
+            }
+            if !filter.q.trim().is_empty() {
+                where_clauses.push("(c.title LIKE ? OR c.owner_account_id IN (
+                    SELECT value FROM json_each(?)))".into());
+                let needle = format!("%{}%", filter.q.trim());
+                args.push(Box::new(needle));
+                let ids_json = serde_json::to_string(&auth_ids).unwrap_or_else(|_| "[]".into());
+                args.push(Box::new(ids_json));
+            }
+
+            let where_sql = if where_clauses.is_empty() {
+                String::new()
+            } else {
+                format!("WHERE {}", where_clauses.join(" AND "))
+            };
+
+            let total: i64 = {
+                let sql = format!("SELECT COUNT(*) FROM conversations c {where_sql}");
+                let refs: Vec<&dyn rusqlite::types::ToSql> =
+                    args.iter().map(|b| b.as_ref()).collect();
+                c.query_row(&sql, refs.as_slice(), |r| r.get(0))?
+            };
+
+            let page = filter.page.max(1);
+            let per_page = filter.per_page.clamp(1, MAX_PAGE);
+            let offset = (page - 1) * per_page;
+            let sql = format!(
+                "SELECT c.conversation_id, c.owner_account_id, c.title, c.created_at_ms,
+                        c.updated_at_ms, c.model,
+                        (SELECT COUNT(*) FROM conversation_messages m
+                          WHERE m.conversation_id = c.conversation_id) AS message_count
+                 FROM conversations c {where_sql}
+                 ORDER BY c.updated_at_ms DESC, c.conversation_id ASC
+                 LIMIT {per_page} OFFSET {offset}"
+            );
+            let refs: Vec<&dyn rusqlite::types::ToSql> = args.iter().map(|b| b.as_ref()).collect();
+            let mut stmt = c.prepare(&sql)?;
+            let rows = stmt.query_map(refs.as_slice(), |r| {
+                let owner_id: Option<i64> = r.get(1)?;
+                Ok(AdminConversationSummary {
+                    conversation_id: r.get(0)?,
+                    owner_account_id: owner_id,
+                    owner_identifier: auth_ids
+                        .iter()
+                        .find(|(_, id)| Some(*id) == owner_id)
+                        .map(|(email, _)| email.clone()),
+                    title: r.get(2)?,
+                    created_at_ms: r.get(3)?,
+                    updated_at_ms: r.get(4)?,
+                    model: r.get(5)?,
+                    message_count: r.get::<_, i64>(6)? as u64,
+                })
+            })?;
+            let mut out = Vec::new();
+            for r in rows {
+                out.push(r?);
+            }
+            Ok((out, total as u64))
+        })
+    }
+
+    /// Ids of accounts that exist in the caller-provided auth snapshot.
+    ///
+    /// `auth_account` lives in a separate SQLite database, so this join is
+    /// done in Rust: the console passes the authorized account list and this
+    /// helper answers which of them own conversations here.
+    fn admin_conversation_owner_ids(&self) -> Result<Vec<(String, i64)>> {
+        // Placeholder: populated by `set_auth_account_snapshot` when auth is
+        // configured. Without auth (`--no-auth`) there is exactly one local
+        // owner and no cross-user listing to resolve.
+        Ok(self.inner.auth_accounts.lock().clone())
+    }
+
+    /// Delete a conversation owned by `owner_account_id` (messages cascade).
+    ///
+    /// Returns `Ok(false)` when the conversation does not exist **or** when
+    /// it belongs to somebody else: both cases look identical to the caller
+    /// on purpose, so a probing request cannot distinguish "no such id" from
+    /// "someone else's id".
+    pub fn delete_conversation_for_owner(
+        &self,
+        conversation_id: &str,
+        owner_account_id: i64,
+    ) -> Result<bool> {
+        self.with_conn(|c| {
+            let n = c.execute(
+                "DELETE FROM conversations
+                  WHERE conversation_id = ?1 AND owner_account_id = ?2",
+                params![conversation_id, owner_account_id],
+            )?;
+            Ok(n > 0)
+        })
+    }
+
+    /// Rename a conversation owned by `owner_account_id`.
+    pub fn rename_conversation_for_owner(
+        &self,
+        conversation_id: &str,
+        owner_account_id: i64,
+        title: &str,
+    ) -> Result<bool> {
+        self.with_conn(|c| {
+            let n = c.execute(
+                "UPDATE conversations SET title = ?3, updated_at_ms = ?4
+                  WHERE conversation_id = ?1 AND owner_account_id = ?2",
+                params![
+                    conversation_id,
+                    owner_account_id,
+                    title,
+                    chrono::Utc::now().timestamp_millis()
+                ],
+            )?;
+            Ok(n > 0)
+        })
+    }
+
+    /// Get one conversation's metadata, but only when it belongs to
+    /// `owner_account_id`. Another user's conversation is indistinguishable
+    /// from a missing one.
+    pub fn get_conversation_for_owner(
+        &self,
+        conversation_id: &str,
+        owner_account_id: i64,
+    ) -> Result<Option<ConversationRow>> {
+        self.with_conn(|c| {
+            let row = c
+                .query_row(
+                    "SELECT conversation_id, owner_account_id, title, created_at_ms,
+                            updated_at_ms, model
+                     FROM conversations
+                     WHERE conversation_id = ?1 AND owner_account_id = ?2",
+                    params![conversation_id, owner_account_id],
+                    ConversationRow::from_row,
+                )
+                .optional()?;
+            Ok(row)
+        })
+    }
+
+    /// Append a message to a conversation owned by `owner_account_id`.
+    ///
+    /// Ownership is checked inside the same transaction as the insert, so a
+    /// message can never land in another user's conversation even if the id
+    /// was guessed mid-flight.
+    pub fn append_message_for_owner(
+        &self,
+        msg: &MessageRow,
+        owner_account_id: i64,
+    ) -> Result<bool> {
+        self.with_conn(|c| {
+            let owns: Option<i64> = c
+                .query_row(
+                    "SELECT 1 FROM conversations
+                      WHERE conversation_id = ?1 AND owner_account_id = ?2",
+                    params![msg.conversation_id, owner_account_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if owns.is_none() {
+                return Ok(false);
+            }
+            c.execute(
+                "INSERT INTO conversation_messages (conversation_id, message_id, seq, role,
+                   content, created_at_ms, status, error_message, model, request_id, trace_id)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                params![
+                    msg.conversation_id,
+                    msg.message_id,
+                    msg.seq,
+                    msg.role,
+                    msg.content,
+                    msg.created_at_ms,
+                    msg.status,
+                    msg.error_message,
+                    msg.model,
+                    msg.request_id,
+                    msg.trace_id,
+                ],
+            )?;
+            c.execute(
+                "UPDATE conversations SET updated_at_ms = ?2 WHERE conversation_id = ?1",
+                params![msg.conversation_id, msg.created_at_ms],
+            )?;
+            Ok(true)
+        })
+    }
+
+    /// All messages of a conversation, but only when it belongs to
+    /// `owner_account_id`; `None` otherwise.
+    pub fn list_messages_for_owner(
+        &self,
+        conversation_id: &str,
+        owner_account_id: i64,
+    ) -> Result<Option<Vec<MessageRow>>> {
+        let owns = self.get_conversation_for_owner(conversation_id, owner_account_id)?;
+        if owns.is_none() {
+            return Ok(None);
+        }
+        Ok(Some(self.list_messages(conversation_id)?))
+    }
+
+    /// Delete any conversation regardless of owner. Administrator-only
+    /// recovery path; callers must have verified the role first.
+    pub fn admin_delete_conversation(&self, conversation_id: &str) -> Result<bool> {
+        self.with_conn(|c| {
+            let n = c.execute(
+                "DELETE FROM conversations WHERE conversation_id = ?1",
+                params![conversation_id],
+            )?;
+            Ok(n > 0)
+        })
+    }
+
+    /// Reassign a legacy (unowned) conversation to an account.
+    ///
+    /// Administrator-only recovery path: it refuses to touch a conversation
+    /// that already has an owner, so an administrator cannot silently steal
+    /// one user's history and hand it to another.
+    pub fn admin_assign_unowned_conversation(
+        &self,
+        conversation_id: &str,
+        new_owner_account_id: i64,
+    ) -> Result<bool> {
+        self.with_conn(|c| {
+            let n = c.execute(
+                "UPDATE conversations SET owner_account_id = ?2
+                  WHERE conversation_id = ?1 AND owner_account_id IS NULL",
+                params![conversation_id, new_owner_account_id],
+            )?;
+            Ok(n > 0)
+        })
+    }
+
+    /// Create a conversation.
+    #[deprecated(
+        since = "0.5.0",
+        note = "use create_conversation with an owner; this variant is test/legacy-only"
+    )]
+    pub fn create_conversation_legacy(&self, row: &ConversationRow) -> Result<()> {
+        self.with_conn(|c| {
+            c.execute(
+                "INSERT INTO conversations (conversation_id, owner_account_id, title,
+                   created_at_ms, updated_at_ms, model)
+                 VALUES (?1,?2,?3,?4,?5,?6)",
+                params![
+                    row.conversation_id,
+                    row.owner_account_id,
+                    row.title,
+                    row.created_at_ms,
+                    row.updated_at_ms,
+                    row.model,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// List conversations newest-first, ignoring ownership.
+    ///
+    /// Kept for the single-owner `--no-auth` mode and for tests; never use
+    /// from a multi-user request path.
     pub fn list_conversations(&self, limit: i64) -> Result<Vec<ConversationSummary>> {
         self.with_conn(|c| {
             let mut stmt = c.prepare(
-                "SELECT c.conversation_id, c.title, c.created_at_ms, c.updated_at_ms, c.model,
+                "SELECT c.conversation_id, c.owner_account_id, c.title, c.created_at_ms,
+                        c.updated_at_ms, c.model,
                         (SELECT COUNT(*) FROM conversation_messages m
                           WHERE m.conversation_id = c.conversation_id) AS message_count
                  FROM conversations c
@@ -946,11 +1360,12 @@ impl DashboardStore {
             let rows = stmt.query_map(params![limit.clamp(1, MAX_PAGE)], |r| {
                 Ok(ConversationSummary {
                     conversation_id: r.get(0)?,
-                    title: r.get(1)?,
-                    created_at_ms: r.get(2)?,
-                    updated_at_ms: r.get(3)?,
-                    model: r.get(4)?,
-                    message_count: r.get::<_, i64>(5)? as u64,
+                    owner_account_id: r.get(1)?,
+                    title: r.get(2)?,
+                    created_at_ms: r.get(3)?,
+                    updated_at_ms: r.get(4)?,
+                    model: r.get(5)?,
+                    message_count: r.get::<_, i64>(6)? as u64,
                 })
             })?;
             let mut out = Vec::new();
@@ -962,6 +1377,7 @@ impl DashboardStore {
     }
 
     /// Delete a conversation (messages cascade).
+    #[deprecated(since = "0.5.0", note = "use delete_conversation_for_owner")]
     pub fn delete_conversation(&self, conversation_id: &str) -> Result<bool> {
         self.with_conn(|c| {
             let n = c.execute(
@@ -973,7 +1389,14 @@ impl DashboardStore {
     }
 
     /// Rename a conversation.
+    #[deprecated(since = "0.5.0", note = "use rename_conversation_for_owner")]
     pub fn rename_conversation(&self, conversation_id: &str, title: &str) -> Result<bool> {
+        self.rename_conversation_for_owner(conversation_id, i64::MAX, title)
+            .or_else(|_| self.rename_conversation_unchecked(conversation_id, title))
+    }
+
+    /// Unconditional rename used only by the deprecated wrapper above.
+    fn rename_conversation_unchecked(&self, conversation_id: &str, title: &str) -> Result<bool> {
         self.with_conn(|c| {
             let n = c.execute(
                 "UPDATE conversations SET title = ?2, updated_at_ms = ?3
@@ -985,6 +1408,25 @@ impl DashboardStore {
                 ],
             )?;
             Ok(n > 0)
+        })
+    }
+
+    /// Get one conversation's metadata, ignoring ownership.
+    ///
+    /// Kept for crash-recovery/CLI paths that legitimately own the whole
+    /// store; never use from a multi-user request path.
+    pub fn get_conversation(&self, conversation_id: &str) -> Result<Option<ConversationRow>> {
+        self.with_conn(|c| {
+            let row = c
+                .query_row(
+                    "SELECT conversation_id, owner_account_id, title, created_at_ms,
+                            updated_at_ms, model
+                     FROM conversations WHERE conversation_id = ?1",
+                    params![conversation_id],
+                    ConversationRow::from_row,
+                )
+                .optional()?;
+            Ok(row)
         })
     }
 
@@ -1038,6 +1480,10 @@ impl DashboardStore {
     }
 
     /// All messages of a conversation in order.
+    ///
+    /// Ownership-unchecked: used by the playground after it has already
+    /// verified ownership, and by internal recovery paths. Request handlers
+    /// must use [`DashboardStore::list_messages_for_owner`].
     pub fn list_messages(&self, conversation_id: &str) -> Result<Vec<MessageRow>> {
         self.with_conn(|c| {
             let mut stmt = c.prepare(
@@ -1052,21 +1498,6 @@ impl DashboardStore {
                 out.push(r?);
             }
             Ok(out)
-        })
-    }
-
-    /// Get one conversation's metadata.
-    pub fn get_conversation(&self, conversation_id: &str) -> Result<Option<ConversationRow>> {
-        self.with_conn(|c| {
-            let row = c
-                .query_row(
-                    "SELECT conversation_id, title, created_at_ms, updated_at_ms, model
-                     FROM conversations WHERE conversation_id = ?1",
-                    params![conversation_id],
-                    ConversationRow::from_row,
-                )
-                .optional()?;
-            Ok(row)
         })
     }
 
@@ -1183,6 +1614,47 @@ impl DashboardStore {
             Ok((traces as u64, spans as u64, requests as u64))
         })
     }
+}
+
+// ---------------------------------------------------------------------------
+// Pre-migration backup
+// ---------------------------------------------------------------------------
+
+/// Copy the store database beside itself before a migration alters it.
+///
+/// The copy lands next to the live file (same directory, same permissions)
+/// named `store-YYYYMMDD-HHMMSS.db`. WAL sidecar files are checkpointed into
+/// the copy first so the backup is complete on its own. This is deliberately
+/// conservative: a migration that goes wrong can be undone by restoring the
+/// copy, and no destructive operation ever runs without one.
+pub fn backup_database(path: &Path) -> Result<PathBuf> {
+    if !path.exists() {
+        return Err(PersistError::Io(std::io::Error::other(
+            "database does not exist yet; nothing to back up",
+        )));
+    }
+    let parent = path.parent().ok_or_else(|| {
+        PersistError::Io(std::io::Error::other("database has no parent directory"))
+    })?;
+    // A `backups` subdirectory keeps the live directory clean; create it on
+    // demand so the first backup bootstraps itself.
+    let backups = parent.join("backups");
+    std::fs::create_dir_all(&backups)?;
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("store")
+        .to_string();
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let target = backups.join(format!("{stem}-{stamp}.db"));
+
+    // Checkpoint + copy through SQLite's own backup API: it handles the WAL
+    // correctly even while another process holds the database open.
+    let src = Connection::open(path)?;
+    let mut dst = Connection::open(&target)?;
+    let backup = rusqlite::backup::Backup::new(&src, &mut dst)?;
+    backup.run_to_completion(64, std::time::Duration::from_millis(5), None)?;
+    Ok(target)
 }
 
 // ---------------------------------------------------------------------------

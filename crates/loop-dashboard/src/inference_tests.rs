@@ -18,6 +18,12 @@ use crate::engine::Engine;
 use crate::persist::{DashboardStore, RetentionConfig, TraceStatus};
 use crate::playground::{ChatRequest, Playground};
 
+/// Account id used as the conversation owner in these tests. The value is
+/// arbitrary: what matters is that every conversation created through
+/// `start_chat` is stamped with the caller's account and later reads are
+/// scoped to it.
+const TEST_OWNER_ACCOUNT: i64 = 1;
+
 /// SSE body for a two-chunk text response with usage.
 fn sse_text_response() -> String {
     [
@@ -84,7 +90,7 @@ async fn successful_stream_is_traced_with_real_engine() {
 
     let (mut rx, _cancel) = rig
         .playground
-        .start_chat(ChatRequest {
+        .start_chat(TEST_OWNER_ACCOUNT, ChatRequest {
             conversation_id: None,
             message: "say hi".into(),
             provider: "fakeprov".into(),
@@ -182,7 +188,7 @@ async fn provider_error_is_traced_as_error() {
 
     let (mut rx, _cancel) = rig
         .playground
-        .start_chat(ChatRequest {
+        .start_chat(TEST_OWNER_ACCOUNT, ChatRequest {
             conversation_id: None,
             message: "hi".into(),
             provider: "fakeprov".into(),
@@ -240,7 +246,7 @@ async fn user_cancellation_cancels_the_real_request() {
 
     let (mut rx, _cancel) = rig
         .playground
-        .start_chat(ChatRequest {
+        .start_chat(TEST_OWNER_ACCOUNT, ChatRequest {
             conversation_id: None,
             message: "slow please".into(),
             provider: "fakeprov".into(),
@@ -420,7 +426,7 @@ async fn multiple_conversations_do_not_cross_contaminate() {
     for i in 0..3 {
         let (mut rx, _) = rig
             .playground
-            .start_chat(ChatRequest {
+            .start_chat(TEST_OWNER_ACCOUNT, ChatRequest {
                 conversation_id: None,
                 message: format!("msg {i}"),
                 provider: "fakeprov".into(),

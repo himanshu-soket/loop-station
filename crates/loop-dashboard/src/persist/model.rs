@@ -306,6 +306,11 @@ pub struct RequestFilter {
 pub struct ConversationRow {
     /// Conversation id.
     pub conversation_id: String,
+    /// Owning account (`auth_account.id`), or `None` for legacy rows whose
+    /// original owner can no longer be established. Legacy rows stay in the
+    /// database untouched and are only reachable through the administrator
+    /// recovery surface.
+    pub owner_account_id: Option<i64>,
     /// Display title.
     pub title: String,
     /// Created (unix ms).
@@ -321,10 +326,11 @@ impl ConversationRow {
     pub fn from_row(r: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
             conversation_id: r.get(0)?,
-            title: r.get(1)?,
-            created_at_ms: r.get(2)?,
-            updated_at_ms: r.get(3)?,
-            model: r.get(4)?,
+            owner_account_id: r.get(1)?,
+            title: r.get(2)?,
+            created_at_ms: r.get(3)?,
+            updated_at_ms: r.get(4)?,
+            model: r.get(5)?,
         })
     }
 }
@@ -335,6 +341,53 @@ impl ConversationRow {
 pub struct ConversationSummary {
     /// Conversation id.
     pub conversation_id: String,
+    /// Owning account, when known.
+    pub owner_account_id: Option<i64>,
+    /// Title.
+    pub title: String,
+    /// Created (unix ms).
+    pub created_at_ms: i64,
+    /// Updated (unix ms).
+    pub updated_at_ms: i64,
+    /// Last model.
+    pub model: Option<String>,
+    /// Message count.
+    pub message_count: u64,
+}
+
+/// Filter for the administrator's cross-user conversation listing.
+///
+/// Every field is optional; `None` means "do not filter". `user_id` is the
+/// numeric account id (exact match) and `q` is a case-insensitive substring
+/// match on the conversation title.
+#[derive(Debug, Clone, Default)]
+pub struct AdminConversationFilter {
+    /// Restrict to one owner's conversations.
+    pub user_id: Option<i64>,
+    /// Include only conversations whose owner cannot be established
+    /// (pre-migration rows awaiting administrative recovery).
+    pub unowned_only: bool,
+    /// Free-text search over the title.
+    pub q: String,
+    /// 1-based page.
+    pub page: i64,
+    /// Page size (capped at [`crate::persist::MAX_PAGE`]).
+    pub per_page: i64,
+}
+
+/// One row of the administrator's cross-user conversation listing: a
+/// conversation plus the owning account's identifier, resolved from the auth
+/// database snapshot.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminConversationSummary {
+    /// Conversation id.
+    pub conversation_id: String,
+    /// Owning account id, or `None` for a legacy row whose owner cannot be
+    /// established.
+    pub owner_account_id: Option<i64>,
+    /// Owning account's email, when the account still exists.
+    pub owner_identifier: Option<String>,
     /// Title.
     pub title: String,
     /// Created (unix ms).

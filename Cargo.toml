@@ -82,7 +82,7 @@ uuid = { version = "1", features = ["v7", "serde"] }
 tracing = "0.1"
 parking_lot = "0.12"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
-rusqlite = { version = "0.32", features = ["bundled", "functions"] }
+rusqlite = { version = "0.32", features = ["bundled", "functions", "backup"] }
 similar = "2"
 ignore = "0.4"
 tempfile = "3"

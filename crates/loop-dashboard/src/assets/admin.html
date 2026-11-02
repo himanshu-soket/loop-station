@@ -113,6 +113,31 @@ body.sw-auth.adm-body{display:block;height:auto;min-height:100%;overflow-y:visib
 .adm-search:focus-visible,.adm-select:focus-visible{
   outline:2px solid var(--acc);outline-offset:1px;
 }
+.adm-check{
+  display:flex;align-items:center;gap:7px;flex:none;
+  font-size:12.5px;color:var(--ink-dim);cursor:pointer;
+}
+.adm-check input{accent-color:var(--acc);width:14px;height:14px;cursor:pointer}
+
+/* ---------- conversation inspection (admin) ----------
+ * Read-only transcript viewer. Everything is textContent — no markup from
+ * the network is ever parsed. */
+.convo-inspect{max-height:min(58vh,520px);overflow-y:auto;display:grid;gap:10px;
+  padding-right:4px}
+.convo-msg{border:1px solid var(--line);border-radius:var(--rad-sm);
+  padding:10px 12px;background:var(--bg2)}
+.convo-user{border-left:2px solid var(--ink-faint)}
+.convo-assistant{border-left:2px solid var(--acc)}
+.convo-msg-role{font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.05em;color:var(--ink-dim);display:flex;justify-content:space-between;
+  gap:10px;margin-bottom:6px}
+.convo-msg-when{font-weight:400;text-transform:none;letter-spacing:0;
+  color:var(--ink-faint);font-family:var(--mono);font-size:10.5px}
+.convo-msg-text{font-size:13px;line-height:1.6;color:var(--ink);white-space:pre-wrap;
+  word-break:break-word}
+.convo-msg-error{margin-top:6px;font-size:11.5px;color:#ffb3bf;
+  font-family:var(--mono)}
+.convo-errored{border-color:rgba(255,107,129,.35)}
 
 /* ---------- users table ----------
  * Responsive strategy, in order of preference:
@@ -452,6 +477,8 @@ body.sw-auth.adm-body{display:block;height:auto;min-height:100%;overflow-y:visib
             aria-controls="panelPending" type="button">Approvals</button>
     <button class="adm-tab" id="tabUsers" role="tab" aria-selected="false"
             aria-controls="panelUsers" type="button">All users</button>
+    <button class="adm-tab" id="tabConvos" role="tab" aria-selected="false"
+            aria-controls="panelConvos" type="button">Conversations</button>
   </div>
 
   <div id="alertSlot" role="status" aria-live="polite"></div>
@@ -508,6 +535,46 @@ body.sw-auth.adm-body{display:block;height:auto;min-height:100%;overflow-y:visib
     </div>
 
     <div class="adm-pager" id="usersPager"></div>
+  </section>
+
+  <!-- Conversations: cross-user inspection. Data comes only from
+       /api/admin/conversations, which authorizes the administrator role on
+       every request; this page never decides who may see what. -->
+  <section class="adm-card" id="panelConvos" role="tabpanel"
+           aria-labelledby="tabConvos" hidden>
+    <div class="adm-card-head">
+      <span class="adm-card-title">Playground conversations</span>
+      <span class="adm-count" id="convosCount"></span>
+    </div>
+
+    <div class="adm-filters">
+      <input class="adm-search" id="convoSearch" type="search"
+             placeholder="Search title or owner email…" autocomplete="off"
+             aria-label="Search conversations by title or owner">
+      <select class="adm-select" id="convoOwner" aria-label="Filter by owner">
+        <option value="">All owners</option>
+      </select>
+      <label class="adm-check">
+        <input type="checkbox" id="convoUnowned"> unowned (legacy)
+      </label>
+    </div>
+
+    <div class="adm-table-wrap">
+      <table class="adm-table">
+        <thead>
+          <tr>
+            <th scope="col">Title</th>
+            <th scope="col">Owner</th>
+            <th scope="col">Messages</th>
+            <th scope="col">Updated</th>
+            <th scope="col" class="adm-col-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="convosBody"></tbody>
+      </table>
+    </div>
+
+    <div class="adm-pager" id="convosPager"></div>
   </section>
 
   <p class="adm-note">
@@ -888,6 +955,7 @@ let searchTimer = null;
 const TABS = {
   pending: { btn: '#tabPending', panel: '#panelPending' },
   users:   { btn: '#tabUsers',   panel: '#panelUsers' },
+  convos:  { btn: '#tabConvos',  panel: '#panelConvos' },
 };
 
 function setTab(which) {
@@ -903,10 +971,12 @@ function setTab(which) {
   // cached render would be stale. The request-sequence guard makes this
   // safe against overlapping responses.
   if (which === 'users') loadUsers();
+  else if (which === 'convos') loadConvos();
   else load(true);
 }
 $('#tabPending').addEventListener('click', () => setTab('pending'));
 $('#tabUsers').addEventListener('click', () => setTab('users'));
+$('#tabConvos').addEventListener('click', () => setTab('convos'));
 
 /* ---------- current query string from the filter controls ---------- */
 function usersQuery() {
@@ -1967,6 +2037,324 @@ function confirmRemove(user) {
     foot: confirmFooter('Delete permanently', 'btn-danger-solid', onPrimary),
   });
 }
+
+/* ==================================================================
+ * Conversations tab: cross-user inspection.
+ *
+ * Contract (crates/loop-dashboard/src/console.rs):
+ *   GET /api/admin/conversations
+ *        ?q=&userId=&unowned=true|false&page=&perPage=
+ *        -> 200 { conversations:[{conversationId, ownerAccountId,
+ *               ownerIdentifier|null, title, createdAtMs, updatedAtMs,
+ *               model, messageCount}], total:number }
+ *   GET /api/admin/conversations/{id}
+ *        -> 200 { conversation:{...}, messages:[{role,content,status,...}] }
+ *        Errors: 401 unauthenticated, 403 not an administrator,
+ *                404 unknown id, 503 storage unavailable.
+ *
+ * Every string from the network is inserted with textContent or
+ * createElement — never parsed as markup. The page renders whatever the
+ * guarded API returns; 401/403 are surfaced as honest notices, never
+ * worked around.
+ * ================================================================== */
+const convosBody = $('#convosBody');
+const convosPager = $('#convosPager');
+const convosCount = $('#convosCount');
+let convosPage = 1;
+let convosRequestSeq = 0;
+
+function convoQuery() {
+  const p = new URLSearchParams();
+  const q = $('#convoSearch').value.trim();
+  if (q) p.set('q', q);
+  const owner = $('#convoOwner').value;
+  if (owner === '__unowned__') p.set('unowned', 'true');
+  else if (owner) p.set('userId', owner);
+  p.set('page', String(convosPage));
+  p.set('perPage', '25');
+  return p.toString();
+}
+
+async function loadConvos() {
+  const seq = ++convosRequestSeq;
+  if (!convosBody.children.length) renderConvosSkeleton();
+  try {
+    const { res, body } = await api('/api/admin/conversations?' + convoQuery());
+    if (seq !== convosRequestSeq) return;
+    if (res.status === 401) {
+      showNotice('error', 'Please sign in to inspect conversations.', [
+        { label: 'Sign in', primary: true,
+          onClick: () => { location.href = '/signin?next=' + encodeURIComponent(location.pathname); } },
+      ]);
+      renderConvosEmpty('Sign in to view conversations.');
+      return;
+    }
+    if (res.status === 403) {
+      showNotice('error',
+        'This account is not permitted to inspect conversations. ' +
+        'Ask your administrator for help.');
+      renderConvosEmpty('Not permitted.');
+      return;
+    }
+    if (!res.ok) throw new Error(((body && body.error) || 'unknown').toString());
+    renderConvos(body);
+  } catch (e) {
+    if (seq !== convosRequestSeq) return;
+    showNotice('error', 'Could not load conversations. Check your connection and retry.');
+    renderConvosEmpty('Could not load conversations.');
+  }
+}
+
+function renderConvosSkeleton() {
+  convosBody.replaceChildren();
+  for (let i = 0; i < 5; i++) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    const s = document.createElement('div');
+    s.className = 'skel';
+    s.setAttribute('aria-hidden', 'true');
+    td.appendChild(s);
+    tr.appendChild(td);
+    convosBody.appendChild(tr);
+  }
+}
+
+function renderConvosEmpty(msg) {
+  convosBody.replaceChildren();
+  const tr = document.createElement('tr');
+  const td = document.createElement('td');
+  td.colSpan = 5;
+  const box = document.createElement('div');
+  box.className = 'adm-empty';
+  const icon = document.createElement('div');
+  icon.className = 'adm-empty-icon';
+  icon.textContent = '💬';
+  const title = document.createElement('div');
+  title.className = 'adm-empty-title';
+  title.textContent = msg || 'No conversations found.';
+  const sub = document.createElement('div');
+  sub.className = 'adm-empty-sub';
+  sub.textContent = 'Conversations appear here as users chat in the Playground.';
+  box.append(icon, title, sub);
+  td.appendChild(box);
+  tr.appendChild(td);
+  convosBody.appendChild(tr);
+  convosCount.textContent = '';
+  convosPager.replaceChildren();
+}
+
+function fmtWhen(ms) {
+  if (!ms) return '—';
+  const d = new Date(Number(ms));
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined,
+    { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderConvos(body) {
+  const rows = (body && body.conversations) || [];
+  const total = Number((body && body.total) || 0);
+
+  // Owner dropdown: rebuilt from this listing so it always reflects real
+  // accounts (the users tab remains the authoritative account list).
+  syncOwnerOptions(rows);
+
+  if (!rows.length) { renderConvosEmpty(); return; }
+
+  convosCount.textContent = total + (total === 1 ? ' conversation' : ' conversations')
+    + ' across all users';
+
+  convosBody.replaceChildren();
+  for (const c of rows) {
+    const tr = document.createElement('tr');
+
+    const tTitle = document.createElement('td');
+    const titleEl = document.createElement('div');
+    titleEl.className = 'adm-id';
+    titleEl.textContent = c.title || '(untitled)';
+    const idEl = document.createElement('div');
+    idEl.className = 'adm-meta';
+    idEl.style.fontFamily = 'var(--mono)';
+    idEl.textContent = c.conversationId;
+    tTitle.append(titleEl, idEl);
+
+    const tOwner = document.createElement('td');
+    const ownerEl = document.createElement('span');
+    if (c.ownerIdentifier) {
+      ownerEl.textContent = c.ownerIdentifier;
+    } else {
+      ownerEl.className = 'adm-badge badge-pending';
+      ownerEl.textContent = 'unowned';
+    }
+    tOwner.appendChild(ownerEl);
+
+    const tCount = document.createElement('td');
+    tCount.textContent = String(c.messageCount ?? 0);
+
+    const tUpdated = document.createElement('td');
+    tUpdated.textContent = fmtWhen(c.updatedAtMs || c.createdAtMs);
+
+    const tActions = document.createElement('td');
+    tActions.className = 'adm-col-actions';
+    const view = document.createElement('button');
+    view.type = 'button';
+    view.className = 'btn btn-sm';
+    view.textContent = 'Inspect';
+    view.addEventListener('click', () => inspectConversation(c));
+    tActions.appendChild(view);
+
+    tr.append(tTitle, tOwner, tCount, tUpdated, tActions);
+    convosBody.appendChild(tr);
+  }
+
+  const perPage = 25;
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  renderConvosPager(total, convosPage, totalPages);
+}
+
+/** Keep the owner filter in sync with accounts seen in listings. Values are
+ *  numeric ids; `__unowned__` selects legacy rows awaiting recovery. */
+function syncOwnerOptions(rows) {
+  const sel = $('#convoOwner');
+  const current = sel.value;
+  const seen = new Map();
+  for (const r of rows) {
+    if (r.ownerAccountId != null && r.ownerIdentifier) {
+      seen.set(String(r.ownerAccountId), r.ownerIdentifier);
+    }
+  }
+  // Preserve options already present (from previous pages).
+  for (const opt of Array.from(sel.options)) {
+    if (opt.value && opt.value !== '__unowned__' && !seen.has(opt.value)) {
+      seen.set(opt.value, opt.textContent);
+    }
+  }
+  sel.replaceChildren();
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = 'All owners';
+  sel.appendChild(all);
+  const unowned = document.createElement('option');
+  unowned.value = '__unowned__';
+  unowned.textContent = 'Unowned (legacy)';
+  sel.appendChild(unowned);
+  for (const [id, email] of [...seen.entries()].sort((a, b) =>
+    a[1].localeCompare(b[1]))) {
+    const o = document.createElement('option');
+    o.value = id;
+    o.textContent = email;
+    sel.appendChild(o);
+  }
+  // Restore the selection if it still exists.
+  if (current && Array.from(sel.options).some(o => o.value === current)) {
+    sel.value = current;
+  }
+}
+
+function renderConvosPager(total, page, totalPages) {
+  convosPager.replaceChildren();
+  if (total <= 0) return;
+  const info = document.createElement('span');
+  info.className = 'adm-pager-info';
+  info.textContent = 'Page ' + page + ' of ' + totalPages +
+    ' · ' + total + (total === 1 ? ' conversation' : ' conversations');
+  const btns = document.createElement('div');
+  btns.className = 'adm-pager-btns';
+  const prev = document.createElement('button');
+  prev.type = 'button';
+  prev.className = 'btn btn-sm';
+  prev.textContent = '← Prev';
+  prev.disabled = page <= 1;
+  prev.addEventListener('click', () => { convosPage = Math.max(1, convosPage - 1); loadConvos(); });
+  const next = document.createElement('button');
+  next.type = 'button';
+  next.className = 'btn btn-sm';
+  next.textContent = 'Next →';
+  next.disabled = page >= totalPages;
+  next.addEventListener('click', () => { convosPage += 1; loadConvos(); });
+  btns.append(prev, next);
+  convosPager.append(info, btns);
+}
+
+/** Open one conversation read-only: metadata plus every message, rendered
+ *  as plain text in a scrollable modal. */
+async function inspectConversation(c) {
+  openModal({
+    title: c.title || '(untitled)',
+    sub: (c.ownerIdentifier || 'unowned (legacy row)')
+      + ' · ' + (c.messageCount ?? 0) + ' message(s)',
+    body: (() => {
+      const wrap = document.createElement('div');
+      wrap.className = 'convo-inspect';
+      const s = document.createElement('div');
+      s.className = 'skel';
+      s.setAttribute('aria-hidden', 'true');
+      wrap.appendChild(s);
+      return wrap;
+    })(),
+  });
+  const { res, body } = await api('/api/admin/conversations/' +
+    encodeURIComponent(c.conversationId));
+  const slot = document.querySelector('#modalBody .convo-inspect');
+  if (!slot) return;
+  slot.replaceChildren();
+  if (res.status === 401 || res.status === 403) {
+    const p = document.createElement('p');
+    p.textContent = res.status === 401
+      ? 'Your session expired. Sign in again to inspect conversations.'
+      : 'This account is not permitted to inspect conversations.';
+    slot.appendChild(p);
+    return;
+  }
+  if (!res.ok) {
+    const p = document.createElement('p');
+    p.textContent = 'Could not load this conversation (' +
+      (((body && body.error) || ('HTTP ' + res.status)).toString()) + ').';
+    slot.appendChild(p);
+    return;
+  }
+  const msgs = (body && body.messages) || [];
+  if (!msgs.length) {
+    const p = document.createElement('p');
+    p.className = 'adm-empty-sub';
+    p.textContent = 'This conversation has no messages.';
+    slot.appendChild(p);
+    return;
+  }
+  for (const m of msgs) {
+    const row = document.createElement('div');
+    row.className = 'convo-msg convo-' + (m.role === 'user' ? 'user' : 'assistant');
+    const who = document.createElement('div');
+    who.className = 'convo-msg-role';
+    who.textContent = m.role === 'user' ? 'User' : 'Loop';
+    const when = document.createElement('span');
+    when.className = 'convo-msg-when';
+    when.textContent = fmtWhen(m.createdAtMs);
+    who.appendChild(when);
+    const text = document.createElement('div');
+    text.className = 'convo-msg-text';
+    text.textContent = m.content || '(empty)';
+    if (m.status === 'error') {
+      const err = document.createElement('div');
+      err.className = 'convo-msg-error';
+      err.textContent = 'failed: ' + (m.errorMessage || 'unknown error');
+      row.classList.add('convo-errored');
+      row.append(who, text, err);
+    } else {
+      row.append(who, text);
+    }
+    slot.appendChild(row);
+  }
+}
+
+/* Filter wiring (debounced search, like the users tab). */
+let convoSearchTimer = null;
+$('#convoSearch').addEventListener('input', () => {
+  if (convoSearchTimer) clearTimeout(convoSearchTimer);
+  convoSearchTimer = setTimeout(() => { convosPage = 1; loadConvos(); }, 300);
+});
+$('#convoOwner').addEventListener('change', () => { convosPage = 1; loadConvos(); });
 
 /* Learn who is signed in so self-targeting actions can be hidden. The
  * server enforces the same rules regardless. */

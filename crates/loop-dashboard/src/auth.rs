@@ -4023,10 +4023,12 @@ mod tests {
     #[test]
     fn delete_account_refuses_self_and_last_admin() {
         let (s, _d, admin, _user) = um_fixture();
-        // Self-delete refused.
+        // Self-delete refused with the specific conflict error (HTTP 409 on
+        // the API): the account exists and could be deleted by a DIFFERENT
+        // administrator, so this is a state conflict, not a bad request.
         assert!(matches!(
             s.delete_account(admin, admin),
-            Err(AccountError::Validation(_))
+            Err(AccountError::AdminSelfDelete)
         ));
         assert_eq!(s.admin_count().unwrap(), 1);
 
@@ -4043,10 +4045,11 @@ mod tests {
         // Peer deletes the original admin: legal (one admin remains).
         assert!(s.delete_account(admin, peer).is_ok());
         assert_eq!(s.admin_count().unwrap(), 1);
-        // Now the peer is the last admin: deleting them is refused.
+        // Now the peer is the last admin: deleting them is refused (the
+        // same self-delete conflict — the peer is both actor and target).
         assert!(matches!(
             s.delete_account(peer, peer),
-            Err(AccountError::Validation(_))
+            Err(AccountError::AdminSelfDelete)
         ));
         assert_eq!(s.admin_count().unwrap(), 1);
     }

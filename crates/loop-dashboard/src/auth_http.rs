@@ -359,9 +359,29 @@ async fn sign_in(State(state): State<Arc<AuthState>>, Json(body): Json<SignInReq
 }
 
 /// `POST /api/auth/signout` — invalidate the session, clear the cookie.
+///
+/// Security invariant: a 200 response means the server-side session is GONE
+/// (or never existed). If the storage layer fails to delete it, the request
+/// answers 503 instead of pretending success — otherwise a network hiccup
+/// would leave a live session behind while the browser believes it signed
+/// out. The cookie is cleared either way so the client stops sending it.
 async fn sign_out(State(state): State<Arc<AuthState>>, headers: HeaderMap) -> Response {
     if let Some(token) = token_from_headers(&headers) {
-        let _ = state.store.sign_out(token);
+        match state.store.sign_out(token) {
+            Ok(()) => {}
+            Err(_) => {
+                // Storage failure: the session may still be live. Refuse to
+                // claim success, but still clear the cookie client-side.
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    [(header::SET_COOKIE, session_clear_cookie(false))],
+                    Json(serde_json::json!({
+                        "error": "could not end the session; please retry"
+                    })),
+                )
+                    .into_response();
+            }
+        }
     }
     (
         StatusCode::OK,
@@ -1873,6 +1893,161 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(json["signedIn"], false);
+    }
+
+    /// End-to-end sign-out security contract, in order:
+    ///
+    /// 1. sign-in succeeds,
+    /// 2. an authenticated request works,
+    /// 3. sign-out returns success,
+    /// 4. reusing the EXACT old cookie is rejected (server-side revocation,
+    ///    not just a cleared browser cookie),
+    /// 5. a fresh login creates a working session,
+    /// 6. another user's unrelated session stays valid throughout.
+    #[tokio::test]
+    async fn signout_revokes_only_that_session() {
+        let (router, _d, _id) = status_fixture().await;
+
+        // --- 1 + 2: user A signs in and can authenticate ---
+        let (_, _, headers) = json_post(
+            &router,
+            "/api/auth/signin",
+            r#"{"identifier":"worker@soket.ai","password":"a strong passphrase"}"#,
+        )
+        .await;
+        let a_token = headers
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        let (status, body, _) =
+            get_with_cookie(&router, "/api/auth/status", &a_token).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["signedIn"], true);
+
+        // A second, independent session for the SAME account: signing out
+        // one device must not kill the other.
+        let (_, _, headers2) = json_post(
+            &router,
+            "/api/auth/signin",
+            r#"{"identifier":"worker@soket.ai","password":"a strong passphrase"}"#,
+        )
+        .await;
+        let a_token_2 = headers2
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        assert_ne!(a_token, a_token_2, "each sign-in mints a new token");
+
+        // --- 3: sign out the FIRST session only ---
+        let (status, body, out_headers) =
+            json_post_with_cookie(&router, "/api/auth/signout", "{}", &a_token).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let cleared = out_headers
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            cleared.starts_with("soket_session=;") && cleared.contains("Max-Age=0"),
+            "cookie cleared with matching name/path: {cleared}"
+        );
+
+        // --- 4: the exact old cookie is now refused ---
+        let (status, body, _) =
+            get_with_cookie(&router, "/api/auth/status", &a_token).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+
+        // --- 5: a fresh login works again immediately ---
+        let (_, status5, body5, _) = ((), {
+            let (s, b, h) = json_post(
+                &router,
+                "/api/auth/signin",
+                r#"{"identifier":"worker@soket.ai","password":"a strong passphrase"}"#,
+            )
+            .await;
+            let tok = h
+                .get(header::SET_COOKIE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .split(';')
+                .next()
+                .unwrap()
+                .to_string();
+            let (s2, b2, _) = get_with_cookie(&router, "/api/auth/status", &tok).await;
+            assert_eq!(s, StatusCode::OK);
+            assert_eq!(s2, StatusCode::OK);
+            assert_eq!(b2["signedIn"], true);
+            (s2, b2)
+        });
+        assert_eq!(status5, StatusCode::OK, "{body5}");
+
+        // --- 6: the second device's session survived the first sign-out ---
+        let (status, body, _) =
+            get_with_cookie(&router, "/api/auth/status", &a_token_2).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "signing out one session must not revoke another"
+        );
+        assert_eq!(body["signedIn"], true);
+    }
+
+    /// Signing out with no cookie at all is a harmless no-op (200), and
+    /// never revokes anything.
+    #[tokio::test]
+    async fn signout_without_cookie_is_a_noop() {
+        let (router, _d, _id) = status_fixture().await;
+        // Establish a live session first…
+        let (_, _, headers) = json_post(
+            &router,
+            "/api/auth/signin",
+            r#"{"identifier":"worker@soket.ai","password":"a strong passphrase"}"#,
+        )
+        .await;
+        let token = headers
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        // …then sign out with NO cookie.
+        let (status, body, _) = json_post(&router, "/api/auth/signout", "{}").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        // The real session is untouched.
+        let (status, body, _) = get_with_cookie(&router, "/api/auth/status", &token).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["signedIn"], true);
+    }
+
+    /// A cookie carrying an unknown token authenticates nothing — including
+    /// after a sign-out of that same (already absent) token.
+    #[tokio::test]
+    async fn unknown_token_never_authenticates() {
+        let (router, _d, _id) = status_fixture().await;
+        let bogus = format!("{}={}", crate::auth::SESSION_COOKIE, "not-a-real-token");
+        let (status, body, _) = get_with_cookie(&router, "/api/auth/status", &bogus).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+        // Signing that bogus token out is still 200 (no-op)…
+        let (status, body, _) =
+            json_post_with_cookie(&router, "/api/auth/signout", "{}", &bogus).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        // …and it still authenticates nothing afterwards.
+        let (status, _, _) = get_with_cookie(&router, "/api/auth/status", &bogus).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

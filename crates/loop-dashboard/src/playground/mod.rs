@@ -61,9 +61,7 @@ pub struct ChatRequest {
     /// Inference parameters.
     #[serde(default)]
     pub params: InferenceParams,
-}
-
-/// One SSE event sent to the browser.
+}/// One SSE event sent to the browser.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ChatEvent {
@@ -169,15 +167,21 @@ impl Playground {
         }
     }
 
-    /// Create a conversation.
+    /// Create a conversation owned by `owner_account_id`.
+    ///
+    /// The owner is the authenticated caller's account id, resolved from the
+    /// verified server-side session by the HTTP layer — never from the
+    /// request body.
     pub fn create_conversation(
         &self,
+        owner_account_id: i64,
         title: &str,
         model: Option<&str>,
     ) -> Result<ConversationRow, PlaygroundError> {
         let now = chrono::Utc::now().timestamp_millis();
         let row = ConversationRow {
             conversation_id: uuid::Uuid::now_v7().to_string(),
+            owner_account_id: Some(owner_account_id),
             title: title.chars().take(120).collect(),
             created_at_ms: now,
             updated_at_ms: now,
@@ -187,31 +191,48 @@ impl Playground {
         Ok(row)
     }
 
-    /// Ensure a conversation exists (creating it when the request carries no id).
+    /// Ensure a conversation exists (creating it when the request carries no
+    /// id) **and** belongs to `owner_account_id`.
+    ///
+    /// A conversation id that exists but belongs to somebody else is refused
+    /// exactly like an unknown id: the caller learns nothing about whose
+    /// conversation it is.
     fn ensure_conversation(
         &self,
+        owner_account_id: i64,
         conversation_id: Option<&str>,
         first_message: &str,
         model: Option<&str>,
     ) -> Result<String, PlaygroundError> {
         if let Some(id) = conversation_id.filter(|s| !s.trim().is_empty()) {
-            if self.store.get_conversation(id)?.is_some() {
+            if self
+                .store
+                .get_conversation_for_owner(id, owner_account_id)?
+                .is_some()
+            {
                 return Ok(id.to_string());
             }
+            // Unknown or someone else's: indistinguishable by design.
             return Err(PlaygroundError::UnknownConversation);
         }
         // Title from the first words of the first message.
         let title: String = first_message.trim().chars().take(60).collect();
-        let row = self.create_conversation(&title, model)?;
+        let row = self.create_conversation(owner_account_id, &title, model)?;
         Ok(row.conversation_id)
     }
 
     /// Run one traced chat turn. Returns the SSE receiver after persisting the
     /// user message and starting the engine stream.
     ///
+    /// `owner_account_id` is the authenticated caller's account id, resolved
+    /// from the verified server-side session by the HTTP layer. Every write
+    /// below is scoped to conversations owned by that account; a conversation
+    /// id belonging to another user is rejected before anything is stored.
+    ///
     /// The returned [`CancelHandle`] cancels the real engine request.
     pub async fn start_chat(
         self: &Arc<Self>,
+        owner_account_id: i64,
         request: ChatRequest,
     ) -> Result<(mpsc::Receiver<ChatEvent>, CancelHandle), PlaygroundError> {
         // ---- validation (before any storage) ----
@@ -246,8 +267,9 @@ impl Playground {
             });
         };
 
-        // ---- conversation + user message persistence ----
+        // ---- conversation + user message persistence (ownership-scoped) ----
         let conversation_id = self.ensure_conversation(
+            owner_account_id,
             request.conversation_id.as_deref(),
             &request.message,
             Some(&request.model),
@@ -287,35 +309,50 @@ impl Playground {
         }
         messages.push(loop_ai::Message::user_text(request.message.clone()));
 
-        self.store.append_message(&MessageRow {
-            conversation_id: conversation_id.clone(),
-            message_id: user_message_id.clone(),
-            seq: next_seq,
-            role: "user".into(),
-            content: request.message.clone(),
-            created_at_ms: now_ms,
-            status: "complete".into(),
-            error_message: None,
-            model: None,
-            request_id: None,
-            trace_id: None,
-        })?;
+        let stored = self.store.append_message_for_owner(
+            &MessageRow {
+                conversation_id: conversation_id.clone(),
+                message_id: user_message_id.clone(),
+                seq: next_seq,
+                role: "user".into(),
+                content: request.message.clone(),
+                created_at_ms: now_ms,
+                status: "complete".into(),
+                error_message: None,
+                model: None,
+                request_id: None,
+                trace_id: None,
+            },
+            owner_account_id,
+        )?;
+        if !stored {
+            // The conversation stopped belonging to this caller between the
+            // check above and this insert (e.g. an administrator reassigned
+            // it). Refuse rather than write into someone else's history.
+            return Err(PlaygroundError::UnknownConversation);
+        }
 
         // Assistant placeholder (streaming).
         let assistant_message_id = uuid::Uuid::now_v7().to_string();
-        self.store.append_message(&MessageRow {
-            conversation_id: conversation_id.clone(),
-            message_id: assistant_message_id.clone(),
-            seq: next_seq + 1,
-            role: "assistant".into(),
-            content: String::new(),
-            created_at_ms: now_ms,
-            status: "streaming".into(),
-            error_message: None,
-            model: Some(request.model.clone()),
-            request_id: None,
-            trace_id: None,
-        })?;
+        let stored = self.store.append_message_for_owner(
+            &MessageRow {
+                conversation_id: conversation_id.clone(),
+                message_id: assistant_message_id.clone(),
+                seq: next_seq + 1,
+                role: "assistant".into(),
+                content: String::new(),
+                created_at_ms: now_ms,
+                status: "streaming".into(),
+                error_message: None,
+                model: Some(request.model.clone()),
+                request_id: None,
+                trace_id: None,
+            },
+            owner_account_id,
+        )?;
+        if !stored {
+            return Err(PlaygroundError::UnknownConversation);
+        }
 
         // ---- traced engine call ----
         let cancel = CancelHandle::new();
